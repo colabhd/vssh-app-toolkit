@@ -1,0 +1,7 @@
+# Nada de dependências/artefatos de dev vazando para o repo público.
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+*.log
+.dev.vars

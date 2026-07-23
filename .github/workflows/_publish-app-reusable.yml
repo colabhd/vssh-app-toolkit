@@ -1,0 +1,68 @@
+name: Publish App (reusable)
+
+# Workflow reutilizável chamado pelo CI dos repos de app (org OU conta pessoal — este toolkit é
+# PÚBLICO, então `uses:` cross-owner funciona e o checkout do script sai de graça no github.token,
+# sem nenhum PAT):
+#
+#   jobs:
+#     publish:
+#       uses: colabhd/vssh-app-toolkit/.github/workflows/_publish-app-reusable.yml@v1
+#       with:
+#         app_dir: "."
+#         repo_api: "https://vssh-repo.colabh.org"
+#       secrets:
+#         publish_token: ${{ secrets.VSSH_REPO_PUBLISH_TOKEN }}   # token escopado app:<id>
+#
+# Faz checkout do repo do app (chamador) + deste toolkit (só scripts/) e roda vssh-app-publish.
+
+on:
+  workflow_call:
+    inputs:
+      app_dir:
+        description: 'Diretório do app dentro do repo chamador'
+        type: string
+        default: '.'
+      version:
+        description: 'Sobrescreve a version do manifest (opcional)'
+        type: string
+        default: ''
+      repo_api:
+        description: 'Base URL do Worker do repositório'
+        type: string
+        required: true
+      tools_ref:
+        description: 'Ref deste toolkit de onde puxar o script de publish'
+        type: string
+        default: 'v1'
+    secrets:
+      publish_token:
+        description: 'Token de publicação escopado (app:<id> ou kind:app)'
+        required: true
+
+jobs:
+  publish:
+    name: Publish app → repo
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do app (repo chamador)
+        uses: actions/checkout@v4
+        with:
+          path: app
+
+      - name: Checkout das ferramentas (vssh-app-toolkit/scripts)
+        uses: actions/checkout@v4
+        with:
+          repository: colabhd/vssh-app-toolkit
+          ref: ${{ inputs.tools_ref }}
+          sparse-checkout: scripts
+          path: _tools
+          # toolkit é público → o github.token do repo chamador enxerga sem PAT.
+
+      - name: Publicar
+        env:
+          VSSH_REPO_API: ${{ inputs.repo_api }}
+          VSSH_REPO_PUBLISH_TOKEN: ${{ secrets.publish_token }}
+        run: |
+          ARGS=()
+          [ -n "${{ inputs.version }}" ] && ARGS+=(--version "${{ inputs.version }}")
+          bash _tools/scripts/vssh-app-publish "app/${{ inputs.app_dir }}" "${ARGS[@]}"

@@ -1,0 +1,47 @@
+name: Publish templates
+
+# Publica os apps-template deste toolkit (templates/*/vssh-app.json) no Worker do repositório,
+# para que fiquem instaláveis via `sudo vssh-app-install <id> --force` ou pela aba admin
+# "Repositório". Dispara a cada push em main que toque um template, e manualmente.
+#
+# Pré-requisitos (uma vez), no próprio toolkit (Settings → Secrets and variables → Actions):
+#   - secret VSSH_REPO_PUBLISH_TOKEN: token escopado `kind:app` (ou mestre) — cobre todos os ids.
+#   - var    VSSH_REPO_API: base URL do Worker (ex. https://vssh-repo.colabh.org).
+
+on:
+  push:
+    branches: [main]
+    paths: ['templates/**']
+  workflow_dispatch:
+    inputs:
+      app:
+        description: "Nome do template em templates/ (ex. terminal-latch) ou 'all'"
+        type: string
+        default: 'all'
+
+jobs:
+  publish:
+    name: Publish templates → repo
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Publicar
+        env:
+          VSSH_REPO_API: ${{ vars.VSSH_REPO_API }}
+          VSSH_REPO_PUBLISH_TOKEN: ${{ secrets.VSSH_REPO_PUBLISH_TOKEN }}
+          APP_INPUT: ${{ github.event.inputs.app || 'all' }}
+        run: |
+          set -euo pipefail
+          publish_dir() {
+            local dir="$1"
+            [ -f "${dir}/vssh-app.json" ] || { echo "Pulando ${dir} (sem vssh-app.json)"; return; }
+            echo "== ${dir} =="
+            bash scripts/vssh-app-publish "${dir}"
+          }
+          if [ "${APP_INPUT}" = "all" ]; then
+            for d in templates/*/; do publish_dir "${d%/}"; done
+          else
+            publish_dir "templates/${APP_INPUT}"
+          fi

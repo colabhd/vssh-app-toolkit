@@ -1,0 +1,15 @@
+# Normaliza detecção de arquivos de texto.
+* text=auto
+
+# Scripts rodam em Linux (CI/servidores) e DEVEM ter EOL LF mesmo em checkout no Windows — senão o
+# shebang vira "#!/usr/bin/env bash\r" e quebra. vssh-app-publish não tem extensão, então precisa
+# ser listado explicitamente.
+*.sh                      text eol=lf
+scripts/vssh-app-publish  text eol=lf
+
+# Binários — sem conversão
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.ico   binary
+*.svg   binary

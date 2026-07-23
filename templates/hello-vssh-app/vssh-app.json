@@ -1,0 +1,19 @@
+{
+  "id": "hello-world",
+  "name": "Hello World",
+  "version": "1.0.0",
+  "icon": "icon.svg",
+  "category": "Utility",
+  "description": "Exemplo mínimo de app pseudo-nativo VSSH — front HTML + backend Python stdlib.",
+  "backend": {
+    "runtime": "python3",
+    "entrypoint": "backend/main.py",
+    "installCommand": "echo 'App sem dependências externas'",
+    "healthcheckPath": "/"
+  },
+  "window": {
+    "title": "Hello World",
+    "width": 900,
+    "height": 640
+  }
+}
