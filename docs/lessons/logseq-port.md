@@ -283,3 +283,32 @@ laço é uma operação cara.
 `blob.text()` antes de gravar. Para markdown funciona; para um PNG colado no editor, corrompe — e
 o erro só aparece quando alguém abre a imagem, longe da causa. Hoje texto e bytes têm rotas
 distintas, e há teste para as duas.
+
+**Um objeto que finge ser um `Blob` só é um `Blob` para quem chama os métodos que ele
+sobrescreveu.** Este foi o mais caro de achar, porque o sintoma não aponta para nada: imagem do
+grafo simplesmente não aparecia. A causa é estrutural — `class LazyFile extends Blob` com
+`super([])` cria a sequência de bytes interna **vazia**, e nenhum getter alcança esse estado. Os
+métodos sobrescritos entregam o conteúdo; a plataforma não chama método nenhum:
+
+```
+await f.text() / f.arrayBuffer()   → funcionam (métodos sobrescritos)
+URL.createObjectURL(f)             → blob: vazio
+new Response(f) / new Blob([f])    → 0 bytes
+FileReader.*, FormData.append      → 0 bytes
+```
+
+Não é questão de sobrescrever mais métodos: **preguiça e compatibilidade estrutural não coexistem
+numa subclasse de `Blob`.** A saída foi interceptar `URL.createObjectURL` — que é o caminho por
+onde praticamente todo app web transforma um handle em `<img src>` — e devolver uma URL HTTP do
+portal em vez de um `blob:`. Três restrições ditaram o desenho: tem de ser síncrona (a assinatura
+é), a URL tem de sair só do caminho (sem round-trip), e ela tem de carregar autorização sozinha,
+porque um `<img src>` não passa por `fetch` e não aceita header. O que resolve as três é a mesma
+origem: o app é servido pelo portal, então o cookie de sessão acompanha.
+
+Os outros consumidores estruturais continuam sem conserto, e isso está documentado no cabeçalho do
+polyfill em vez de escondido. **Falhar em silêncio era o pior desfecho**; hoje o caminho que
+importa funciona e o resto é dito em voz alta.
+
+Corolário mais amplo: **ao subclassificar um tipo da plataforma, pergunte o que a plataforma lê —
+não o que ela chama.** Estado interno não é interceptável por getter, e o teste que revela isso não
+é o que exercita a sua API: é o que entrega o objeto para outra parte da plataforma.

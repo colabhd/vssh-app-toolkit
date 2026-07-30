@@ -31,6 +31,20 @@ implementações que já funcionam no navegador por IPC a implementar no servido
 O que o modo web costuma pedir é acesso a arquivos — e é exatamente o que o `fsa-polyfill` entrega,
 **sem o app rodar backend de filesystem nenhum**.
 
+**Um limite do polyfill que vale conhecer antes de portar.** O `File` devolvido por `getFile()` é
+preguiçoso: busca o conteúdo só quando alguém chama `.text()`/`.arrayBuffer()`. Isso é o que torna
+viável abrir um diretório grande (o padrão de chamada dos apps é pedir o `File` de todo arquivo
+antes de filtrar). O custo é que ele não é um `Blob` completo para quem lê o **estado interno** em
+vez de chamar métodos:
+
+| caminho | funciona? |
+|---|---|
+| `await file.text()` / `.arrayBuffer()` / `.stream()` | sim |
+| `URL.createObjectURL(file)` → `<img src>` | sim — interceptado, vira URL HTTP do portal |
+| `new Response(file)`, `new Blob([file])`, `FileReader`, `FormData.append` | **não** — 0 bytes |
+
+Se o app usa um dos últimos, materialize antes: `new Blob([await file.arrayBuffer()])`.
+
 ---
 
 ## App Electron-only: extrair o renderer e medir
@@ -138,6 +152,13 @@ publicado existem de verdade no diretório instalado.
 
 **Healthcheck e token.** O healthcheck é pollado direto na porta, sem passar pelo proxy — então não
 carrega `X-Vssh-App-Token`. Isente essa rota do seu gate, ou o app nunca abre.
+
+**Patch para integrar com o ambiente, nunca para substituir o que o ambiente já oferece.** É a
+regra que decide se um fork envelhece bem. Um patch que troca a camada de armazenamento do app
+reabre a cada bump do upstream e cresce sem parar. Um patch que apenas informa ao app algo que o
+ambiente já resolve — por exemplo, que a permissão de arquivo já foi concedida e sobrevive ao
+reload, ao contrário do que vale num navegador — é pequeno e degrada bem: se apodrecer num bump, o
+pior caso é o app voltar a perguntar.
 
 **Log desde a primeira linha.** Use `lib/node/app-log.js`. Frame minificado sustenta hipótese; o
 log do backend, que nomeia operação e caminho, dá a resposta.
