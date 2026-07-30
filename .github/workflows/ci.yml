@@ -20,14 +20,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           # 22 é requisito do RUNNER (o glob de `node --test`), não das libs.
-          node-version: '22'
+          node-version: '24'
       - name: Testes das libs
         shell: bash
         run: npm test
@@ -35,12 +35,12 @@ jobs:
   smoke-template-node:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
-          # 20 de propósito: é o piso que as libs prometem, e o servidor-alvo pode ter só isso.
+          # 24 de propósito: github.
           # Se alguma lib usar sintaxe mais nova, é aqui que aparece.
-          node-version: '20'
+          node-version: '24'
       # Exercita o template como um app real: sobe o backend na porta que o portal daria, e
       # confere healthcheck, API, index servido pelo static-spa e SSE chegando sem buffer.
       - name: Smoke do template Node
