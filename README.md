@@ -1,7 +1,7 @@
 # vssh-app-toolkit
 
-Ferramentas **públicas** para construir e publicar **apps pseudo-nativos** do desktop remoto
-VSSH-SSO (o cliente Xpra renderizado no navegador). Um app pseudo-nativo é um pacote self-contained
+Ferramentas **públicas** para construir e publicar **vssh-apps** do desktop remoto
+VSSH-SSO (o cliente Xpra renderizado no navegador). Um vssh-app é um pacote self-contained
 — frontend HTML + backend próprio, em qualquer linguagem — que roda como processo no servidor Linux
 do usuário e aparece como uma janela dentro do desktop. Você desenvolve **fora** do repositório do
 portal e publica um tarball no repositório de artefatos (Cloudflare Worker D1/R2); um admin instala
@@ -15,10 +15,38 @@ padrão — **sem nenhum PAT/GitHub App**.
 
 | Caminho | O quê |
 |---|---|
-| [`.claude/skills/vssh-pseudo-native-app/SKILL.md`](.claude/skills/vssh-pseudo-native-app/SKILL.md) | **Referência de autoria** (manifest, convenção de diretório, env vars, tipos `engine`, `richChrome`, `handles`, loop de teste, instalação/upgrade). Comece por aqui. |
+| [`.claude/skills/vssh-app/SKILL.md`](.claude/skills/vssh-app/SKILL.md) | **Referência de autoria** (manifest, convenção de diretório, env vars, tipos `engine`, `richChrome`, `handles`, loop de teste, instalação/upgrade). Comece por aqui. |
+| [`lib/`](lib/) | **Bibliotecas compartilhadas** — o que todo app reimplementava. Ver abaixo. |
 | [`scripts/vssh-app-publish`](scripts/vssh-app-publish) | Empacota + publica um app no Worker. Roda em CI e localmente. |
+| [`scripts/vssh-app-lib-sync`](scripts/vssh-app-lib-sync) | Copia `lib/` para dentro do repo do seu app (vendorizado). |
 | [`.github/workflows/_publish-app-reusable.yml`](.github/workflows/_publish-app-reusable.yml) | Reusable workflow que o CI do seu repo de app chama com um `uses:`. |
 | [`templates/hello-vssh-app/`](templates/hello-vssh-app/) | Template de partida (Python 3 stdlib, zero deps). Copie e adapte. |
+| [`templates/hello-vssh-app-node/`](templates/hello-vssh-app-node/) | Template Node: usa as libs, já nasce com log estruturado, gate de token e SSE. |
+| [`docs/lessons/logseq-port.md`](docs/lessons/logseq-port.md) | O que portar um app real ensinou — a origem da maioria das regras acima. |
+
+## Bibliotecas (`lib/`)
+
+Nenhuma tem dependência npm e nenhuma lê variável de ambiente: quem traduz o ambiente VSSH em
+config é o backend do app. São vendorizadas, não instaladas — o servidor-alvo pode não ter registry
+npm acessível num exec não-interativo por SSH, e o `vssh-app-publish` empacota o que está
+**versionado**.
+
+| Peça | Para quê |
+|---|---|
+| `lib/node/vssh-app-fs/` | Filesystem **privado** do app por HTTP: 12 ops, confinamento à raiz com `realpath`, assets binários com `Range`, gate de `X-Vssh-App-Token` timing-safe, errno classificado (4xx x 500 honesto). |
+| `lib/node/static-spa.js` | Serve uma SPA construída sob o prefixo do proxy: content-type, 304, injeção de script de boot, **prefixos alias** e fallback de SPA para roteamento HTML5. |
+| `lib/node/app-log.js` | Log estruturado em `$VSSH_APP_DATA_DIR`. Vinte linhas que se pagam na primeira depuração remota. |
+| `lib/node/sse.js` | Server-Sent Events com os headers que sobrevivem ao proxy e ao CDN (`X-Accel-Buffering: no` + `flushHeaders`). |
+
+```bash
+# no repo do seu app
+bash /caminho/do/toolkit/scripts/vssh-app-lib-sync . --parts fs,spa,log,sse
+git add backend/vendor/vssh && git commit -m "sync vssh libs"
+```
+
+**Precisa dar ao app acesso aos arquivos do usuário** (a home, não uma raiz privada)? Não é o
+`vssh-app-fs`: é o polyfill da File System Access API, que fala com o `/api/fs/*` do portal pelo
+shell — o app ganha `showDirectoryPicker()` sem rodar filesystem nenhum.
 
 Apps de referência mais completos moram em repositórios próprios: `colabhd/vssh-psna-terminal-latch`
 (terminal persistente, `richChrome`, binário Go vendorizado) e `colabhd/vsshapp-recoll` (busca Recoll).

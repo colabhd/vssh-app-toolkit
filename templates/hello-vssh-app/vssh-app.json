@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "icon": "icon.svg",
   "category": "Utility",
-  "description": "Exemplo mínimo de app pseudo-nativo VSSH — front HTML + backend Python stdlib.",
+  "description": "Exemplo mínimo de vssh-app — front HTML + backend Python stdlib.",
   "backend": {
     "runtime": "python3",
     "entrypoint": "backend/main.py",

@@ -1,0 +1,92 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/colabhd/vssh-app-toolkit/schema/vssh-app.schema.json",
+  "title": "vssh-app.json",
+  "description": "Manifesto de um vssh-app. Fonte da verdade: este arquivo. Validado por inteiro no vssh-app-publish (o gate de entrada no repositório); o vssh-app-install valida só o mínimo, porque roda offline no servidor e não tem como buscar o schema.",
+  "type": "object",
+  "required": ["id", "version", "backend"],
+  "additionalProperties": true,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$",
+      "description": "Imutável — vira path, porta e sentinel. Trocar o id é publicar outro app."
+    },
+    "name": { "type": "string", "description": "Nome exibido. Default: o próprio id." },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z][0-9A-Za-z.\\-+_]*$",
+      "description": "Semver. O install é idempotente por versão, então bump a cada release."
+    },
+    "type": {
+      "enum": ["app", "engine"],
+      "default": "app",
+      "description": "'engine' = backend-only, sem janela nem ícone no Launchpad."
+    },
+    "kind": {
+      "enum": ["app", "service"],
+      "default": "app",
+      "description": "Eixo de LIFECYCLE, ortogonal a `type`: 'service' é daemon supervisionado (start automático, auto-restart, status)."
+    },
+    "alwaysRunning": {
+      "type": "boolean",
+      "description": "LEGADO — equivale a kind:'service'. Mantido só por compat com manifestos já instalados."
+    },
+    "icon": { "type": "string", "description": "Caminho relativo à raiz do pacote (.svg/.png/.jpg)." },
+    "category": { "type": "string", "description": "Informativo; a UI agrupa tudo em 'Apps Integrados'." },
+    "description": { "type": "string" },
+    "handles": {
+      "type": ["string", "null"],
+      "enum": ["terminal", "editor", "fileBrowser", "vscode", "browser", null],
+      "description": "Registra o app como substituto de um dos 5 launchers embutidos. O usuário ainda precisa escolher em Configurações."
+    },
+    "opens": {
+      "type": "object",
+      "description": "Tipos de arquivo que o app sabe abrir — coloca o app no menu 'Abrir com' e o torna elegível a padrão por tipo. Generaliza `handles`, que só cobre os 5 launchers.",
+      "additionalProperties": false,
+      "properties": {
+        "extensions": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^\\.?[A-Za-z0-9][A-Za-z0-9+._-]*$" },
+          "description": "Com ou sem ponto; normalizado pelo portal."
+        },
+        "mimeTypes": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-zA-Z0-9!#$&^_.+-]+/[a-zA-Z0-9!#$&^_.+-]+$" }
+        }
+      }
+    },
+    "backend": {
+      "type": "object",
+      "required": ["runtime", "entrypoint"],
+      "additionalProperties": true,
+      "properties": {
+        "runtime": {
+          "enum": ["python3", "node", "binary"],
+          "description": "Prefira um runtime que o próprio mecanismo já exija (python3): um nvm/pyenv pessoal não aparece no PATH de um exec não-interativo por SSH."
+        },
+        "entrypoint": { "type": "string", "description": "Relativo à raiz do pacote. Deve bindar em 127.0.0.1:$VSSH_APP_PORT." },
+        "installCommand": {
+          "type": "string",
+          "description": "Roda DUAS vezes: uma como root no install, outra por usuário no primeiro run. Escreva de forma idempotente."
+        },
+        "healthcheckPath": {
+          "type": "string",
+          "default": "/",
+          "description": "Pollado direto na porta, SEM passar pelo proxy — então não carrega X-Vssh-App-Token. Isente esta rota do seu gate de token, ou o healthcheck nunca passa."
+        }
+      }
+    },
+    "window": {
+      "type": "object",
+      "description": "Ignorado por type:'engine'.",
+      "additionalProperties": true,
+      "properties": {
+        "title": { "type": "string" },
+        "width": { "type": "integer", "minimum": 200, "maximum": 10000 },
+        "height": { "type": "integer", "minimum": 150, "maximum": 10000 },
+        "richChrome": { "type": "boolean", "description": "Tabbar de verdade no cabeçalho + itens de aba no menu de contexto." }
+      }
+    }
+  }
+}

@@ -54,7 +54,13 @@ jobs:
         with:
           repository: colabhd/vssh-app-toolkit
           ref: ${{ inputs.tools_ref }}
-          sparse-checkout: scripts
+          # `schema` junto de `scripts`: vssh-app-publish valida o manifesto contra
+          # schema/vssh-app.schema.json, que é a fonte da verdade. Sem ele o script degrada para
+          # as checagens mínimas (id/runtime/entrypoint) em vez de recusar a publicação — então um
+          # repo pinado num ref antigo continua funcionando, só valida menos.
+          sparse-checkout: |
+            scripts
+            schema
           path: _tools
           # toolkit é público → o github.token do repo chamador enxerga sem PAT.
 

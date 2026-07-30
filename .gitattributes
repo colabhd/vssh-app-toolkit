@@ -5,7 +5,8 @@
 # shebang vira "#!/usr/bin/env bash\r" e quebra. vssh-app-publish não tem extensão, então precisa
 # ser listado explicitamente.
 *.sh                      text eol=lf
-scripts/vssh-app-publish  text eol=lf
+scripts/vssh-app-publish   text eol=lf
+scripts/vssh-app-lib-sync  text eol=lf
 
 # Binários — sem conversão
 *.png   binary

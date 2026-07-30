@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hello World — exemplo mínimo de app pseudo-nativo VSSH-SSO.
+"""Hello World — exemplo mínimo de vssh-app.
 
 Prova o pipeline ponta a ponta: a janela abre, o iframe carrega este HTML
 servido pelo próprio backend (proxied pelo portal), e o botão de ping faz um

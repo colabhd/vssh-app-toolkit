@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hello World (Node)</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      margin: 0; padding: 2rem;
+      font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      display: flex; flex-direction: column; gap: 1rem; align-items: flex-start;
+    }
+    h1 { margin: 0; font-size: 1.4rem; }
+    button {
+      font: inherit; padding: .5rem 1rem; border-radius: 6px;
+      border: 1px solid currentColor; background: transparent; color: inherit; cursor: pointer;
+    }
+    pre {
+      margin: 0; padding: .75rem 1rem; border-radius: 6px; align-self: stretch;
+      background: rgba(127,127,127,.15); overflow-x: auto; min-height: 1.5em;
+    }
+  </style>
+</head>
+<body>
+  <h1>Hello World — vssh-app (Node)</h1>
+  <p>Frontend servido pelo próprio backend, através do proxy do portal.</p>
+
+  <button id="ping">Chamar api/ping</button>
+  <pre id="out">—</pre>
+
+  <button id="sub">Assinar api/events (SSE)</button>
+  <pre id="events">—</pre>
+
+  <script>
+    // URLs RELATIVAS, sempre: o app é servido sob /<serverId>/proxy/app/<id>/, então uma barra no
+    // começo apontaria para a raiz do portal, não para o app.
+    const out = document.getElementById('out');
+    document.getElementById('ping').addEventListener('click', async () => {
+      out.textContent = 'chamando...';
+      try {
+        const r = await fetch('api/ping');
+        out.textContent = JSON.stringify(await r.json(), null, 2);
+      } catch (e) {
+        out.textContent = 'erro: ' + e.message;
+      }
+    });
+
+    // SSE pelo mesmo caminho relativo. Se os eventos chegarem em lote em vez de um a um, o
+    // problema é bufferização na borda — ver lib/node/sse.js.
+    const ev = document.getElementById('events');
+    document.getElementById('sub').addEventListener('click', (e) => {
+      e.target.disabled = true;
+      const src = new EventSource('api/events');
+      src.addEventListener('tick', (m) => { ev.textContent = m.data; });
+      src.onerror = () => { ev.textContent = 'conexão SSE caiu'; src.close(); e.target.disabled = false; };
+    });
+  </script>
+</body>
+</html>

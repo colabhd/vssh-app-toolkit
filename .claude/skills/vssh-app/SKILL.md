@@ -1,16 +1,20 @@
 ---
-name: vssh-pseudo-native-app
-description: Build a pseudo-native app for the VSSH-SSO Xpra desktop client — a self-contained package (HTML frontend + own backend process, any language) developed outside this repo, installed on a provisioned Linux server, and opened as a window inside the browser-rendered desktop. Use when the user wants to create, package, or debug a "vssh-app" / pseudo-native app, or mentions vssh-app.json, vssh-app-install, or vssh-app-run.
+name: vssh-app
+description: Build a vssh-app for the VSSH-SSO desktop client — a self-contained package (HTML frontend + own backend process, any language) developed outside this repo, installed on a provisioned Linux server, and opened as a window inside the browser-rendered desktop. Use when the user wants to create, package, or debug a vssh-app, or mentions vssh-app.json, vssh-app-install, or vssh-app-run.
 ---
 
-# Apps pseudo-nativos VSSH-SSO
+# vssh-apps
 
-Um app pseudo-nativo é um pacote self-contained — frontend HTML + backend próprio, em qualquer
+Um vssh-app é um pacote self-contained — frontend HTML + backend próprio, em qualquer
 linguagem — que roda como processo separado no servidor Linux do usuário e aparece como uma
-janela renderizada pelo próprio navegador dentro do desktop Xpra (não é uma janela X11 real). O
-backend é proxied pela infraestrutura do portal; quem constrói o app não edita nada no
-repositório do vssh-sso — só publica um pacote seguindo a convenção abaixo, e um admin instala
-com `vssh-app-install`.
+janela renderizada pelo próprio navegador dentro do desktop VSSH — não é uma janela X11 real, e
+não depende do Xpra: um vssh-app se comporta igual num ambiente sem ele. O backend é proxied pela
+infraestrutura do portal; quem constrói o app não edita nada no repositório do vssh-sso — só
+publica um pacote seguindo a convenção abaixo, e um admin instala com `vssh-app-install`.
+
+**Portando um app que já existe** (web, Electron ou Tauri)? Comece por
+[`docs/porting.md`](../../docs/porting.md): tem a árvore de decisão e como medir, em minutos, o que
+falta num app concreto.
 
 ## Antes de codar: checklist de decisão
 
@@ -23,12 +27,14 @@ com `vssh-app-install`.
   extra — trate como qualquer outra rota do seu backend.
 - **Qual runtime?** Qualquer um que saiba bindar em `127.0.0.1:$VSSH_APP_PORT` — `python3`/
   `node`/`binary` são os declarados no manifest, mas o mecanismo é agnóstico de linguagem.
-- **Precisa de diálogo, confirmação ou notificação "nativa"?** Não construa essa UI você mesmo —
-  chame `vssh-psdialog` ou `notify-send` diretamente do processo do backend (ver
-  `custom_xprahtml5/vssh-psdialogd.md` para a referência completa de flags). O backend já roda
-  no ambiente Linux do usuário, então isso funciona sem nenhum código novo no cliente Xpra.
+- **Precisa de diálogo, confirmação, notificação ou seletor de arquivo?** Não construa essa UI —
+  use `lib/web/vssh-app-shim.js` do frontend (`vssh.dialog.*`, `vssh.notify`, `vssh.pickFile`).
+  Isso fala com o desktop por `postMessage`, **sem passar pelo Xpra**, então funciona igual num
+  ambiente sem ele. Só se o **backend** precisar avisar algo sem janela aberta é que valem o
+  `vssh-psdialog`/`notify-send` a partir do processo — e esses dependem da sessão Xpra, então
+  trate-os como fallback, não como caminho normal.
 - **Esse app tem UI própria que o usuário abre como janela, ou é uma capability que uma feature já
-  existente do cliente Xpra vai consumir por baixo (fetch/WS direto, sem iframe/janela)?** No
+  existente do desktop vai consumir por baixo (fetch/WS direto, sem iframe/janela)?** No
   segundo caso é um app `"type": "engine"` — ver seção "Apps tipo `engine`" abaixo. Não force um
   app backend-only a ter uma janela só pra "seguir o padrão"; e não invente um mecanismo de
   entrega paralelo pra um backend que uma janela nativa vai consumir — o lifecycle de instalação/
@@ -47,6 +53,12 @@ com `vssh-app-install`.
                                        // sem janela nem ícone no Launchpad/Start Menu (ver seção
                                        // "Apps tipo engine" abaixo); nesse caso "icon" e "window"
                                        // não se aplicam e podem ser omitidos
+  "kind": "app",                      // opcional, default "app" — eixo de LIFECYCLE, ORTOGONAL a
+                                       // `type` (que é janela/sem-janela). "service" = daemon
+                                       // supervisionado: sobe junto com a sessão, reinicia sozinho
+                                       // em caso de queda (backoff 2^n, teto de 5 falhas) e reporta
+                                       // estado em Configurações → Serviços. O `alwaysRunning: true`
+                                       // legado equivale a kind:"service" e é lido por compat.
   "icon": "icon.svg",                 // caminho relativo à raiz do pacote
   "category": "Utility",              // só informativo em GET /api/apps hoje — o cliente lista
                                        // todo vssh-app numa seção única "Apps Integrados" no Start
@@ -56,6 +68,12 @@ com `vssh-app-install`.
   "handles": null,                    // opcional: "terminal"|"editor"|"fileBrowser"|"vscode"|
                                        // "browser" — registra este app como substituto de um
                                        // launcher embutido (ver "App padrão por categoria" abaixo)
+  "opens": {                          // opcional: tipos de arquivo que este app sabe abrir. É o
+    "extensions": ["md", "org"],       // que coloca o app no submenu "Abrir com" e o torna
+    "mimeTypes": ["text/markdown"]     // elegível a padrão por tipo (Configurações →
+  },                                   // Aplicativos). O arquivo escolhido chega via
+                                       // `open-context` (ver seção abaixo). Generaliza `handles`,
+                                       // que só cobre os 5 launchers embutidos.
   "backend": {
     "runtime": "python3",             // "python3" | "node" | "binary"
     "entrypoint": "backend/main.py",  // relativo à raiz do pacote
@@ -160,6 +178,85 @@ frontend funciona sem alterações sob o prefixo `/proxy/app/<id>/`. Só recorra
 `VSSH_APP_BASE_PATH` se o backend precisar emitir URLs absolutas (ex: links profundos em
 respostas JSON).
 
+## Não reimplemente: as bibliotecas do toolkit
+
+Quatro problemas aparecem em todo app, e todo mundo erra do mesmo jeito na primeira vez. Já estão
+resolvidos em `lib/` — vendorize com `vssh-app-lib-sync` e commite o resultado (o servidor pode não
+alcançar registry npm num exec por SSH, e o publish empacota o que está versionado).
+
+```bash
+bash /caminho/do/toolkit/scripts/vssh-app-lib-sync . --parts fs,spa,log,sse
+git add backend/vendor/vssh && git commit -m "sync vssh libs"
+```
+
+| Peça | Resolve |
+|---|---|
+| `app-log.js` | Log estruturado em `$VSSH_APP_DATA_DIR`. **Comece por esta**, na primeira linha de código. |
+| `static-spa.js` | Servir uma SPA construída sob o prefixo do proxy: 304, prefixos alias, injeção de script de boot, fallback de SPA. |
+| `sse.js` | Server-Sent Events com os headers que sobrevivem ao proxy e ao CDN. Sem eles os eventos chegam em lote, ou nunca — e sem erro nenhum. |
+| `vssh-app-fs/` | Filesystem **privado** do app por HTTP: confinado a uma raiz, token-gated, errno classificado. |
+
+Comece pelo `templates/hello-vssh-app-node/`, que já nasce com tudo isso ligado.
+
+## Falar com o desktop: diálogo, notificação, seletor, arquivos
+
+**Não construa essa UI.** O desktop já tem, e o app alcança por uma ponte de `postMessage` —
+carregue `lib/web/vssh-app-shim.js` (pelo `injectScripts` do `static-spa`, sem tocar no seu HTML):
+
+```js
+await vssh.dialog.confirm('Descartar alterações?');      // diálogo do desktop
+vssh.notify('Índice reconstruído', { title: 'Busca' });   // toast
+const dir  = await vssh.pickDirectory();                  // gerenciador de arquivos em picker mode
+const file = await vssh.pickFile({ filter: '*.md' });     // com grupos de filtro
+vssh.openFile('/home/user/doc.pdf');                      // abre no visualizador certo
+await vssh.openWith('/home/user/nota.md');                // deixa o usuário escolher
+```
+
+**Nada disso passa pelo Xpra**, então o app se comporta igual com ou sem ele. Fora do desktop
+(dev standalone) cada função degrada para o equivalente do navegador em vez de lançar.
+
+### Arquivos do usuário: use a File System Access API
+
+Para ler e gravar na home do usuário, **não** monte o `vssh-app-fs`: carregue
+`lib/web/fsa-polyfill.js` e use a API padrão do W3C.
+
+```js
+const dir = await showDirectoryPicker();                  // o picker é o do desktop
+for await (const [name, handle] of dir.entries()) { /* ... */ }
+```
+
+Duas consequências que importam: o app **não precisa de backend de filesystem nenhum**, e um web
+app que já usa FSA (Logseq, Excalidraw, tldraw, editores em geral) roda **sem fork**. Handles
+sobrevivem a persistência em IndexedDB — o polyfill cuida disso.
+
+Permissão segue o modelo do próprio padrão: só o que o usuário escolheu num seletor fica
+alcançável, nesta janela, sem persistir entre aberturas. Pedir um caminho que ele não escolheu é
+recusado pelo shell.
+
+**Quando usar o `vssh-app-fs` então?** Quando o app quer um store **privado**: uma raiz confinada,
+com token próprio, funcionando inclusive fora do desktop. São casos diferentes, não alternativas.
+
+## Rodar o app na sua máquina, sem servidor nenhum
+
+O ciclo mais curto, e o que você vai usar 90% do tempo: o backend só precisa de três variáveis, e
+nada no mecanismo exige um servidor VSSH para ele subir.
+
+```bash
+VSSH_APP_PORT=45999 VSSH_APP_ID=meu-app VSSH_APP_DATA_DIR=/tmp/meu-app-data \
+  node backend/server.js          # ou python3 backend/main.py
+
+curl -fsS http://127.0.0.1:45999/healthz
+curl -fsS http://127.0.0.1:45999/api/ping
+open http://127.0.0.1:45999/
+```
+
+Acrescente `VSSH_APP_TOKEN=segredo` para exercitar o gate de token (e confirmar que o healthcheck
+continua isento — é o erro que mais custa depois).
+
+O que **não** funciona assim, e por isso precisa do loop com servidor abaixo: a ponte com o
+desktop (`vssh.dialog`, `vssh.pickFile`, FSA). Fora do desktop o shim degrada em vez de lançar,
+então a página carrega e você desenvolve o resto normalmente.
+
 ## Loop de teste local contra um servidor VSSH-SSO real
 
 1. Copie o pacote para um caminho qualquer no servidor Linux de teste (`scp -r meu-app/ servidor:/tmp/meu-app`).
@@ -168,8 +265,17 @@ respostas JSON).
 4. Autenticado no portal, `GET /api/apps` deve listar o app (cache de até 60s).
 5. Abra a sessão Xpra do usuário no portal — o app aparece na seção "Apps Integrados" do Start
    Menu/Launchpad sem precisar reconectar (cache do cliente tem TTL de 30s, ver AppLauncher.js).
-6. Se algo falhar silenciosamente: o lifecycle do portal descarta stdout/stderr do backend —
-   adicione seu próprio log em `$VSSH_APP_DATA_DIR/app.log` para depurar.
+6. Se algo falhar: você tem **dois** logs, e eles se complementam.
+   - **`~/.vssh-apps/<id>/run.log`** — stdout/stderr do backend, gravado pelo lifecycle. Legível
+     sem SSH: clique direito no cabeçalho da janela do app → **Ver log do backend** (ou
+     `GET /api/apps/<id>/log?tail=300`). É rotacionado para `run.log.1` a cada start, então o
+     registro da execução que morreu não se perde.
+   - **`$VSSH_APP_DATA_DIR/app.log`** — o seu log, estruturado, sobrevivendo a reinício. Use
+     `lib/node/app-log.js` do toolkit: são vinte linhas e uma linha por falha com operação,
+     caminho e código. Frame minificado no console sustenta hipótese; isto aqui dá a resposta.
+
+   Se o app abriu com a janela em branco, o shell também avisa: o healthcheck tem teto de ~15s e,
+   quando estoura, um toast diz que o backend ainda não respondeu em vez de deixar você adivinhar.
 
 ## Empacotamento, instalação e upgrade
 
@@ -177,7 +283,7 @@ respostas JSON).
 - Copia o pacote para `/opt/vssh-apps/<id>/` (somente leitura para usuários).
 - Roda `backend.installCommand` uma vez como root (dependências de sistema).
 - Recusa sobrescrever um `id` já instalado sem `--force`.
-- **Não gera `.desktop`/XDG** — o app aparece no cliente Xpra via `GET /api/apps` direto (seção
+- **Não gera `.desktop`/XDG** — o app aparece no desktop via `GET /api/apps` direto (seção
   "Apps Integrados" no Start Menu/Launchpad), não via menu XDG nativo. Isso existe de propósito:
   o mecanismo antigo (gerar `.desktop` em `/usr/local/share/applications`) exigia reiniciar a
   sessão Xpra inteira pro app aparecer (o cliente só relê o menu XDG no handshake da conexão) e
@@ -198,16 +304,26 @@ Upgrade = publicar uma `version` nova no repositório (`vssh-app-publish`) e ins
 Processos de usuários já rodando a versão antiga não são reiniciados automaticamente — avise os
 usuários ou peça para reabrirem o app.
 
-## Exemplo de referência: Hello World
+## Exemplos de referência: os dois templates
 
-`templates/hello-vssh-app/` é o template de partida recomendado — copie e adapte. É um app
-mínimo completo (Python 3 stdlib, zero dependências) que exercita o pipeline inteiro: janela
-abre, o iframe carrega `frontend/index.html` servido pelo próprio backend (proxied pelo
-portal), e um botão faz um round-trip `fetch('api/ping')` até esse mesmo processo. Só demonstra
-`do_GET` — um app com API própria de verdade (POST/DELETE) precisa adicionar seus próprios
-handlers pro método (`BaseHTTPRequestHandler` não faz isso de graça).
+**Qual copiar:**
 
-> **Apps de referência.** Só o `hello-vssh-app` mora neste toolkit (`templates/`). Os demais citados
+| | `templates/hello-vssh-app/` | `templates/hello-vssh-app-node/` |
+|---|---|---|
+| Runtime | Python 3 stdlib | Node stdlib |
+| Traz | o mínimo absoluto | libs do toolkit vendorizadas |
+| Já vem com | — | log estruturado, gate de token timing-safe, healthcheck isento, SSE |
+| Use quando | o app é pequeno e você quer ler tudo em 2 minutos | qualquer coisa que vá crescer |
+
+O Python é o menor caminho até "funciona": um app mínimo completo que exercita o pipeline inteiro
+— janela abre, o iframe carrega `frontend/index.html` servido pelo próprio backend, e um botão faz
+um round-trip `fetch('api/ping')`. Só demonstra `do_GET`; um app com API de verdade (POST/DELETE)
+precisa adicionar os handlers do método (`BaseHTTPRequestHandler` não faz isso de graça).
+
+O Node já nasce com o que a experiência mostrou ser necessário cedo — em especial o log
+estruturado, que é o que salva a primeira depuração remota.
+
+> **Apps de referência.** Os dois templates moram neste toolkit (`templates/`). Os demais citados
 > abaixo são apps reais, cada um no seu próprio repositório — caminhos como `terminal-latch/…` ou
 > `vsshapp-recoll/…` são relativos à raiz de cada repo:
 > - `terminal-latch/` → `colabhd/vssh-psna-terminal-latch` (terminal persistente, `richChrome`, binário Go vendorizado).
@@ -254,13 +370,13 @@ Todo o mecanismo descrito até aqui — manifest, `vssh-app-install`/`vssh-app-r
 porta, env vars, PID tracking, proxy autenticado por `/<serverId>/proxy/app/<id>/*` — é **agnóstico
 a "esse app abre uma janela ou não"**. `POST /api/apps/:id/start`/`GET /api/apps/:id/status`
 (`src/routes/apps.ts`) só garantem que o backend está de pé numa porta e devolvem `{port, url}`;
-nada ali assume um `<iframe>`/`PseudoNativeAppWindow` do outro lado. Um app `"type": "engine"`
+nada ali assume um `<iframe>`/`VsshAppWindow` do outro lado. Um app `"type": "engine"`
 aproveita exatamente esse mesmo lifecycle, só que consumido por **outra janela ou feature já
-existente do cliente Xpra** (nativa, ou até outro app) em vez de aberto pelo usuário via
+existente do desktop** (nativa, ou até outro app) em vez de aberto pelo usuário via
 Launchpad/Start Menu/`AppLauncher.open()`.
 
 Diferenças concretas em relação a um app `"type": "app"` normal:
-- **Sem `window` no manifest** (não se aplica — não existe `PseudoNativeAppWindow` pra ele).
+- **Sem `window` no manifest** (não se aplica — não existe `VsshAppWindow` pra ele).
 - **Não aparece no Launchpad/Start Menu/menu de apps** — `AppLauncher.listApps()` (consumido por
   ambos pra montar a seção "Apps Integrados") filtra `type !== 'engine'` antes de listar.
   `GET /api/apps` continua devolvendo a entrada (com `type: 'engine'`) pra quem precisar
@@ -300,7 +416,7 @@ quase instantâneo. Ver `custom_xprahtml5/index.html` pro exato ponto onde isso 
 de `navigator.serviceWorker.register(...)`.
 
 Quando usar: sempre que o valor do app é uma capability de backend (um proxy, um motor de
-processamento, um servidor de protocolo) que uma janela/feature **já existente** do cliente Xpra
+processamento, um servidor de protocolo) que uma janela/feature **já existente** do desktop
 vai orquestrar — não um programa novo que o usuário abre e interage diretamente. Ver
 `scramjet-wisp/` (motor de reescrita web via `wisp-js`, consumido pelo `BrowserWindow`
 nativo como um motor alternativo à extensão de navegador, `alwaysRunning: true` por causa da
@@ -308,7 +424,7 @@ restrição de `importScripts` acima) como referência completa.
 
 ## Rich chrome opcional (abas no cabeçalho + menu de contexto)
 
-Por padrão, todo vssh-app abre num `<iframe>` genérico (`PseudoNativeAppWindow`) com um
+Por padrão, todo vssh-app abre num `<iframe>` genérico (`VsshAppWindow`) com um
 cabeçalho simples (ícone + título + botões de janela) e um menu de contexto genérico
 (minimizar/maximizar/fixar/fechar). Um app pode optar por uma tabbar de verdade no cabeçalho da
 janela e itens de aba no menu de contexto, reaproveitando o mesmo mecanismo que janelas nativas
@@ -339,7 +455,7 @@ index.html` para uma implementação completa de referência.
 Se seu app tem algum identificador estável por aba que sobrevive a um reload (ex.: nome de sessão
 de um multiplexador de terminal, como o terminal-latch) e você quer que `WindowStateManager`
 restaure as abas certas depois de um F5, inclua esse identificador como `sessionName` em cada
-entrada de `tabs`. `PseudoNativeAppWindow._getState()` já persiste `tabs`/`activeSessionName` no
+entrada de `tabs`. `VsshAppWindow._getState()` já persiste `tabs`/`activeSessionName` no
 lock file da janela automaticamente (sem nenhum código seu além de mandar `sessionName`), e manda
 de volta uma mensagem `restore-tabs` assim que o iframe carrega (`tabs: null` quando não há nada
 salvo — abertura nova). Trate essa mensagem recriando uma aba por `sessionName` recebido (nunca
@@ -352,7 +468,7 @@ só nada é persistido.
 Se fechar a aba/sessão de verdade (não só esquecer) importa pro seu app (de novo, caso do
 terminal-latch, que mata a sessão do motor ao fechar), exponha um endpoint
 `POST close-tabs` (caminho relativo à raiz do seu app) que aceite `{sessions: [string, ...]}` e
-encerre cada uma. `PseudoNativeAppWindow._beforeClose()` chama esse endpoint via `fetch()` do
+encerre cada uma. `VsshAppWindow._beforeClose()` chama esse endpoint via `fetch()` do
 **documento pai** (não do iframe) assim que a janela é fechada explicitamente (X, "Fechar" no
 menu) — antes de qualquer coisa ser removida da DOM, mas o iframe pode não sobreviver tempo
 suficiente pra reagir a um `postMessage` nesse instante, por isso o pai fala direto com seu
@@ -379,7 +495,7 @@ window.parent.postMessage({ vsshApp: true, type: 'open-file',   path: '/home/use
 window.parent.postMessage({ vsshApp: true, type: 'open-folder', path: '/home/user/Documents' }, location.origin);
 ```
 
-O **pai** (`PseudoNativeAppWindow._setupFileOpenBridge`) roda no documento do desktop
+O **pai** (`VsshAppWindow._setupFileOpenBridge`) roda no documento do desktop
 (`/<serverId>/xpra/`), então ele mesmo monta a URL `../../api/fs/read?path=...` (com Range/206 já
 pronto pra vídeo/PDF grande) — **o app nunca precisa saber o `serverId` nem construir essa URL**,
 só mandar o path absoluto. O handler é filtrado por `e.source === iframe.contentWindow`, então cada
@@ -408,7 +524,7 @@ janela embutida — se apontar pro seu app, chama `AppLauncher.open(appId)` no l
 Ações como "Abrir Terminal Aqui" carregam contexto extra (uma pasta, um arquivo) que a janela
 embutida usaria — isso só chega ao seu app se ele optar por entender. `AppLauncher.open(appId,
 serverId, restoreState, openContext)` aceita um 4º parâmetro (ex.: `{ path: '/home/user/foo' }`,
-mandado por `TerminalLauncher.js` hoje) que `PseudoNativeAppWindow` repassa via `postMessage` assim
+mandado por `TerminalLauncher.js` hoje) que `VsshAppWindow` repassa via `postMessage` assim
 que o iframe carrega (ou imediatamente, se a janela já estava aberta):
 
 ```js
@@ -423,6 +539,29 @@ dá pra fazer isso invisível como o terminal dtach embutido faz, já que o moto
 só com o nome, sem espaço pra injetar um cwd antes do shell interativo começar — trade-off aceito:
 o usuário vê o `cd` sendo "digitado"). Apps que não tratam `open-context` simplesmente ignoram a
 mensagem — nenhum erro.
+
+Com o shim, isso é `vssh.onOpenContext(({ path }) => { ... })`.
+
+## Abrir tipos de arquivo (opt-in, via `"opens"` no manifest)
+
+`handles` cobre só os 5 launchers embutidos. Para o app aparecer quando o usuário abre **um tipo de
+arquivo**, declare o que ele sabe abrir:
+
+```jsonc
+"opens": { "extensions": ["md", "org"], "mimeTypes": ["text/markdown"] }
+```
+
+O que isso liga, sem código nenhum além do campo:
+
+- o app entra no submenu **"Abrir com"** do gerenciador de arquivos, junto (ou no lugar) dos apps
+  Linux nativos;
+- fica elegível como **padrão daquele tipo** em Configurações → Aplicativos; escolhido, o
+  duplo-clique passa a abrir nele em vez do visualizador embutido;
+- o arquivo chega ao app via `open-context` (seção acima) — é o único código que você escreve.
+
+Por que isso importa mais do que parece: o "Abrir com" era montado exclusivamente de `.desktop`
+nativos, e o `vssh-app-install` deliberadamente não gera `.desktop`. Num ambiente **sem X11 não há
+`.desktop` nenhum** — então os vssh-apps passam a ser os únicos habitantes daquele menu.
 
 ## O que cabe nesse padrão
 

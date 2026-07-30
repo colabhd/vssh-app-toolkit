@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# vssh-app-publish — empacota um app pseudo-nativo VSSH e o publica no Worker do repositório.
+# vssh-app-publish — empacota um vssh-app e o publica no Worker do repositório.
 # Uso: vssh-app-publish <diretorio|git-url> [--version X] [--repo-api URL] [--token TOKEN] [--icon PATH]
 #
 # Lê VSSH_REPO_API e VSSH_REPO_PUBLISH_TOKEN do ambiente (ou via flags). Valida o vssh-app.json
@@ -45,7 +45,8 @@ MANIFEST="${PKG}/vssh-app.json"
 [ -f "${MANIFEST}" ] || { echo "ERRO: vssh-app.json não encontrado na raiz do pacote." >&2; exit 1; }
 
 # ── 2. Valida e (se pedido) reescreve a version no manifest do pacote ──────────
-INFO="$(VSSH_MANIFEST_PATH="${MANIFEST}" VSSH_VERSION_OVERRIDE="${VERSION_OVERRIDE}" python3 <<'PYEOF'
+SCHEMA="$(cd "$(dirname "$0")/.." && pwd)/schema/vssh-app.schema.json"
+INFO="$(VSSH_MANIFEST_PATH="${MANIFEST}" VSSH_VERSION_OVERRIDE="${VERSION_OVERRIDE}" VSSH_SCHEMA_PATH="${SCHEMA}" python3 <<'PYEOF'
 import json, os, re, sys
 p = os.environ['VSSH_MANIFEST_PATH']
 m = json.load(open(p))
@@ -64,6 +65,66 @@ if b.get('runtime') not in ('python3', 'node', 'binary'):
     print('ERROR=runtime_invalido'); sys.exit(0)
 if not b.get('entrypoint'):
     print('ERROR=entrypoint_ausente'); sys.exit(0)
+
+# Validação completa contra schema/vssh-app.schema.json, que é a fonte da verdade do manifesto.
+# Este é o gate de ENTRADA no repositório, então vale ser rigoroso aqui — o vssh-app-install, que
+# roda offline no servidor, continua validando só o mínimo (id/runtime/entrypoint).
+#
+# Validador do subconjunto de JSON Schema que o arquivo usa (type, required, properties, enum,
+# pattern, items, minimum/maximum, additionalProperties:false). Sem dependência: o toolkit não tem
+# node_modules e o script precisa rodar em qualquer runner.
+def _validate(node, schema, path='', errors=None):
+    if errors is None: errors = []
+    t = schema.get('type')
+    types = t if isinstance(t, list) else ([t] if t else [])
+    def bad(msg): errors.append(f"{path or '<raiz>'}: {msg}")
+    if node is None and 'null' in types: return errors
+    if types:
+        ok = any(
+            (ty == 'object' and isinstance(node, dict)) or
+            (ty == 'array' and isinstance(node, list)) or
+            (ty == 'string' and isinstance(node, str)) or
+            (ty == 'integer' and isinstance(node, int) and not isinstance(node, bool)) or
+            (ty == 'boolean' and isinstance(node, bool)) or
+            (ty == 'null' and node is None)
+            for ty in types)
+        if not ok:
+            bad(f"esperava {'/'.join(types)}, veio {type(node).__name__}"); return errors
+    if 'enum' in schema and node not in schema['enum']:
+        bad(f"valor inválido {node!r}; esperado um de {schema['enum']}")
+    if isinstance(node, str) and 'pattern' in schema and not re.search(schema['pattern'], node):
+        bad(f"{node!r} não casa com {schema['pattern']}")
+    if isinstance(node, int) and not isinstance(node, bool):
+        if 'minimum' in schema and node < schema['minimum']: bad(f"{node} < mínimo {schema['minimum']}")
+        if 'maximum' in schema and node > schema['maximum']: bad(f"{node} > máximo {schema['maximum']}")
+    if isinstance(node, dict):
+        for req in schema.get('required', []):
+            if req not in node: bad(f"campo obrigatório ausente: {req}")
+        props = schema.get('properties', {})
+        if schema.get('additionalProperties') is False:
+            for k in node:
+                if k not in props: bad(f"campo desconhecido: {k}")
+        for k, sub in props.items():
+            if k in node: _validate(node[k], sub, f"{path}.{k}" if path else k, errors)
+    if isinstance(node, list) and 'items' in schema:
+        for i, item in enumerate(node):
+            _validate(item, schema['items'], f"{path}[{i}]", errors)
+    return errors
+
+schema_path = os.environ.get('VSSH_SCHEMA_PATH') or ''
+if schema_path and os.path.isfile(schema_path):
+    try:
+        problems = _validate(m, json.load(open(schema_path, encoding='utf-8')))
+    except Exception as e:
+        problems = []
+        print(f"aviso: não foi possível validar contra o schema ({e})", file=sys.stderr)
+    if problems:
+        print('ERROR=schema:' + '; '.join(problems[:6])); sys.exit(0)
+else:
+    # Sparse checkout antigo (só scripts/) ou execução fora de um clone: seguimos com as
+    # checagens mínimas acima em vez de recusar a publicação por falta do schema.
+    print('aviso: schema não encontrado; validando só o mínimo', file=sys.stderr)
+
 print(f"ID={app_id}")
 print(f"VERSION={version}")
 print("ICON=" + (m.get('icon') or ''))

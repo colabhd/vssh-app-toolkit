@@ -1,0 +1,56 @@
+name: CI
+
+# As libs de lib/ são código compartilhado: um bug aqui se espalha para todo vssh-app que as
+# vendorizar. Sem dependência npm, então não há `npm ci` — é `node --test` e pronto.
+#
+# A matriz existe por um motivo concreto: estes testes já falharam 5 vezes no Windows enquanto
+# passavam no Linux (separador de path nos helpers, errno diferente entre SOs). Rodar só num SO
+# foi o que escondeu isso por tanto tempo.
+
+on:
+  push:
+    branches: [main]
+    paths: ['lib/**', 'scripts/**', 'templates/**', '.github/workflows/ci.yml']
+  pull_request:
+    paths: ['lib/**', 'scripts/**', 'templates/**', '.github/workflows/ci.yml']
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # 22 é requisito do RUNNER (o glob de `node --test`), não das libs.
+          node-version: '22'
+      - name: Testes das libs
+        shell: bash
+        run: npm test
+
+  smoke-template-node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # 20 de propósito: é o piso que as libs prometem, e o servidor-alvo pode ter só isso.
+          # Se alguma lib usar sintaxe mais nova, é aqui que aparece.
+          node-version: '20'
+      # Exercita o template como um app real: sobe o backend na porta que o portal daria, e
+      # confere healthcheck, API, index servido pelo static-spa e SSE chegando sem buffer.
+      - name: Smoke do template Node
+        run: |
+          cd templates/hello-vssh-app-node
+          VSSH_APP_PORT=45999 VSSH_APP_ID=hello-world-node \
+            VSSH_APP_DATA_DIR="${RUNNER_TEMP}/hwn" node backend/server.js &
+          for i in $(seq 1 20); do curl -fsS http://127.0.0.1:45999/healthz >/dev/null && break; sleep 0.5; done
+          curl -fsS http://127.0.0.1:45999/healthz | grep -q ok
+          curl -fsS http://127.0.0.1:45999/api/ping | grep -q '"pong":true'
+          curl -fsS http://127.0.0.1:45999/ | grep -q '<!DOCTYPE html>'
+          timeout 3 curl -sN http://127.0.0.1:45999/api/events | grep -q 'event: tick'
+          test -s "${RUNNER_TEMP}/hwn/app.log"
