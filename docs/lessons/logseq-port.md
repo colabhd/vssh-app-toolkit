@@ -252,3 +252,34 @@ gravação faz `stat` → `read-file` → compara → `write-file`, três idas e
 uma edição externa é sobrescrita. Sem watcher, edição externa já exige Refresh manual e a janela é
 teórica. Com watcher, ela deixa de ser — e aí uma escrita condicional (`ifMatches` resolvido no
 servidor, uma requisição em vez de três) passa a valer o risco.
+
+---
+
+## 10. Depois da promoção: o que medir contra um consumidor real revelou
+
+As seções acima foram escritas durante o port. Estas duas vieram **depois**, ao medir as peças
+promovidas contra o app que as originou — e são o tipo de defeito que nenhuma revisão de código
+pega, porque só aparece no perfil de uso real.
+
+**Um default é uma decisão tomada em nome de quem ainda não chegou.** A lib de FS documentava que
+allowlist de extensão e ignore list são decisão do app, e ao mesmo tempo trazia os valores do
+Logseq como default. Um segundo app herdaria `logseq/bak` sem pedir. A regra: se você escreveu na
+documentação que a escolha é do chamador, o valor não pode estar no default. Hoje esses valores
+vivem em `presets/logseq.js`, e o default da lib é neutro.
+
+**Uma API pode estar correta e ainda assim inutilizável, por causa do padrão de chamada.** O
+`getFile()` do polyfill da FSA buscava o conteúdo do arquivo — que é o que o nome sugere. Só que o
+consumidor chama `getFile()` para **todo** arquivo do diretório, recursivamente, e só depois filtra
+por extensão. Num grafo de 300 arquivos isso vira ~600 requisições e o download de todos os anexos,
+a cada abertura, para descartar quase tudo em seguida. A correção não foi na semântica, foi no
+**momento**: `getFile()` devolve um `File` preguiçoso, com `size`/`mtime` vindos da listagem (que
+já os traz), e o corpo só é buscado em `.text()`/`.arrayBuffer()`.
+
+Corolário para qualquer camada de compatibilidade: **implementar a superfície certa não basta —
+é preciso perfilar o padrão de chamada do consumidor.** Uma operação barata chamada N vezes num
+laço é uma operação cara.
+
+**E um caso onde falhar em silêncio era o pior desfecho:** a escrita do polyfill fazia
+`blob.text()` antes de gravar. Para markdown funciona; para um PNG colado no editor, corrompe — e
+o erro só aparece quando alguém abre a imagem, longe da causa. Hoje texto e bytes têm rotas
+distintas, e há teste para as duas.
