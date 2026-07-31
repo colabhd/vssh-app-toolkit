@@ -45,6 +45,13 @@ vez de chamar métodos:
 
 Se o app usa um dos últimos, materialize antes: `new Blob([await file.arrayBuffer()])`.
 
+**Permissão, e o que o app precisa tratar.** O grant persiste entre sessões — é o par necessário
+da persistência de handle, já que um handle restaurado sem grant é um handle morto. Mas o usuário
+pode revogar, e aí `queryPermission()` responde `'prompt'` em vez de `'granted'`. Um app que
+presume `'granted'` (comum: o código foi escrito para um navegador, onde a permissão morre a cada
+carga, e alguém "simplificou" a checagem no port) falha na primeira operação em vez de pedir de
+novo. `requestPermission()` reabre o seletor, que é o caminho de volta.
+
 ---
 
 ## App Electron-only: extrair o renderer e medir

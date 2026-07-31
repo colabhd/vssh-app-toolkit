@@ -12,6 +12,11 @@ não depende do Xpra: um vssh-app se comporta igual num ambiente sem ele. O back
 infraestrutura do portal; quem constrói o app não edita nada no repositório do vssh-sso — só
 publica um pacote seguindo a convenção abaixo, e um admin instala com `vssh-app-install`.
 
+**Como o app fala com o ambiente** — trocar o título, abrir um diálogo, montar um menu de contexto,
+escolher arquivo, controlar a janela: [`docs/api.md`](../../docs/api.md) é a referência completa,
+com uma seção final sobre o que **não** existe. Esta SKILL cobre empacotar e instalar; aquela,
+programar contra o ambiente.
+
 **Portando um app que já existe** (web, Electron ou Tauri)? Comece por
 [`docs/porting.md`](../../docs/porting.md): tem a árvore de decisão e como medir, em minutos, o que
 falta num app concreto.
@@ -226,8 +231,22 @@ for await (const [name, handle] of dir.entries()) { /* ... */ }
 ```
 
 Duas consequências que importam: o app **não precisa de backend de filesystem nenhum**, e um web
-app que já usa FSA (Logseq, Excalidraw, tldraw, editores em geral) roda **sem fork**. Handles
-sobrevivem a persistência em IndexedDB — o polyfill cuida disso.
+app que já usa FSA (Logseq, Excalidraw, tldraw, editores em geral) roda **sem fork**.
+
+**Permissão segue o modelo do próprio padrão:** o app alcança só o que o usuário escolheu num
+seletor. Escolher É consentir — não há segunda confirmação.
+
+O grant **sobrevive à sessão**, e isso é o par necessário da persistência de handle: o polyfill
+guarda handles em IndexedDB para o app reabrir a mesma pasta depois de um reload, e um handle sem
+grant é um handle morto. Duas consequências para quem escreve o app:
+
+- `queryPermission()` responde de verdade — `'granted'` ou `'prompt'`, consultando o shell. Não
+  presuma `'granted'`.
+- `requestPermission()` reabre o seletor. Chame-o a partir de um gesto do usuário, como no
+  navegador; se ele escolher outra pasta, a resposta é `'denied'` e o handle antigo continua fora.
+
+O usuário revoga em **Permissões de arquivo**, no menu de contexto da janela do app. Trate
+`'denied'` como um estado normal, não como erro fatal.
 
 Permissão segue o modelo do próprio padrão: só o que o usuário escolheu num seletor fica
 alcançável, nesta janela, sem persistir entre aberturas. Pedir um caminho que ele não escolheu é
@@ -495,7 +514,7 @@ window.parent.postMessage({ vsshApp: true, type: 'open-file',   path: '/home/use
 window.parent.postMessage({ vsshApp: true, type: 'open-folder', path: '/home/user/Documents' }, location.origin);
 ```
 
-O **pai** (`VsshAppWindow._setupFileOpenBridge`) roda no documento do desktop
+O **pai** (`VsshAppWindow._setupAppBridge`) roda no documento do desktop
 (`/<serverId>/xpra/`), então ele mesmo monta a URL `../../api/fs/read?path=...` (com Range/206 já
 pronto pra vídeo/PDF grande) — **o app nunca precisa saber o `serverId` nem construir essa URL**,
 só mandar o path absoluto. O handler é filtrado por `e.source === iframe.contentWindow`, então cada

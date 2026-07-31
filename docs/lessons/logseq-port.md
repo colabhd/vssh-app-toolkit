@@ -312,3 +312,35 @@ importa funciona e o resto é dito em voz alta.
 Corolário mais amplo: **ao subclassificar um tipo da plataforma, pergunte o que a plataforma lê —
 não o que ela chama.** Estado interno não é interceptável por getter, e o teste que revela isso não
 é o que exercita a sua API: é o que entrega o objeto para outra parte da plataforma.
+
+**Permissão que não sobrevive a quem a consome é um handle morto.** O polyfill guarda o handle do
+diretório no IndexedDB do app — foi um dos primeiros defeitos consertados, justamente para o app
+reabrir o mesmo grafo depois de um reload. Mas o *grant* vivia na instância da janela e morria com
+ela. Resultado: o app restaurava o handle, chamava `values()` na raiz e era negado na primeira
+operação. Tudo funcionando, nada funcionando.
+
+A assimetria é o defeito, e ela não tem nada de específico do consumidor: vale para qualquer app
+que a `showDirectoryPicker` sirva. **Se você deu a um objeto a capacidade de atravessar a sessão,
+tudo de que ele depende precisa atravessar junto** — persistir metade é pior que não persistir
+nada, porque a falha aparece longe da causa e parece um bug do app.
+
+O que a correção decidiu, e que vale registrar: o grant persiste em `localStorage`, **não** no
+backend do usuário, e isso é escolha e não atalho. O handle vive no IndexedDB — por perfil de
+navegador e por origem. Espelhar o grant no servidor lhe daria alcance *maior* que o do handle: em
+outro navegador o usuário teria a permissão viva e nenhum app do outro lado para consumi-la.
+**Permissão não deve sobreviver a quem a consome.** E porque agora ela sobrevive à sessão, precisou
+de um lugar onde o usuário a veja e a tire — permissão invisível e permanente é a pior combinação.
+
+**`queryPermission()` respondia `granted` incondicionalmente**, e isso era uma mentira com
+consequência. Quem decide é o shell; o polyfill respondia por ele. O app checava, ouvia "pode", e
+era negado logo depois. Hoje a pergunta vai a quem decide, e `requestPermission()` reabre o seletor
+— que é o que a API real faz, e era o caminho de volta que não existia. Corolário: **uma camada de
+compatibilidade que responde no lugar da autoridade não está simplificando, está mentindo.** Se a
+resposta é sempre `sim`, a função não precisava existir.
+
+**Um `stat` é uma pergunta, e "não existe" é uma resposta.** O `getDirectoryHandle(name, {create:
+true})` sonda com `stat` e cria no 404 — o caminho normal. O shell logava cada sonda como erro,
+com stack trace, e abrir um grafo novo produzia sete delas antes de qualquer coisa dar errado de
+verdade. É a mesma lição que o backend deste app já tinha aprendido (§7: sondagens ENOENT ganharam
+`expected: true`), reaprendida do outro lado da ponte. **Logar sondagem e falha do mesmo jeito não
+deixa o log mais completo — faz o erro de verdade desaparecer no meio.**
