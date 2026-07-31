@@ -344,3 +344,48 @@ com stack trace, e abrir um grafo novo produzia sete delas antes de qualquer coi
 verdade. É a mesma lição que o backend deste app já tinha aprendido (§7: sondagens ENOENT ganharam
 `expected: true`), reaprendida do outro lado da ponte. **Logar sondagem e falha do mesmo jeito não
 deixa o log mais completo — faz o erro de verdade desaparecer no meio.**
+
+**"Não" e "não sei" pedem ações opostas — colapsar as duas escolhe a errada.** O `isGranted` do
+shim devolvia `false` para três coisas diferentes: o shell disse não, o shell respondeu erro, e o
+shell não respondeu nada (por ser mais antigo que o app e não conhecer a mensagem). Uma manda
+desistir; a outra manda seguir. E o colapso escolhe a ação errada **exatamente quando o canal está
+com problema**, que é quando importa.
+
+O sintoma não apontava para a causa: o app entrava no caminho de reconceder permissão e o grafo não
+carregava, **enquanto as operações de arquivo funcionavam normalmente** — porque `fs` o shell
+implementa e `grants` não. Custou três versões do app.
+
+A regra geral: **shell e apps são deployados à parte, então versão dessincronizada é a regra, não a
+exceção.** Toda pergunta que atravessa essa fronteira precisa de uma resposta para "não obtive
+resposta", distinta de "a resposta é não". E a resposta certa a ela, aqui, foi a mesma que já valia
+para o caso simétrico: um shell sem `grants` é o mesmo caso que um shim sem `isGranted` — em nenhum
+dos dois há a quem perguntar, e os dois respondem `'granted'`. Antes, um dava `'granted'` e o outro
+`'prompt'`, e nada no código dizia por quê.
+
+**Um comentário que descreve o que o código deveria fazer é pior que nenhum.** Acima da função
+`call()` estava escrito "toda chamada que espera resposta tem timeout" — e o parâmetro tinha
+`timeout = 0`, que não criava timer nenhum. Quem leu o comentário parou de procurar ali. A promise
+de um `pick` contra um shell mudo não resolvia, não rejeitava e não deixava rastro no console: o
+pior modo de falha que existe, porque não dá o que procurar.
+
+**Cobrir o caminho que o primeiro consumidor usa não é cobertura, é sorte.** A reidratação de
+handle envelopava `IDBObjectStore.get` e `getAll`. O Logseq lê da raiz com `get`, então funcionava
+— mas `IDBIndex`, cursores e handle aninhado dentro de um objeto voltavam crus, sem métodos, e o
+app concluiria que a pasta está vazia. Exatamente o modo de falha que o envelope existe para
+evitar, num caminho que ninguém tinha visitado. O corolário para camada de compatibilidade:
+**enquanto o mecanismo tem furo, a documentação precisa dizer onde** — "não suportado" e "não
+testado" são coisas diferentes, e o silêncio faz as duas parecerem iguais.
+
+**Estado interno é do realm em que nasceu.** Ao descer em objetos para achar handle aninhado, a
+primeira versão testava `Object.getPrototypeOf(v) === Object.prototype`. Objeto vindo de outro
+documento — iframe, worker — tem OUTRO `Object.prototype`, e era descartado como se não fosse um
+objeto simples. `Object.prototype.toString.call(v)` responde a mesma pergunta sem essa
+sensibilidade. Vale a mesma regra do `Blob` preguiçoso: ao mexer com tipos da plataforma, pergunte
+de onde o valor veio, não só o que ele parece.
+
+**`$!` de um pipeline em background é o ÚLTIMO comando, não um líder.** No watcher remoto,
+`inotifywait | emit &` deixava `$!` apontando para o `emit`; o `inotifywait` era **irmão** dele, não
+filho. Matar por pid ou por `pkill -P` derrubava metade, e o vigia continuava emitindo depois do
+`unwatch` — em silêncio, porque nada falhava. A saída é `set -m`, que põe cada job em seu próprio
+grupo de processos, e `kill -- -PGID`. Só apareceu porque o script foi **executado** num teste, não
+só lido: `bash -n` passava nas duas versões.

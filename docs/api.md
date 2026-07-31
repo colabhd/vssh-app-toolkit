@@ -30,6 +30,7 @@ no-op. Você desenvolve fora do VSSH sem `if` nenhum.
 | Menu de contexto do desktop | `vssh.contextMenu()` |
 | Escolher arquivo/pasta | `vssh.pickFile/pickSave/pickDirectory()` |
 | Ler e gravar na home do usuário | `showDirectoryPicker()` + FSA (via `fsa-polyfill.js`) |
+| Saber que um arquivo mudou por fora | `vssh.fs.watch()` |
 | Abrir um arquivo no visualizador certo | `vssh.openFile()` |
 | Deixar o usuário escolher com que abrir | `vssh.openWith()` |
 | Receber um arquivo que abriram com o meu app | `vssh.onOpenContext()` |
@@ -170,12 +171,57 @@ sobrevive junto**, que é o par necessário: um handle restaurado sem permissão
 
 ```js
 if (await dir.queryPermission() !== 'granted') {     // responde de verdade; não presuma 'granted'
-  if (await dir.requestPermission() !== 'granted') return;   // reabre o seletor
+  // Chame a partir de um clique: sem gesto do usuário, devolve 'prompt' sem abrir seletor —
+  // é regra do navegador, não nossa.
+  if (await dir.requestPermission() !== 'granted') return;
 }
 ```
 
 O usuário revoga em **Permissões de arquivo**, no menu de contexto da janela do app. Trate
 `'denied'` como estado normal, não como erro fatal.
+
+Duas precisões que evitam surpresa:
+
+- **`{ mode: 'read' | 'readwrite' }` é aceito e repassado, mas o shell ainda não distingue modo:
+  todo grant dele é `readwrite`.** Pedir `{mode:'read'}` e receber `'granted'` está correto —
+  readwrite satisfaz read. O parâmetro existe para o dia em que houver grant por modo.
+- **Quando não há a quem perguntar, a resposta é `'granted'`.** Shell antigo sem a mensagem
+  `grants`, ou desenvolvimento fora do desktop, produzem "não sei" — e "não sei" não é "não". O
+  contrário faria o app pedir ao usuário uma permissão que ele já deu.
+
+### Ser avisado quando um arquivo muda por fora
+
+```js
+const parar = await vssh.fs.watch(dir, ({ path, closed }) => {
+  if (closed) return;          // a assinatura acabou; peça de novo se ainda precisar
+  recarregar(path);
+});
+// …quando não precisar mais:
+parar();
+```
+
+É a diferença entre "meu editor e o app veem o mesmo arquivo" e "tenho que lembrar de apertar
+Refresh". Pega edição por SSH, `git pull`, upload pelo gerenciador de arquivos — qualquer mudança
+que não passou pelo app.
+
+**Cancele quando parar de precisar.** Cada watch segura um vigia vivo no servidor Linux, e há teto
+por usuário. Fechar a janela cancela tudo automaticamente.
+
+Não está no `fsa-polyfill` de propósito: a File System Access API não tem watch, e pendurar isto
+num handle daria cara de padrão a uma extensão nossa.
+
+### O que a persistência de handle cobre
+
+O polyfill reidrata handles lidos do IndexedDB — sem isso o app guarda o handle, recarrega, lê de
+volta um objeto sem métodos e conclui que a pasta está vazia.
+
+| lido por | reidrata? |
+|---|---|
+| `IDBObjectStore.get` / `getAll` | sim |
+| `IDBIndex.get` / `getAll` | sim |
+| `openCursor()` (store ou índice), via `cursor.value` | sim, e continua valendo após `continue()` |
+| handle aninhado (`{ handle, … }`, ou dentro de array) | sim, até 4 níveis |
+| `getAllKeys()` | **não** — chave é chave, não handle |
 
 **Limites do `File` preguiçoso**, que valem conhecer antes de portar:
 
@@ -299,14 +345,22 @@ window.parent.postMessage({ vsshApp: true, type, requestId?, ...payload }, locat
 | `pick` | sim | `variant`: `open`\|`save`\|`directory`, `title?`, `filter?`, `name?` |
 | `context-menu` | sim | `x`, `y`, `items[]` |
 | `fs` | sim | `op`: `list`\|`stat`\|`read`\|`readBytes`\|`write`\|`writeBytes`\|`mkdir`\|`delete`, `path` |
-| `grants` | sim | `path?` — com `path`, booleano; sem, a lista |
+| `fs` (`op: watch`) | sim | `path`, `watchId` — a resposta confirma; as mudanças vêm por `fs-change` |
+| `fs` (`op: unwatch`) | sim | `watchId` |
+| `grants` | sim | `path?`, `mode?` — com `path`, booleano; sem, a lista |
 | `capabilities` | sim | — |
 | `open-file` / `open-folder` | não | `path` |
 | `open-with` | sim | `path` |
 | `tabs` | não | `tabs[]`, `activeTabId` |
 
-Do shell para o app, sem `requestId`: `open-context`, `grants`, `restore-tabs`, `activate-tab`,
-`close-tab`, `new-tab`.
+Do shell para o app, sem `requestId`: `open-context`, `grants`, `fs-change`, `restore-tabs`,
+`activate-tab`, `close-tab`, `new-tab`.
+
+**Toda chamada com `requestId` tem timeout no shim**, e o padrão é 10 minutos — folgado porque
+`pick`, `dialog` e `context-menu` esperam uma pessoa decidir, e não dá para distinguir "usuário
+pensando" de "shell mudo" pelo relógio. O que importa é que termine: um shell que não conhece o
+tipo simplesmente não responde, e sem timer a promise ficaria pendurada para sempre — sem resolver,
+sem rejeitar e sem deixar nada no console.
 
 **Prefira o shim.** Ele já trata correlação de `requestId`, timeout, degradação fora do desktop e o
 espelho de título — e é a única coisa que não muda quando o protocolo mudar.

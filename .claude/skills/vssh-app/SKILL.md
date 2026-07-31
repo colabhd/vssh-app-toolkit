@@ -242,11 +242,16 @@ grant é um handle morto. Duas consequências para quem escreve o app:
 
 - `queryPermission()` responde de verdade — `'granted'` ou `'prompt'`, consultando o shell. Não
   presuma `'granted'`.
-- `requestPermission()` reabre o seletor. Chame-o a partir de um gesto do usuário, como no
-  navegador; se ele escolher outra pasta, a resposta é `'denied'` e o handle antigo continua fora.
+- `requestPermission()` reabre o seletor. Chame-o **a partir de um gesto do usuário** — sem gesto
+  ele devolve `'prompt'` sem abrir nada, que é a regra do navegador. Se o usuário escolher outra
+  pasta, a resposta é `'denied'` e o handle antigo continua fora.
 
 O usuário revoga em **Permissões de arquivo**, no menu de contexto da janela do app. Trate
 `'denied'` como um estado normal, não como erro fatal.
+
+Para saber que um arquivo mudou **por fora** do app (outro editor, `git pull`, upload pelo
+gerenciador de arquivos), use `vssh.fs.watch(path, cb)` — devolve a função que cancela, e cancelar
+importa: cada watch segura um vigia vivo no servidor. Ver [`docs/api.md`](../../docs/api.md).
 
 Permissão segue o modelo do próprio padrão: só o que o usuário escolheu num seletor fica
 alcançável, nesta janela, sem persistir entre aberturas. Pedir um caminho que ele não escolheu é
