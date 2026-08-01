@@ -1,6 +1,7 @@
 {
   "name": "vssh-app-toolkit",
-  "version": "1.0.0",
+  "version": "2.0.0",
+  "//version": "Major bumpado porque as libs de lib/ carregam breaking changes reais desde a tag v1 — permissão que parou de mentir 'granted', getFile() preguiçoso, timeout default de 0 para 600s, entre outros. Estava congelada em 1.0.0 desde o commit inicial, o que fazia o único marcador de procedência do consumidor (vendor/vssh/.vssh-lib-version) apontar para um número que não distinguia nada. Ver MIGRATION.md.",
   "private": true,
   "description": "Ferramentas e bibliotecas para construir e publicar vssh-apps",
   "license": "MIT",

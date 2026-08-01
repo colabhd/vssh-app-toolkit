@@ -253,10 +253,6 @@ Para saber que um arquivo mudou **por fora** do app (outro editor, `git pull`, u
 gerenciador de arquivos), use `vssh.fs.watch(path, cb)` — devolve a função que cancela, e cancelar
 importa: cada watch segura um vigia vivo no servidor. Ver [`docs/api.md`](../../docs/api.md).
 
-Permissão segue o modelo do próprio padrão: só o que o usuário escolheu num seletor fica
-alcançável, nesta janela, sem persistir entre aberturas. Pedir um caminho que ele não escolheu é
-recusado pelo shell.
-
 **Quando usar o `vssh-app-fs` então?** Quando o app quer um store **privado**: uma raiz confinada,
 com token próprio, funcionando inclusive fora do desktop. São casos diferentes, não alternativas.
 
