@@ -8,7 +8,7 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "//engines": "O >=22 é do RUNNER DE TESTE (o glob abaixo só existe a partir dessa versão). As libs de lib/ rodam em Node >=20 — o CI prova isso rodando o template em 20, e é essa a versão que importa, porque é a do servidor-alvo.",
-    "//test": "Glob entre aspas: quem expande é o Node, não o shell — sem isso quebra no cmd.exe do Windows, que é metade da matriz do CI.",
-    "test": "node --test \"lib/**/*.test.js\""
+    "//test": "Glob entre aspas: quem expande é o Node, não o shell — sem isso quebra no cmd.exe do Windows, que é metade da matriz do CI. `tests/` é para o que não é de uma lib só (hoje: a conferência das cópias vendorizadas nos templates).",
+    "test": "node --test \"lib/**/*.test.js\" \"tests/**/*.test.js\""
   }
 }

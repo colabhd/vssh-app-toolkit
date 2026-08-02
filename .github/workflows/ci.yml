@@ -22,9 +22,9 @@ name: CI
 on:
   push:
     branches: [main]
-    paths: ['lib/**', 'scripts/**', 'templates/**', '.github/workflows/ci.yml']
+    paths: ['lib/**', 'scripts/**', 'templates/**', 'tests/**', 'package.json', '.github/workflows/ci.yml']
   pull_request:
-    paths: ['lib/**', 'scripts/**', 'templates/**', '.github/workflows/ci.yml']
+    paths: ['lib/**', 'scripts/**', 'templates/**', 'tests/**', 'package.json', '.github/workflows/ci.yml']
   workflow_dispatch:
 
 jobs:

@@ -7,6 +7,26 @@ name: Publish templates
 # Pré-requisitos (uma vez), no próprio toolkit (Settings → Secrets and variables → Actions):
 #   - secret VSSH_REPO_PUBLISH_TOKEN: token escopado `kind:app` (ou mestre) — cobre todos os ids.
 #   - var    VSSH_REPO_API: base URL do Worker (ex. https://vssh-repo.colabh.org).
+#
+# ── A VERSÃO É DERIVADA, NÃO ESCRITA À MÃO ────────────────────────────────────
+# O `version` do vssh-app.json de um template ficou em 1.0.0 desde o commit inicial,
+# atravessando reescritas inteiras do frontend. O efeito não era cosmético:
+#
+#   1. o Worker faz ON CONFLICT(kind,name,channel,version) DO UPDATE, então o conteúdo
+#      NOVO sobrescrevia o 1.0.0 — duas builds diferentes com o mesmo número;
+#   2. no servidor, o vssh-app-install compara a versão instalada com a resolvida e,
+#      sendo iguais, sai com "já está na versão 1.0.0. Use --force para reinstalar".
+#
+# Ou seja: publicava, e não chegava. Foi assim que a bandeja (vssh.tray) ficou invisível
+# no hello-world depois de publicada — sem erro em lugar nenhum, os dois passos verdes.
+#
+# Aqui o PATCH passa a ser o nº de commits que tocaram aquele template: monotônico, semver
+# de verdade, e sem passo manual para alguém esquecer. `major.minor` continua no manifest,
+# sob controle humano — é lá que se declara "isto quebrou compatibilidade".
+#
+# Isto vale para os templates DESTE repositório. Um vssh-app externo continua responsável
+# pela própria versão (ver a SKILL): o mecanismo aqui é conveniência do monorepo, não regra
+# do ecossistema.
 
 on:
   push:
@@ -26,6 +46,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Histórico completo: o patch da versão é contagem de commits por template, e
+          # num clone raso ela daria 1 para sempre — publicando 1.0.1 a cada push e o
+          # servidor pulando todos, a partir do segundo, por "já está nessa versão".
+          fetch-depth: 0
 
       - name: Publicar
         env:
@@ -34,11 +59,26 @@ jobs:
           APP_INPUT: ${{ github.event.inputs.app || 'all' }}
         run: |
           set -euo pipefail
+          # Falha alto em vez de publicar número errado: um clone raso aqui é o modo de
+          # falha que este mecanismo inteiro existe para acabar.
+          [ "$(git rev-parse --is-shallow-repository)" = "false" ] \
+            || { echo "ERRO: clone raso — o patch da versão sairia errado. Ver fetch-depth acima." >&2; exit 1; }
+
           publish_dir() {
-            local dir="$1"
+            local dir="$1" base patch
             [ -f "${dir}/vssh-app.json" ] || { echo "Pulando ${dir} (sem vssh-app.json)"; return; }
-            echo "== ${dir} =="
-            bash scripts/vssh-app-publish "${dir}"
+            # major.minor vêm do manifest (decisão humana); patch é derivado do histórico.
+            base=$(python3 -c "import json,re,sys;v=json.load(open('${dir}/vssh-app.json')).get('version','');m=re.match(r'^(\d+)\.(\d+)(\.|$)',v);sys.exit('version inválida: '+repr(v)) if not m else print(m.group(1)+'.'+m.group(2))")
+            patch=$(git rev-list --count HEAD -- "${dir}")
+            # Barato, e evita o erro confuso: um `base` vazio (python3 ausente, manifest
+            # torto) publicaria ".3", que o vssh-app-publish rejeitaria lá na frente como
+            # "version_ausente" — mensagem que não aponta para cá.
+            case "${base}.${patch}" in
+              [0-9]*.[0-9]*.[0-9]*) : ;;
+              *) echo "ERRO: versão derivada inválida para ${dir}: '${base}.${patch}'" >&2; exit 1 ;;
+            esac
+            echo "== ${dir} → ${base}.${patch} =="
+            bash scripts/vssh-app-publish "${dir}" --version "${base}.${patch}"
           }
           if [ "${APP_INPUT}" = "all" ]; then
             for d in templates/*/; do publish_dir "${d%/}"; done
