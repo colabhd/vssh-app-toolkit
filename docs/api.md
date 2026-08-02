@@ -162,10 +162,42 @@ janela fecha.
 **Devolve `false` em vez de lançar** quando não há bandeja do outro lado — fora do desktop, ou num
 shell mais antigo que o seu app. Trate como "este ambiente não tem bandeja" e siga; não é erro.
 
-> **Hoje isto vale para app com janela.** Um `type:"engine"` ou `kind:"service"` não tem iframe,
-> logo não tem esta ponte — e é justamente ele que mais precisaria da bandeja, porque não tem
-> janela nenhuma onde aparecer. A via para eles é a próxima peça a ser construída; até lá, um
-> `set` de um app sem janela não tem por onde chegar.
+#### App **sem** janela (`engine` / `service`)
+
+`vssh.tray` é do frontend, e um `type:"engine"` ou `kind:"service"` não tem iframe — logo não tem
+esta ponte. E é justamente ele que mais precisa da bandeja: não tem janela nenhuma onde aparecer.
+
+Para ele o modelo se inverte: **estado por arquivo, ação por HTTP.** Use
+[`lib/node/vssh-tray.js`](../lib/node/vssh-tray.js) (`--parts tray` no `vssh-app-lib-sync`):
+
+```js
+const { setTray, clearTray, clearTrayOnExit } = require('./vendor/vssh/node/vssh-tray.js');
+clearTrayOnExit();
+
+setTray({
+  icon: 'refresh',
+  tooltip: `Sincronizando ${feitos} de ${total}`,
+  badge: { count: total - feitos },
+  menu: [{ id: 'pause', label: 'Pausar' }],
+  onClick: { path: '/tray' },      // ← o clique chega aqui, como POST
+});
+```
+
+E no seu backend:
+
+```js
+// POST /tray  { event: 'click' }                   → clicaram no ícone
+// POST /tray  { event: 'menu', menuId: 'pause' }   → escolheram um item do menu
+```
+
+A diferença para a versão com janela é só essa: `onClick`/`onMenu` são **um caminho**, não uma
+função — a rede é assimétrica (o portal alcança o seu app pelo túnel; o seu app não alcança o
+portal), então o estado é lido e a ação é entregue.
+
+**Latência e custo:** o portal faz poll em lote — um comando por servidor a cada poucos segundos,
+cobrindo todos os usuários de uma vez — e **só enquanto houver alguém com o desktop aberto**. Um
+daemon rodando sem ninguém olhando não custa nada. Escrever em loop apertado não faz o ícone
+aparecer mais rápido.
 
 ---
 
@@ -354,7 +386,6 @@ Ser honesto aqui vale mais que a lista de cima, porque é o que decide se o seu 
 |---|---|
 | Menubar de aplicação (`Menu` do Electron) | Menu de contexto + UI própria dentro da janela |
 | Atalho global, `powerMonitor` | Sem equivalente; normalmente dá para remover |
-| Ícone de bandeja para app **sem janela** (`engine`/`service`) | `vssh.tray.*` existe, mas passa pela ponte do iframe — ver a ressalva na seção da bandeja |
 | `setSize`/`setPosition` da janela | Tamanho inicial pelo manifest; depois é do usuário |
 | Badge/progresso na taskbar | — |
 | Múltiplas janelas do mesmo app | Uma janela por app; use abas (`richChrome`) |

@@ -191,7 +191,7 @@ alcançar registry npm num exec por SSH, e o publish empacota o que está versio
 
 ```bash
 # libs de backend ao lado do backend; libs de frontend sob a raiz que o static-spa serve
-bash /caminho/do/toolkit/scripts/vssh-app-lib-sync . --parts fs,spa,log,sse --dest backend/vendor/vssh
+bash /caminho/do/toolkit/scripts/vssh-app-lib-sync . --parts fs,spa,log,sse,tray --dest backend/vendor/vssh
 bash /caminho/do/toolkit/scripts/vssh-app-lib-sync . --parts web            --dest frontend/vendor/vssh
 git add backend/vendor/vssh frontend/vendor/vssh && git commit -m "sync vssh libs"
 ```
@@ -202,6 +202,7 @@ git add backend/vendor/vssh frontend/vendor/vssh && git commit -m "sync vssh lib
 | `static-spa.js` | Servir uma SPA construída sob o prefixo do proxy: 304, prefixos alias, injeção de script de boot, fallback de SPA. |
 | `sse.js` | Server-Sent Events com os headers que sobrevivem ao proxy e ao CDN. Sem eles os eventos chegam em lote, ou nunca — e sem erro nenhum. |
 | `vssh-app-fs/` | Filesystem **privado** do app por HTTP: confinado a uma raiz, token-gated, errno classificado. |
+| `vssh-tray.js` | Ícone na bandeja para app **sem janela** (`engine`/`service`) — escrita atômica de `tray.json`, e o clique volta como POST no seu backend. App COM janela usa `vssh.tray.*` do shim, que é síncrono. |
 
 Comece pelo `templates/hello-vssh-app-node/`, que já nasce com tudo isso ligado.
 

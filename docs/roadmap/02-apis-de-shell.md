@@ -4,9 +4,10 @@
 > **Dependência da** [Onda 1](01-sessao-sem-xpra.md) **satisfeita** — a sessão existe
 > (`services/session.ts`), e com ela o canal que esta onda precisava.
 >
-> **Feito:** a tray existe (2.1, fonte de app com janela), a taskbar passou a obedecer às
-> capabilities e a tela cheia virou item do hambúrguer. **Falta:** a fonte de `engine`/`service`
-> da 2.1, e as subondas 2.2 a 2.5 inteiras.
+> **Feito:** a [2.1 inteira](#21--tray---concluída) — bandeja com as duas fontes (app com janela e
+> `engine`/`service` por arquivo), o transporte da [2.0](#o-transporte-o-coletor-por-servidor---feito),
+> a taskbar obedecendo às capabilities e a tela cheia no hambúrguer.
+> **Falta:** 2.2 a 2.5.
 
 Quatro superfícies que faltam para o ambiente ser um desktop de verdade. As quatro atravessam os
 [dois critérios](criterios.md) — e três delas mudaram de escopo por causa disso.
@@ -58,31 +59,59 @@ controle"* — ficou desatualizado na Onda 1 e sai junto.
 > O desenho quebraria por volta de **oito usuários simultâneos**, e sem erro legível: o sintoma seria
 > a rajada de 409 com o app vivo que `da6bfb5` acabou de consertar.
 
-### O transporte correto: um vigia por SERVIDOR
+### O transporte: o coletor por servidor · ✅ feito
 
-A conexão pooled já autentica como o usuário provisionador (que tem sudo). Um **único vigia
-privilegiado** observa `/home/*/.vssh-apps/*/tray.json` e `/home/*/.vssh-notifications/`, emite
-linhas `{user, path}`, e o portal demultiplexa por usuário roteando para o `/ws/shell` da sessão
-certa.
+`src/services/tray-collector.ts`. A escolha entre as duas opções que este plano listava caiu na
+**segunda**, e não por acaso.
 
-**Custo: 1 canal por servidor, constante**, independente do número de usuários — em vez de N.
+O plano preferia um **vigia privilegiado com inotify** (1 canal permanente por servidor) e tratava
+o **poll em lote** como alternativa "ao preço de latência". Invertemos: um exec transiente por
+servidor a cada 5 s (`VSSH_TRAY_POLL_MS`) ganha em duas coisas que pesam mais que a latência —
+**não segura canal nenhum entre os ticks**, e **não precisa de daemon novo** no servidor. E a
+bandeja tolera segundos: *"sincronizando 3 de 12"* não é tempo real.
 
-A resolver no desenho:
-- o teto de inotify do kernel (`fs.inotify.max_user_watches`) vira o limite relevante em vez do canal
-  — é sysctl, não recurso escasso do portal;
-- ler arquivos de outros usuários exige o mesmo cuidado que o `sudo -u` já toma hoje;
-- se o vigia privilegiado for indesejável, a alternativa é **polling em lote**: um `exec` transiente
-  por servidor a cada poucos segundos, custando canal só durante a chamada, ao preço de latência.
+| | vigia inotify | coletor por poll |
+|---|---|---|
+| canal SSH em repouso | 1 permanente por servidor | **zero** |
+| daemon novo no servidor | sim | não |
+| custo com N usuários | constante | constante (1 exec cobre todos) |
+| latência | ~imediata | ≤ 5 s |
+
+**E uma propriedade que nenhum dos dois desenhos originais tinha:** a lista de quem varrer sai de
+`activeSessions()`, não de um glob em `/home/*`. Servidor sem navegador conectado **não recebe exec
+nenhum**, por mais daemons que estejam rodando nele — custo proporcional ao *interesse*, não ao
+parque.
+
+Detalhes que valem estar escritos:
+- o `poolKey` do agrupamento sai da **própria chave da sessão** (`<sshPoolKey>::<linuxUser>`), que a
+  Onda 1 já canonicalizou. Sem isso, `serverId` chegando ora como nome ora como id produziria dois
+  execs para o mesmo servidor — o custo que o desenho existe para não ter;
+- só o **delta** atravessa. Reenviar a bandeja inteira a cada tick faria o `TrayArea`
+  re-renderizar de 5 em 5 s, matando hover e fechando menu aberto;
+- a leitura roda como root (o provisionador tem sudo) porque um exec só precisa alcançar várias
+  homes. Não é capacidade nova — é o mesmo sudo que cria conta e sobe o supervisor. O que se
+  restringe é o **alcance**: glob fixo, teto de 8 KB por arquivo, home vinda do `getent`;
+- o coletor recebe a fonte de sessões e o canal por **injeção**, não por import. Importar
+  `ws/events.ts` fecharia ciclo — e o tick inteiro fica exercitável sem SSH nem WebSocket.
+
+**O que NÃO foi feito, e é escolha:** o `MAX_WATCHES_PER_USER` continua onde está (ver abaixo). O
+coletor não substitui o `vssh.fs.watch`, que é por caminho arbitrário e precisa de latência baixa.
 
 ### Isto conserta dívida existente
 
-`vssh.fs.watch` **já** segura um canal por usuário hoje. O vigia por servidor é o caminho para também
-consertar isso: os watches de app passariam a ser fan-out do mesmo vigia, e
-`MAX_WATCHES_PER_USER = 4` (`fs-watch.ts:54`) deixaria de proteger um recurso que não é mais escasso.
+`vssh.fs.watch` **já** segura um canal por usuário hoje, e um vigia por servidor seria o caminho
+para os watches de app virarem fan-out dele, aposentando o `MAX_WATCHES_PER_USER = 4`
+(`fs-watch.ts:54`).
+
+> **⚠ O coletor da bandeja NÃO conserta isso, e é bom não confundir os dois.** Ele é poll de
+> 5 s sobre um caminho fixo; `fs.watch` promete notificação de caminho arbitrário escolhido pelo
+> app, com latência de edição de arquivo. Trocar um pelo outro entregaria um `watch` que avisa
+> segundos depois — pior que o de hoje, e silenciosamente. O conserto do `fs.watch` continua em
+> aberto e continua pedindo inotify.
 
 ---
 
-## 2.1 — Tray · ⚠ parcialmente concluída
+## 2.1 — Tray · ✅ concluída
 
 O item que motivou esta onda. **Toda a Categoria C é inviável sem ela** — ninguém abre Configurações
 para saber se o rclone está sincronizando.
@@ -91,11 +120,9 @@ para saber se o rclone está sincronizando.
 > (`case 'tray'` no `_setupAppBridge`, remoção no `_beforeClose`); `vssh.tray.set/remove` no shim,
 > documentado em [`../api.md`](../api.md); o `hello-vssh-app-node` exercita a ponta a ponta.
 >
-> **⬜ Falta — e é o que mais importa:** a fonte de `engine`/`service`. Ela é a que serve o caso
-> que motivou a subonda, porque o rclone sincronizando **não tem janela** e portanto não tem
-> `postMessage`. Precisa do contrato de arquivo abaixo mais o transporte da [2.0](#20--o-canal-o-problema-difícil).
-> Enquanto não existir, `vssh.tray` é uma API que só um app com iframe alcança — e a documentação
-> **diz isso**, em vez de deixar o autor descobrir com um `set` que nunca aparece.
+> **✅ E a fonte de `engine`/`service`** — a que serve o caso que motivou a subonda, porque o
+> rclone sincronizando não tem janela e portanto não tem `postMessage`. `tray.json` coletado por
+> servidor e empurrado pelo `/ws/events`; do lado do app, `lib/node/vssh-tray.js` no toolkit.
 
 **Contrato do arquivo** — `~/.vssh-apps/<id>/tray.json`, só dados:
 
@@ -158,8 +185,23 @@ consertado** — pela mesma regra.
 - toolkit: `vssh.tray.set/remove` no shim, com timeout curto e `false` em vez de promise pendurada;
 - [`../api.md`](../api.md) perdeu a linha "Ícone de bandeja — sem equivalente".
 
-**Falta:** `lib/node/vssh-tray.js` (escrita atômica de `tray.json`) e `shell.tray` no schema — os
-dois são da fonte de engine, não fazem sentido sem o transporte.
+**Da fonte por arquivo:**
+- `src/services/tray-collector.ts` (ver [o transporte](#o-transporte-o-coletor-por-servidor---feito));
+- `sendToSession()` / `hasSessionListeners()` no `ws/events.ts`, e `activeSessions()` no
+  `services/session.ts`;
+- `Client.js` ganhou **uma linha** — repassa `{type:'tray'}` como evento de DOM. Quem sabe o que é
+  uma bandeja é o `TrayArea`, não o transporte: é a regra do `vssh-host.js` aplicada;
+- toolkit: `lib/node/vssh-tray.js` (escrita atômica, mesmo idioma do `status.json`), `--parts tray`
+  no `vssh-app-lib-sync`.
+
+**Precedência janela > arquivo.** Um app pode ter os dois; sem a regra, o coletor sobrescreveria o
+item da janela a cada tick, trocando callbacks vivos por um POST e fazendo o ícone piscar de 5 em
+5 s. Fechar a janela devolve a posse ao arquivo — senão um engine com UI ficaria sem ícone para
+sempre depois da primeira abertura.
+
+**`shell.tray` no schema não foi feito, e é decisão:** escrever `tray.json` já É o contrato.
+Uma declaração no manifest seria uma segunda fonte de verdade, livre para discordar do disco — e
+não economizaria nada, já que o coletor faz um exec por servidor de qualquer forma.
 
 ### O item irmão, que apareceu ao testar: a taskbar mentia · ✅ feito
 

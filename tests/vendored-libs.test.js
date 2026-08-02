@@ -36,9 +36,10 @@ const LIB  = path.join(ROOT, 'lib');
 // script copia e o teste não conhece é uma parte que ninguém está conferindo.
 const PARTS = {
   fs:  { dir: 'node/vssh-app-fs' },
-  spa: { file: 'node/static-spa.js' },
-  log: { file: 'node/app-log.js' },
-  sse: { file: 'node/sse.js' },
+  spa:  { file: 'node/static-spa.js' },
+  log:  { file: 'node/app-log.js' },
+  sse:  { file: 'node/sse.js' },
+  tray: { file: 'node/vssh-tray.js' },
   web: { dir: 'web' },
 };
 
