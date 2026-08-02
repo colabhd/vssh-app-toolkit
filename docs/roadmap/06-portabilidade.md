@@ -43,8 +43,21 @@ escrevem por cima uma da outra.
 O handoff é o que mais se parece com "levantar da mesa e sentar em outra", que é a metáfora da
 estrela-guia. Mas a decisão não está tomada.
 
-Fica melhor **depois da [Onda 1](01-sessao-sem-xpra.md)**, que é onde nasce um conceito de sessão com
-dono — sem ele não há a quem perguntar "quem está com esta sessão agora?".
+### ⚠ A sessão da Onda 1 existe — e NÃO responde a pergunta desta onda
+
+Uma versão anterior dizia que isto "fica melhor depois da Onda 1, que é onde nasce um conceito de
+sessão com dono — sem ele não há a quem perguntar *quem está com esta sessão agora?*". A Onda 1 está
+concluída, e a resposta que ela dá não é a que o handoff precisa:
+
+A sessão é chaveada por **`(servidor, usuário Linux)`**. Duas máquinas do mesmo pesquisador abrem
+dois `/ws/events` que **incrementam o refcount da MESMA sessão** — de propósito, porque o que a
+sessão protege (supervisor de apps, watchers de fs) é por usuário, não por máquina. `sessionStats()`
+sabe *quantas* conexões a sustentam; **não sabe distinguir uma da outra**.
+
+O handoff exige identidade **por conexão**, que o refcount colapsa. Isso é trabalho desta onda — não
+dívida da Onda 1, que acertou ao não distinguir: derrubar recurso por máquina quebraria a segunda
+aba do mesmo usuário. O que esta onda acrescenta é uma camada acima: quem é o **cliente** dono do
+conjunto de janelas, dentro de uma sessão que pode ter vários.
 
 ## 3. Regra "OPFS é cache"
 

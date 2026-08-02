@@ -77,5 +77,22 @@ Decisões que precisam ser tomadas, não tarefas a executar. Detalhadas em
 - Achou que uma premissa estava errada? **Corrija no lugar e diga que estava errada** — vários
   achados deste diagnóstico vieram de premissas que pareciam sólidas. O histórico do erro vale mais
   que a aparência de acerto.
+
+### Antes de executar uma onda, confira as afirmações dela contra o código
+
+Não é conselho, é passo. Ao planejar a Onda 1, **três das premissas conferidas estavam erradas**:
+que o shell abria `/ws/events` nos dois modos (não abria — e isso era **bug em produção**, um shell
+sem Xpra não recebia o sinal de migração); que o desktop tinha de ficar na mesma URL (o contrato era
+a **profundidade** do path, não o path); e que o `startXpra` provisionava o usuário (nunca
+provisionou — quem faz isso é o `provisionKey` e o `startCodeServer`).
+
+Custou alguns `grep`. Evitou construir o lease sobre um canal que não existia no perfil que a onda
+inteira servia.
+
+**E o critério certo, que a revisão seguinte precisou aprender:** uma afirmação vale quando diz **o
+que a coisa faz**, não que ela está lá. "`#taskbar-tray` já existe" tinha arquivo e linha e estava
+correta sobre o elemento — e escondia que não há tray nenhuma, só um container vazio alimentado por
+um renderizador de pixmap do upstream que morre sem X11. *Já existe* é a formulação que esconde
+trabalho enquanto parece rigorosa.
 - Item novo entra no arquivo da onda que faz sentido, e na tabela de estado. Onda nova só se
   realmente não couber em nenhuma.

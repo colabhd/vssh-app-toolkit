@@ -45,7 +45,10 @@ clique do usuário**. Streamlit, Panel e RStudio demoram a subir — o resultado
 travada.
 
 Caminho: devolver imediatamente com estado `starting`, e a janela mostrar "carregando" até o
-`/ws/shell` avisar que subiu. É o atrito que separa A2 de "quase pronto" para "pronto".
+**`/ws/events`** avisar que subiu — o canal já é por sessão e aberto nos dois perfis desde a
+[Onda 1](01-sessao-sem-xpra.md); não há segundo socket a criar (ver
+[Onda 2.0](02-apis-de-shell.md#canal-shellnavegador-usar-o-wsevents-não-criar-um-segundo)). É o
+atrito que separa A2 de "quase pronto" para "pronto".
 
 ### Cofre de segredos
 

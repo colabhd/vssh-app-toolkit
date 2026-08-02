@@ -34,7 +34,7 @@ Mas o critério tem **dois limites**, e ignorá-los foi o erro da primeira vers�
 | WebSerial / WebUSB / WebHID | Instrumento **no laptop** (C6, caso 2) | médio | ⚠ Amarra o trabalho àquela máquina. Não resolve o caso da bancada |
 | FSA **nativa** (Chrome/Edge) | Ponte para o disco **do cliente** | médio | ⚠ Ponte para fora, não capacidade do ambiente. Convive com o polyfill, que já se auto-desativa |
 | `navigator.wakeLock` | Sessão longa não dorme durante um job | trivial | — |
-| Page Visibility API | Heartbeat do lease (Onda 1) | trivial | Distinguir "aba em segundo plano" de "usuário foi embora" muda o grace period |
+| Page Visibility API | Refinar o lease da [Onda 1](01-sessao-sem-xpra.md) | trivial | Deixou de ser especulação: o lease existe, com TTL e `releaseSession` adiado. Distinguir "aba em segundo plano" de "usuário foi embora" muda o grace period |
 | Window Management (`getScreenDetails`) | Multi-monitor (Onda 4) | médio | — |
 | Media Session API | Controles de mídia do SO para apps A/V | trivial | — |
 | WebGPU / OffscreenCanvas | Visualizador científico (A3) | — | Já disponível ao app **sem nada nosso** |

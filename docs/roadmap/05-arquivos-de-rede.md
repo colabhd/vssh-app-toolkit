@@ -66,6 +66,23 @@ Este é o limite honesto do desenho, e precisa estar dito:
 | **Backend de um vssh-app** (kernel Jupyter, script Python, job de treino) | **POSIX**: `open()`, `seek`, `mmap` | montagem no host — o VFS não substitui. Caminho: avaliar `mountpoint-s3`/`rclone mount` no lugar do NFS, que costumam ganhar em dataset imutável dominado por leitura |
 | **App que só precisa dos bytes** | HTTP | consome o mesmo endpoint do próprio backend e **dispensa montagem** — opção que hoje não existe e que o toolkit deveria documentar |
 
+### A home do usuário montada por rede — e por que ela é a linha do meio
+
+Ideia registrada na [Onda 1](01-sessao-sem-xpra.md): se a home vier de armazenamento de rede,
+`(servidor, usuário)` deixa de ser ao mesmo tempo *onde o usuário é* e *onde o dado dele está* — e a
+sessão vira relocável entre servidores. É a estrela-guia levada ao limite: o ambiente quase
+serverless.
+
+**Ela pertence à linha de montagem POSIX da tabela acima, não à do VFS.** A distinção não é
+detalhe: a home é o oposto do dataset — mutável, dominada por arquivos pequenos, e o backend de
+**todo** vssh-app precisa de `open()`/`seek`/`mmap` nela. Servir a home pelo VFS do portal quebraria
+todos eles de uma vez. O caminho é o mesmo do dataset POSIX (`rclone mount` e similares), com um
+requisito extra que o dataset não tem: **semântica de escrita e de lock que aguente uso
+interativo** — `~/.vssh/psd/*.lock`, `VSSH_APP_DATA_DIR` e os sockets de sessão vivem ali.
+
+Registrado, não planejado: exige medir latência de metadado em uso interativo antes de virar
+proposta.
+
 ## Por que isso serve à estrela-guia
 
 Navegar e ler dados deixa de exigir o host Linux — mais uma capacidade que passa a funcionar sem

@@ -1,7 +1,8 @@
 # Onda 2 — APIs de shell: tray, notificações, clipboard, impressão
 
-> **Estado:** não iniciado · **Atualizado:** 2026-08-01 · **Repos:** `vssh-sso` + toolkit
-> **Depende da** [Onda 1](01-sessao-sem-xpra.md).
+> **Estado:** não iniciado · **Atualizado:** 2026-08-02 · **Repos:** `vssh-sso` + toolkit
+> **Dependência da** [Onda 1](01-sessao-sem-xpra.md) **satisfeita** — a sessão existe
+> (`services/session.ts`), e com ela o canal que esta onda precisava.
 
 Quatro superfícies que faltam para o ambiente ser um desktop de verdade. As quatro atravessam os
 [dois critérios](criterios.md) — e três delas mudaram de escopo por causa disso.
@@ -20,8 +21,27 @@ O modelo é: **estado por arquivo (pull), ação por HTTP (push)**.
 - **Ação** — o clique no ícone vira `POST /<serverId>/proxy/app/<id>/<callback>`, que já funciona
   hoje: autenticado, com `X-Vssh-App-Token` injetado pelo proxy.
 
-Canal shell↔navegador: novo `src/ws/shell.ts`, registrado no dispatcher de `server.ts`, escopo = a
-sessão da Onda 1.
+### Canal shell↔navegador: usar o `/ws/events`, não criar um segundo
+
+Uma versão anterior deste plano pedia um `src/ws/shell.ts` novo. **Depois da Onda 1 ele seria
+duplicação.** O `/ws/events` já é tudo que esse canal precisaria ser:
+
+| Requisito | `/ws/events` hoje |
+|---|---|
+| por (usuário, servidor) | serverId vem do path, `linuxUser` resolvido no upgrade |
+| autenticado | `sessionMiddleware` + passport |
+| escopo = sessão | carrega `ws.sessionKey`; `retainSession`/`releaseSession` |
+| heartbeat | ping/pong de 30 s dos dois lados |
+| reconexão automática | `onclose` reabre em 2 s |
+| **aberto nos dois modos** | **sim, desde a Onda 1.1** — antes só o caminho do Xpra o abria |
+
+Um segundo socket duplicaria autenticação, heartbeat, resolução de sessão, reconexão e o
+tratamento do `migrate` no shutdown, e dobraria conexões por usuário. Rotear para uma sessão é um
+`for` sobre `activeEventConnections` filtrando por `ws.sessionKey`.
+
+**Portanto:** mensagens tipadas no canal existente (`{type:'tray'|'notify'|'app-ready'}`). O
+comentário do topo de `ws/events.ts` ainda diz *"NÃO conta como sessão de usuário; é canal de
+controle"* — ficou desatualizado na Onda 1 e sai junto.
 
 ### ⚠ Correção de premissa
 
@@ -79,9 +99,30 @@ para saber se o rclone está sincronizando.
 O ícone **nunca** é HTML — mesma regra do menu de contexto atual: só dados atravessam, o chrome monta
 os elementos.
 
+### ⚠ O que existe hoje NÃO é uma tray
+
+Uma versão anterior dizia "renderiza em `#taskbar-tray`, que **já existe**", o que fazia esta
+subonda soar como "acrescentar uma fonte a uma tray pronta". O que existe é um **container flex
+vazio** (`vssh-client/index.html:322`, `css/taskbar.css:108`):
+
+- O **único** renderizador é o `_process_new_tray` (`Client.js:3415`), upstream do Xpra: cria um
+  `<canvas>` com `backgroundColor: white` e desenha o **pixmap X11** dentro. É bitmap, não modelo
+  de dados — não há tooltip, menu nem badge para reusar;
+- ele mexe em `float_menu.style.width` (`:3428-3431`): em modo taskbar anexa no `#taskbar-tray`
+  mas continua redimensionando o **menu flutuante** do upstream — desenho de outra UI aparafusado
+  na nossa;
+- `send_tray_configure` é TODO declarado (`:3447`): mudança de geometria é ignorada;
+- e o decisivo: sendo dirigido por pacote Xpra, **no perfil sem X11 a tray fica vazia** — o
+  perfil que esta roadmap inteira persegue.
+
+**Esta subonda constrói a tray.** Não é integração.
+
 **Arquivos:**
-- novo `vssh-client/js/TrayArea.js` — renderiza em `#taskbar-tray`, que **já existe**;
-- coexistência com o `_process_new_tray` do xpra por **namespace de id** (`x11:<wid>` vs `app:<id>`).
+- novo `vssh-client/js/TrayArea.js`, **dono** do `#taskbar-tray`;
+- a coexistência com o `_process_new_tray` é mais delicada que um namespace de id: os dois
+  renderizadores têm modelos incompatíveis (pixmap contra dados declarativos) e o do upstream tem
+  efeito colateral no menu flutuante. O caminho provável é o `TrayArea` ser dono do container e o
+  X11 virar **mais uma fonte dentro dele**, não dois renderizadores dividindo um div.
   **Não reescrever o upstream MPL** — a regra de `vssh-host.js` é não aumentar o delta;
 - ponte: novo `case 'tray'` no `_setupAppBridge`, caminho síncrono para apps **com** janela (sem
   arquivo nenhum);
@@ -101,7 +142,8 @@ vira cache de leitura. Do-not-disturb é preferência de usuário → `/api/user
 
 **Arquivos:**
 - novo `vssh-client/js/NotificationCenter.js` + sino em `#taskbar-right` com badge de não-lidas;
-- `Toast.show` passa a **delegar** — mostra o toast **e** grava no histórico. Nenhum call-site muda;
+- `Toast.show` passa a **delegar** — mostra o toast **e** grava no histórico. Nenhum call-site muda.
+  `Toast` não tem arquivo próprio: vive em `VsshDialogs.js:745`, exportado como `window.Toast`;
 - `Notifications.js` é upstream MPL: envolver `window.doNotification` num **wrapper idempotente** (o
   idioma de `host-xpra.js`), para que notificações X11 entrem no mesmo histórico;
 - clique → foca a janela: `AppLauncher.open(appId)` já faz isso. Reusar, não reimplementar;
@@ -132,9 +174,10 @@ que já independe do xpra.
   corrigir em dois minutos e abrir issue.
 
 **O clipboard do Linux não entra no perfil headless — e isso é escolha, não lacuna.** Sem X11 não há
-seleção X para sincronizar. `clipboardServer: false` nas capabilities do `host-standalone` declara
-isso honestamente, em vez de construir meia-ponte. No perfil x11 o caminho do xpra continua e a API
-do shell delega a ele.
+seleção X para sincronizar. Declarar isso honestamente é **acrescentar `clipboardServer: false`** às
+capabilities do `host-standalone` — hoje ela tem quatro chaves (`nativeApps`, `x11Interop`,
+`keyboardGrab`, `sessionStats`) e nenhuma de clipboard. Melhor que construir meia-ponte. No perfil
+x11 o caminho do xpra continua e a API do shell delega a ele.
 
 ---
 
@@ -168,7 +211,9 @@ explicitamente**, já que nasce pulando o stack gráfico.
 ## Riscos transversais
 
 1. **Canais SSH** — tudo aqui consome canal. Só o desenho por vigia-por-servidor não acrescenta um
-   canal por usuário; qualquer variante precisa de contabilidade explícita e teardown ligado à sessão.
+   canal por usuário; qualquer variante precisa de contabilidade explícita e teardown ligado à
+   sessão. Os dois já existem desde a Onda 1: `sessionStats()` ao lado de `sshSlotStats()`, e
+   `closeSupervisor(key)` como idioma de teardown, chamado pelo `endSession`.
 2. **Duas SPAs** — `TrayArea`, `NotificationCenter` e o clipboard vivem em `vssh-client/`, nunca
    em `public/`.
 3. **Deploy desacoplado shell↔apps** — o shim já reconhece que "versão dessincronizada é a regra".
