@@ -276,6 +276,14 @@ Vem junto com o sino, e não por conveniência: os dois dividem o mesmo containe
 restrição de 48 px na barra vertical. Em quase todo desktop o relógio **é** o gatilho do centro de
 notificações; nascendo separado, a 2.2 mexeria nele de novo.
 
+**Já houve um, e ele era exatamente o desenho errado.** A limpeza da Onda 0c encontrou um
+`init_clock()` do upstream vivo no `index.html`: ligado por default, rearmando um `setTimeout` de 1
+em 1 segundo **para sempre**, formatando data para escrever em `#clock_text` e `#clock_menu_text` —
+ids do menu do dock do xpra-html5 que este fork nunca teve. E a hora dele vinha de
+`last_ping_server_time + latência`: a do **servidor**. Saiu junto com o resto do dock. Vale
+registrar porque explica os dois lados: por que o ambiente "não tem relógio" mesmo havendo código
+de relógio, e por que a tabela abaixo insiste em quem tiquetaqueia.
+
 **A hora serve ao usuário, não ao servidor.** É a decisão que dita o resto:
 
 | Peça | Decisão |

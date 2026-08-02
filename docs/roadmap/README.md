@@ -123,5 +123,20 @@ refutando, *"o que acontece quando eu tirar?"*. Só a segunda encontra o que sus
 **E quando a refutação atinge o que você mesmo propôs, ela vale mais, não menos** — o custo de
 descobrir isso na roadmap é uma linha reescrita; no código, é um perfil quebrado que só aparece na
 mão de quem usa.
+
+### Depois de executar, alguém tem de tentar ABRIR
+
+A [Onda 0c](0c-colapso-de-variantes.md) subiu com `tsc`, `eslint`, 247 testes verdes, links
+conferidos — e o desktop **não abria**. A remoção foi feita por intervalo de linhas e engoliu quatro
+funções que moravam no meio do bloco do dock sem serem do dock; a verificação rodava
+`new Function(fonte)`, que valida **sintaxe**, enquanto um nome apagado é erro de **runtime**.
+
+Duas regras saem daí, e valem para toda onda de remoção:
+
+- **apagar por SÍMBOLO, não por intervalo** — o intervalo não sabe o que tem no meio dele;
+- **o portão verde tem de medir a mesma coisa que abrir mediria.** Onde não dá para abrir no CI, o
+  teste tem de conferir o que o navegador confere: que os nomes resolvem e que os elementos existem
+  (`client-undefined-refs.test.js` e `client-dom-ids.test.js` são exatamente isso, e nasceram desta
+  falha).
 - Item novo entra no arquivo da onda que faz sentido, e na tabela de estado. Onda nova só se
   realmente não couber em nenhuma.

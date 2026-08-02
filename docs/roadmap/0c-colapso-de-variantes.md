@@ -226,6 +226,55 @@ handlers antes de apagar o markup — e a razão não era estética: `#clipboard
 `#sound_button` **eram os handlers reais**, com a taskbar só disparando `.trigger('click')` neles.
 Apagar o markup primeiro mataria clipboard e áudio no perfil Xpra sem uma linha no console.
 
+## O que a onda quebrou, e o que isso ensinou
+
+Vale mais que os três bugs acima, porque foi erro **da execução**, não herança: o commit da 0c subiu
+com o desktop **sem abrir**, nos dois perfis.
+
+**A causa foi apagar por INTERVALO de linhas.** O bloco do dock no `index.html` ia de
+`float_menu_expanded` até `init_float_menu()`, e o corte levou junto quatro coisas que moravam no
+meio dele e não eram do dock: `init_auth_autosubmit()`, `var client`, `checkBuildId()` e
+`_finishLoading()`. Como `checkBuildId()` é chamada no `$(document).ready` **antes** de
+`load_default_settings()`, o `ReferenceError` levava `init_page()` junto — desktop preso no overlay
+de carregamento. O mesmo corte deixou `float_menu_width = float_menu_item_size * …` sem nenhum dos
+três operandos, matando o bloco de topo do arquivo.
+
+**E a verificação da época não podia ter pego.** Ela rodava `new Function(fonte)` em cada bloco, o
+que valida **sintaxe** — e um nome que não existe mais é erro de **runtime**. Passou verde num
+arquivo que não abria. Era um teste que media a coisa errada com precisão.
+
+Dos dois testes novos que saíram disso, o segundo é o mais importante:
+
+1. **`tests/unit/client-undefined-refs.test.js`** — projeta os `<script>` inline do `index.html`
+   preservando linha e coluna, monta o conjunto de nomes que existem em runtime (declarações de topo
+   de todo o bundle, incluindo `js/lib`, mais os globais de navegador) e roda `no-undef` do ESLint —
+   sobre a projeção **e** sobre o nosso JS. Achou, de lambuja, quatro bugs anteriores à onda:
+   `toggle_window_preview()` e `read_clipboard_text()` chamados sem `this.` dentro do `Client.js`,
+   `ArrayBufferToBase64` sem `Utilities.` no `Utilities.js`, e dois `throw Exception(…)` — nome de
+   outra linguagem, que lançava `ReferenceError` e perdia justamente a mensagem que explicava a
+   falha.
+2. **`tests/unit/client-dom-ids.test.js`** — todo `#id` literal procurado **no documento** tem de
+   existir no markup ou ser montado por interpolação com prefixo conhecido. Este pega a classe que o
+   primeiro **não** pega, e que é a assinatura de apagar markup: `querySelector` devolve `null` sem
+   reclamar, e o erro aparece na linha seguinte. Foi como `VsshWindow._addToWindowList()` escapou —
+   montava o `<li>` da lista de janelas *do dock* e terminava em
+   `getElementById('open_windows_list').appendChild(li)`, rodando na criação de **toda** janela do
+   shell: nenhuma janela pseudonativa abria. A varredura achou mais nove referências mortas, quase
+   todas anteriores à onda — incluindo um `init_clock()` do upstream, **ligado por default**, que
+   rearmava um `setTimeout` de 1 s para sempre escrevendo em elementos que este fork nunca teve (ver
+   [2.2](02-apis-de-shell.md#o-relógio--porque-o-ambiente-não-tem-um)).
+
+**A regra que fica:** *remoção grande se apaga por SÍMBOLO, não por intervalo* — e o que prova que
+ela terminou não é o diff, é abrir. Onde não dá para abrir automaticamente, o teste tem de medir a
+mesma coisa que abrir mediria: nomes que resolvem e elementos que existem.
+
+**Uma afirmação do commit anterior estava errada e fica corrigida aqui:** o relatório de bug de
+Configurações → Sistema **não** era independente dos overlays do upstream — ele preenchia os campos
+do `#bugreport` e chamava `generate_bugreport()`. Só que aquilo nunca funcionou (montava um `.zip`
+com `new JSZip()`, e JSZip não está no bundle), e no perfil sem Xpra o botão nem habilitava, porque
+esperava um `info-response`. Agora ele baixa um `.txt` pelo FileSaver, que já está carregado, e
+funciona nos dois perfis.
+
 ## O que ficou de fora, e por quê
 
 - **`settings-window.css` não foi achatado** — decisão registrada acima, e mantida: as classes
@@ -250,8 +299,10 @@ O roteiro:
 
 1. **`tsc`, `eslint` e as duas suítes verdes** — com `tiling-geometry.test.js` **reescrito**, não
    remendado;
-2. **Um teste novo que cruza os `#ico-*` referenciados no JS contra os `<symbol id>` definidos** — é
-   o que teria pego o `ico-minus` antes de virar bug de meses;
+2. **Três testes novos:** os `#ico-*` cruzados contra os `<symbol id>` definidos (é o que teria pego
+   o `ico-minus` antes de virar bug de meses), os **nomes** que o shell cita e os **ids** que ele
+   procura no documento — os dois últimos escritos depois de a onda quebrar o boot, e é por isso que
+   eles existem;
 3. **Manual, nos dois perfis:** taskbar completa, botões de janela com ícone, diálogos, menu de
    contexto, Start Menu, Launchpad, bandeja, e as quatro posições de taskbar;
 4. **Manual, o caso que motivou o passo 1:** abrir `/proxy/vssh-desktop/` numa **aba anônima**
