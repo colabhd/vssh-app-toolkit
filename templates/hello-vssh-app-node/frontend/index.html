@@ -42,6 +42,17 @@
   <button id="confirm">vssh.dialog.confirm</button>
   <pre id="bridge">—</pre>
 
+  <h2 style="margin:1rem 0 0;font-size:1.1rem">Bandeja do sistema</h2>
+  <p style="margin:0">
+    Um ícone do app ao lado do relógio, com badge e menu. Clique nele lá na barra —
+    o retorno aparece aqui embaixo.
+  </p>
+
+  <button id="tray-on">vssh.tray.set</button>
+  <button id="tray-bump">badge +1</button>
+  <button id="tray-off">vssh.tray.remove</button>
+  <pre id="tray">—</pre>
+
   <script>
     // URLs RELATIVAS, sempre: o app é servido sob /<serverId>/proxy/app/<id>/, então uma barra no
     // começo apontaria para a raiz do portal, não para o app.
@@ -91,6 +102,48 @@
       document.getElementById('confirm').addEventListener('click', async () => {
         const ok = await vssh.dialog.confirm('Isto veio do desktop, não do navegador. Confirma?');
         br.textContent = 'confirm devolveu: ' + ok;
+      });
+
+      // ─── Bandeja ────────────────────────────────────────────────────────────
+      //
+      // Um item por app. Chamar `set` de novo ATUALIZA o mesmo ícone — é o botão
+      // "badge +1" aqui embaixo provando isso: o número muda e o ícone não sai do
+      // lugar, que é o comportamento que importa quando ele muda a cada segundo.
+      //
+      // `onClick`/`onMenu` ficam neste arquivo e não atravessam a ponte: função não
+      // serializa. O shell devolve só o id do item; quem sabe o que ele significa é
+      // o app.
+      const tr = document.getElementById('tray');
+      let count = 0;
+
+      const showTray = async () => {
+        const ok = await vssh.tray.set({
+          icon:    'refresh',
+          tooltip: count ? `Hello World — ${count} pendente(s)` : 'Hello World — ocioso',
+          badge:   { count },      // count 0 remove o badge, não desenha um "0"
+          menu: [
+            { id: 'focus', label: 'Trazer a janela para a frente', icon: 'launch' },
+            { separator: true },
+            { id: 'reset', label: 'Zerar contador', icon: 'refresh', danger: true },
+          ],
+          onClick: () => { tr.textContent = 'clique esquerdo no ícone da bandeja'; },
+          onMenu:  (id) => {
+            tr.textContent = 'menu da bandeja: ' + id;
+            if (id === 'focus') vssh.window.focus();
+            if (id === 'reset') { count = 0; showTray(); }
+          },
+        });
+        // `false` não é erro: é "este ambiente não tem bandeja" — fora do desktop,
+        // ou num shell mais antigo que este app. Trate e siga.
+        tr.textContent = ok ? `na bandeja (badge: ${count})` : 'sem bandeja neste ambiente';
+      };
+
+      document.getElementById('tray-on').addEventListener('click', showTray);
+      document.getElementById('tray-bump').addEventListener('click', () => { count++; showTray(); });
+      document.getElementById('tray-off').addEventListener('click', async () => {
+        await vssh.tray.remove();
+        count = 0;
+        tr.textContent = 'removido da bandeja';
       });
     }
   </script>

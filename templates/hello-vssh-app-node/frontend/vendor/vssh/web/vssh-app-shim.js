@@ -18,6 +18,9 @@
   const pending = new Map();
   let seq = 0;
   let caps = null;
+  // Callbacks da bandeja: ficam AQUI e não atravessam a ponte, porque função não
+  // serializa. O shell devolve só o `menuId`; quem sabe o que ele significa é o app.
+  const _trayHandlers = { click: null, menu: null };
 
   window.addEventListener('message', (e) => {
     if (e.origin !== location.origin || e.source !== window.parent) return;
@@ -26,6 +29,13 @@
     // O shell empurra os grants no load e a cada mudança — inclusive os de sessões anteriores,
     // que é o que faz um app com handle persistido voltar funcionando. Ver `grants` abaixo.
     if (msg.type === 'grants') return void adoptGrants(msg.paths);
+    // Clique e menu da bandeja voltam por push, não por resposta: quem clica é o usuário,
+    // minutos depois do `set`, e não há requisição pendurada esperando por isso.
+    if (msg.type === 'tray-event') {
+      const fn = msg.event === 'menu' ? _trayHandlers.menu : _trayHandlers.click;
+      try { fn?.(msg.menuId); } catch (err) { console.warn('[vssh] tray:', err); }
+      return;
+    }
     if (msg.type !== 'result') return;
     const entry = pending.get(msg.requestId);
     if (!entry) return;
@@ -304,6 +314,43 @@
           if (!m || m.vsshApp !== true) return;
           if (['activate-tab', 'close-tab', 'new-tab', 'restore-tabs'].includes(m.type)) handler(m);
         });
+      },
+    },
+
+    // Bandeja do sistema: um ícone do seu app ao lado do relógio, com tooltip, badge e menu.
+    //
+    //   await vssh.tray.set({
+    //     icon: 'refresh', tooltip: 'Sincronizando 3 de 12', badge: { count: 3 },
+    //     menu: [{ id: 'pause', label: 'Pausar' }, { id: 'open', label: 'Abrir pasta' }],
+    //     onClick: () => vssh.window.focus(),
+    //     onMenu:  (id) => id === 'pause' && pausar(),
+    //   });
+    //
+    // Um item por app, atualizável: chamar `set` de novo troca o conteúdo sem o ícone pular de
+    // lugar. `icon` é nome de ícone do desktop ou caminho dentro do seu pacote; `badge` aceita
+    // `{count}`, `{dot:true}` ou `{text}`. Só dados atravessam — nunca HTML.
+    //
+    // **Hoje isto vale para app com JANELA.** Um `type:"engine"`/`kind:"service"` não tem iframe,
+    // logo não tem esta ponte; a via por arquivo para eles ainda não existe, e dizer isso é melhor
+    // que deixar você descobrir com um `set` que nunca aparece.
+    //
+    // Devolve `false` — em vez de rejeitar ou pendurar — quando não há bandeja do outro lado: fora
+    // do desktop, ou num shell mais antigo que este shim, que simplesmente não responde. Timeout
+    // curto porque a resposta é local e imediata; se demorou, não vem.
+    tray: {
+      set(item = {}) {
+        if (!inDesktop) return Promise.resolve(false);
+        const { onClick, onMenu, ...data } = item;
+        _trayHandlers.click = typeof onClick === 'function' ? onClick : null;
+        _trayHandlers.menu  = typeof onMenu  === 'function' ? onMenu  : null;
+        return call('tray', { op: 'set', item: data }, { timeout: 5000 })
+          .then(() => true).catch(() => false);
+      },
+      remove() {
+        _trayHandlers.click = _trayHandlers.menu = null;
+        if (!inDesktop) return Promise.resolve(false);
+        return call('tray', { op: 'remove' }, { timeout: 5000 })
+          .then(() => true).catch(() => false);
       },
     },
 

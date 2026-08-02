@@ -28,6 +28,7 @@ no-op. Você desenvolve fora do VSSH sem `if` nenhum.
 | Mostrar um aviso não-bloqueante | `vssh.notify()` |
 | Perguntar algo ao usuário | `vssh.dialog.*` |
 | Menu de contexto do desktop | `vssh.contextMenu()` |
+| Ícone na bandeja do sistema | `vssh.tray.set()` |
 | Escolher arquivo/pasta | `vssh.pickFile/pickSave/pickDirectory()` |
 | Ler e gravar na home do usuário | `showDirectoryPicker()` + FSA (via `fsa-polyfill.js`) |
 | Saber que um arquivo mudou por fora | `vssh.fs.watch()` |
@@ -124,6 +125,47 @@ Campos por item: `id`, `label`, `icon`, `danger`, `disabled`, `checked`, `separa
 **Só dados atravessam** — rótulo, ícone e `id`, nunca função e nunca HTML. É o que permite ao
 desktop montar o menu ele mesmo, e é por isso que o seu menu se parece com o resto do ambiente em
 vez de ser um `<div>` que você estilizou.
+
+### Ícone na bandeja do sistema
+
+Um ícone do seu app ao lado do relógio, com tooltip, badge e menu — para o app que **continua
+fazendo algo** com a janela minimizada ou fechada:
+
+```js
+await vssh.tray.set({
+  icon:    'refresh',
+  tooltip: 'Sincronizando 3 de 12',
+  badge:   { count: 3 },
+  menu: [
+    { id: 'pause', label: 'Pausar' },
+    { separator: true },
+    { id: 'open',  label: 'Abrir pasta', icon: 'folder_open' },
+  ],
+  onClick: () => vssh.window.focus(),
+  onMenu:  (id) => { if (id === 'pause') pausar(); },
+});
+
+await vssh.tray.remove();
+```
+
+**Um item por app**, atualizável: chamar `set` de novo troca ícone, tooltip, badge e menu **sem o
+ícone mudar de lugar** — o que importa quando o badge muda a cada segundo. Some sozinho quando a
+janela fecha.
+
+| Campo | Aceita |
+|---|---|
+| `icon` | nome de ícone do desktop (`refresh`, `folder`, `terminal`, `settings`…) ou caminho dentro do seu pacote |
+| `tooltip` | texto no hover — diga o **estado**, não o nome do app: quem olha a bandeja quer saber como está |
+| `badge` | `{ count: 3 }` · `{ dot: true }` · `{ text: '!' }` — `count: 0` **remove** o badge |
+| `menu` | mesmos campos do menu de contexto; o `id` do item escolhido volta em `onMenu` |
+
+**Devolve `false` em vez de lançar** quando não há bandeja do outro lado — fora do desktop, ou num
+shell mais antigo que o seu app. Trate como "este ambiente não tem bandeja" e siga; não é erro.
+
+> **Hoje isto vale para app com janela.** Um `type:"engine"` ou `kind:"service"` não tem iframe,
+> logo não tem esta ponte — e é justamente ele que mais precisaria da bandeja, porque não tem
+> janela nenhuma onde aparecer. A via para eles é a próxima peça a ser construída; até lá, um
+> `set` de um app sem janela não tem por onde chegar.
 
 ---
 
@@ -311,7 +353,8 @@ Ser honesto aqui vale mais que a lista de cima, porque é o que decide se o seu 
 | Não existe | O que fazer |
 |---|---|
 | Menubar de aplicação (`Menu` do Electron) | Menu de contexto + UI própria dentro da janela |
-| Ícone de bandeja, atalho global, `powerMonitor` | Sem equivalente; normalmente dá para remover |
+| Atalho global, `powerMonitor` | Sem equivalente; normalmente dá para remover |
+| Ícone de bandeja para app **sem janela** (`engine`/`service`) | `vssh.tray.*` existe, mas passa pela ponte do iframe — ver a ressalva na seção da bandeja |
 | `setSize`/`setPosition` da janela | Tamanho inicial pelo manifest; depois é do usuário |
 | Badge/progresso na taskbar | — |
 | Múltiplas janelas do mesmo app | Uma janela por app; use abas (`richChrome`) |
@@ -352,9 +395,14 @@ window.parent.postMessage({ vsshApp: true, type, requestId?, ...payload }, locat
 | `open-file` / `open-folder` | não | `path` |
 | `open-with` | sim | `path` |
 | `tabs` | não | `tabs[]`, `activeTabId` |
+| `tray` | sim | `op`: `set`\|`remove`, `item` (só dados: `icon`, `tooltip`, `badge`, `menu`) |
 
-Do shell para o app, sem `requestId`: `open-context`, `grants`, `fs-change`, `restore-tabs`,
-`activate-tab`, `close-tab`, `new-tab`.
+Do shell para o app, sem `requestId`: `open-context`, `grants`, `fs-change`, `tray-event`,
+`restore-tabs`, `activate-tab`, `close-tab`, `new-tab`.
+
+`tray-event` traz `event: 'click'|'menu'` e, no segundo caso, o `menuId` do item escolhido. As
+funções `onClick`/`onMenu` não atravessam a ponte — função não serializa; o shim as guarda no lado
+do app e o shell devolve só o id.
 
 **Toda chamada com `requestId` tem timeout no shim**, e o padrão é 10 minutos — folgado porque
 `pick`, `dialog` e `context-menu` esperam uma pessoa decidir, e não dá para distinguir "usuário

@@ -1,8 +1,12 @@
 # Onda 2 — APIs de shell: tray, notificações, clipboard, impressão
 
-> **Estado:** não iniciado · **Atualizado:** 2026-08-02 · **Repos:** `vssh-sso` + toolkit
+> **Estado:** em andamento · **Atualizado:** 2026-08-02 · **Repos:** `vssh-sso` + toolkit
 > **Dependência da** [Onda 1](01-sessao-sem-xpra.md) **satisfeita** — a sessão existe
 > (`services/session.ts`), e com ela o canal que esta onda precisava.
+>
+> **Feito:** a tray existe (2.1, fonte de app com janela), a taskbar passou a obedecer às
+> capabilities e a tela cheia virou item do hambúrguer. **Falta:** a fonte de `engine`/`service`
+> da 2.1, e as subondas 2.2 a 2.5 inteiras.
 
 Quatro superfícies que faltam para o ambiente ser um desktop de verdade. As quatro atravessam os
 [dois critérios](criterios.md) — e três delas mudaram de escopo por causa disso.
@@ -78,10 +82,20 @@ consertar isso: os watches de app passariam a ser fan-out do mesmo vigia, e
 
 ---
 
-## 2.1 — Tray
+## 2.1 — Tray · ⚠ parcialmente concluída
 
 O item que motivou esta onda. **Toda a Categoria C é inviável sem ela** — ninguém abre Configurações
 para saber se o rclone está sincronizando.
+
+> **✅ Feito:** `vssh-client/js/TrayArea.js` + `css/tray.css`; a fonte de **app com janela**
+> (`case 'tray'` no `_setupAppBridge`, remoção no `_beforeClose`); `vssh.tray.set/remove` no shim,
+> documentado em [`../api.md`](../api.md); o `hello-vssh-app-node` exercita a ponta a ponta.
+>
+> **⬜ Falta — e é o que mais importa:** a fonte de `engine`/`service`. Ela é a que serve o caso
+> que motivou a subonda, porque o rclone sincronizando **não tem janela** e portanto não tem
+> `postMessage`. Precisa do contrato de arquivo abaixo mais o transporte da [2.0](#20--o-canal-o-problema-difícil).
+> Enquanto não existir, `vssh.tray` é uma API que só um app com iframe alcança — e a documentação
+> **diz isso**, em vez de deixar o autor descobrir com um `set` que nunca aparece.
 
 **Contrato do arquivo** — `~/.vssh-apps/<id>/tray.json`, só dados:
 
@@ -117,18 +131,60 @@ vazio** (`vssh-client/index.html:322`, `css/taskbar.css:108`):
 
 **Esta subonda constrói a tray.** Não é integração.
 
-**Arquivos:**
-- novo `vssh-client/js/TrayArea.js`, **dono** do `#taskbar-tray`;
-- a coexistência com o `_process_new_tray` é mais delicada que um namespace de id: os dois
-  renderizadores têm modelos incompatíveis (pixmap contra dados declarativos) e o do upstream tem
-  efeito colateral no menu flutuante. O caminho provável é o `TrayArea` ser dono do container e o
-  X11 virar **mais uma fonte dentro dele**, não dois renderizadores dividindo um div.
-  **Não reescrever o upstream MPL** — a regra de `vssh-host.js` é não aumentar o delta;
-- ponte: novo `case 'tray'` no `_setupAppBridge`, caminho síncrono para apps **com** janela (sem
-  arquivo nenhum);
-- toolkit: `lib/node/vssh-tray.js` (escrita atômica), `vssh.tray.set/remove` no shim,
-  `shell.tray` no schema;
-- [`../api.md`](../api.md) perde a linha "Ícone de bandeja — sem equivalente".
+### ⚠ Correção: o `TrayArea` NÃO é dono do `#taskbar-tray`
+
+O plano dizia "novo `TrayArea.js`, **dono** do `#taskbar-tray`", com a coexistência resolvida por o
+X11 virar "mais uma fonte dentro dele". **Não dá, e a razão é de uma linha:** `Client.js:3424`
+consulta `#taskbar-tray` por **seletor literal**, e Client.js é upstream MPL que a regra de
+`vssh-host.js` manda não aumentar. Tomar posse do div exigiria reescrever o `_process_new_tray` —
+exatamente o delta que a regra proíbe.
+
+O que foi feito: o `TrayArea` cria o **seu** container, `#vssh-tray`, como irmão imediatamente
+**antes** do container do X11 (`#taskbar-tray` em modo taskbar, `#float_tray` em modo dock). Os
+dois renderizadores nunca se veem, e visualmente são uma área só; `#taskbar-tray:empty` some por
+CSS, então o perfil headless não fica com espaço morto. A incompatibilidade de modelos (pixmap
+contra dados declarativos) deixa de ser problema porque eles não dividem nada.
+
+O efeito colateral de `float_menu.style.width` (`Client.js:3428-3431`) **continua** disparando em
+modo taskbar, sobre um `#float_menu` escondido. É inofensivo e fica **registrado em vez de
+consertado** — pela mesma regra.
+
+**Arquivos (feitos):**
+- `vssh-client/js/TrayArea.js` — dono do `#vssh-tray`; contrato de dados, badge, menu delegado ao
+  `ContextMenu.show()` (que já monta a partir de dados e já escapa), excedente acima de 4 ícones;
+- `vssh-client/css/tray.css`;
+- ponte: `case 'tray'` no `_setupAppBridge`, síncrono, sem arquivo nenhum. O `sourceId` é derivado
+  do `appId` **pelo shell** — um app que escolhesse o próprio id sobrescreveria o ícone de outro;
+- toolkit: `vssh.tray.set/remove` no shim, com timeout curto e `false` em vez de promise pendurada;
+- [`../api.md`](../api.md) perdeu a linha "Ícone de bandeja — sem equivalente".
+
+**Falta:** `lib/node/vssh-tray.js` (escrita atômica de `tray.json`) e `shell.tray` no schema — os
+dois são da fonte de engine, não fazem sentido sem o transporte.
+
+### O item irmão, que apareceu ao testar: a taskbar mentia · ✅ feito
+
+Ao abrir o perfil sem Xpra, a taskbar mostrava **áudio, clipboard e layout de teclado**. Os três
+são comandados pelo transporte Xpra — `client._audio_start_stream`, `client.read_clipboard`,
+`client.send_keymap`. Sem X11 não há contraparte do outro lado: o botão estava lá, aceitava o
+clique e **não fazia nada**. É a mesma classe de erro que a revisão desta roadmap nomeou — *estar
+lá* não é *fazer* — só que na cara do usuário em vez de num documento.
+
+O conserto transformou "o que este ambiente faz" em dado consultável: três chaves novas no
+contrato do `vsshHost`, e a taskbar consultando antes de mostrar.
+
+| Chave | O que nomeia |
+|---|---|
+| `audioStream` | o stream de áudio **vindo do servidor** — não "este ambiente tem som" |
+| `clipboardServer` | seleção X sincronizada com o clipboard do navegador |
+| `keyboardLayout` | trocar o layout do teclado do servidor (`send_keymap`) |
+
+O nome de `audioStream` é deliberado e o [2.5](#25--mixer-de-volume-por-aplicação) explica por quê:
+`audio: false` seria falso já no passo seguinte. `#tb-layout-button` (tiling) ficou de fora do
+gating — o tiling é do shell, DOM puro, e funciona igual sem X11.
+
+**Tela cheia saiu da taskbar nos dois perfis** e virou item do hambúrguer. É ação de sessão
+inteira, não algo que se alterne o tempo todo, e item de menu tem **rótulo**: quem entrou em tela
+cheia lê "Sair da tela cheia" em vez de adivinhar um ícone.
 
 ---
 
@@ -174,10 +230,10 @@ que já independe do xpra.
   corrigir em dois minutos e abrir issue.
 
 **O clipboard do Linux não entra no perfil headless — e isso é escolha, não lacuna.** Sem X11 não há
-seleção X para sincronizar. Declarar isso honestamente é **acrescentar `clipboardServer: false`** às
-capabilities do `host-standalone` — hoje ela tem quatro chaves (`nativeApps`, `x11Interop`,
-`keyboardGrab`, `sessionStats`) e nenhuma de clipboard. Melhor que construir meia-ponte. No perfil
-x11 o caminho do xpra continua e a API do shell delega a ele.
+seleção X para sincronizar. Declarar isso honestamente era **acrescentar `clipboardServer: false`**
+às capabilities do `host-standalone` — ✅ **já feito**, junto com a 2.1, porque o botão morto de
+clipboard na taskbar precisava exatamente dessa chave para sumir. No perfil x11 o caminho do xpra
+continua e a API do shell delega a ele.
 
 ---
 
@@ -205,6 +261,55 @@ explicitamente**, já que nasce pulando o stack gráfico.
 > Este item é o contraexemplo que justifica o [limite 2 do critério](criterios.md#31--o-navegador-já-faz-isso):
 > a API do navegador existe, é útil, e cobre **um dos três destinos**. Tratá-la como resposta teria
 > eliminado a feature.
+
+---
+
+## 2.5 — Mixer de volume por aplicação
+
+**O próximo passo desta onda.** Nasceu do mesmo teste que achou os botões mortos: o de volume ia
+sumir no headless por não ter contraparte — e some, na 2.1 — mas a pergunta certa era outra. Os
+apps são **iframes no nosso documento**. Quem faz papel de sistema operacional para o áudio deles
+somos nós. Então o botão não volta como toggle: volta como **mixer**, uma coluna master e uma
+coluna por fonte, no espírito do mixer do Windows 7.
+
+**As premissas, conferidas contra o código antes de escrever isto:**
+
+| Premissa | Onde |
+|---|---|
+| Alcançar o `contentDocument` do iframe já é idioma da casa, não técnica nova | `ScramjetEngine.js:681`, `BrowserWindow.js:756`, `UrlViewerWindow.js:175`, `ExtensionRuntime.js:378` |
+| O áudio do Xpra é um `<audio>` do **próprio documento do shell** | `Client.js:4249` — `this.audio = document.createElement("audio")` |
+| O shim roda dentro da página do app, então alcança o que a varredura não alcança | `lib/web/vssh-app-shim.js` |
+
+A segunda é a que muda o desenho: **o stream do Xpra vira mais uma linha do mixer**, não um caso
+especial. O botão deixa de ter dois comportamentos (liga/desliga no x11, nada no headless) e passa
+a ter um só — abre o mixer.
+
+**As três vias de controle, em ordem de cobertura:**
+
+1. **Varredura de mídia** — `<audio>`/`<video>` no `contentDocument`, com `MutationObserver` para os
+   que nascem depois. Funciona **sem cooperação nenhuma** do app;
+2. **Hook de Web Audio no shim** — envolver `AudioNode.prototype.connect` e desviar o que vai para
+   `ctx.destination` por um `GainNode` nosso. É o que cobre o app que toca por `AudioContext`, que
+   a varredura não alcança;
+3. **A linha do Xpra** — `.volume` no `<audio>` do `Client.js`, de fora, sem tocar no upstream. O
+   mute dela **para o stream** (o que o botão de hoje já faz), porque volume zero continuaria
+   gastando banda.
+
+**O limite honesto, e ele precisa aparecer na UI:** app que usa Web Audio **e** não carrega o shim é
+incontrolável. A regra é **só listar fonte que a gente controla de fato** — um slider que não morde
+é o mesmo botão morto que a 2.1 acabou de tirar da taskbar.
+
+**Estado no servidor** (`/api/user/settings`), master e por app: é o
+[critério 3.2](criterios.md#32--isso-sobrevive-à-troca-de-máquina) aplicado na hora, em vez de virar
+dívida para a [Onda 7](06-portabilidade.md) migrar — que é exatamente o que aconteceu com os grants.
+
+**Painel** ancorado no botão, com o mesmo posicionamento que `#kb-layout-dropdown` e o
+`TilingPanel.js:253` já resolvem para as quatro posições de taskbar.
+
+> Isto é o [critério do navegador](criterios.md#31--o-navegador-já-faz-isso) pelo avesso: não existe
+> volume master no navegador, e a resposta não é "sem equivalente". Como TODA fonte de áudio do
+> ambiente ou é um elemento de mídia nosso ou é um gain node nosso, o master é um multiplicador —
+> e passa a existir porque o ambiente é que é o sistema operacional aqui.
 
 ---
 

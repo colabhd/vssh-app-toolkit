@@ -28,7 +28,7 @@ Duas consequências que precisam estar ditas antes de qualquer tabela:
 | [criterios.md](criterios.md) | Os dois critérios de projeto que toda decisão atravessa |
 | [00-limpeza-de-terreno.md](00-limpeza-de-terreno.md) | Onda 0b — limpeza do `vssh-sso`: exclusões, renames, provisionador unificado |
 | [01-sessao-sem-xpra.md](01-sessao-sem-xpra.md) | Onda 1 — desacoplar o ciclo de vida da sessão do Xpra |
-| [02-apis-de-shell.md](02-apis-de-shell.md) | Onda 2 — tray, notificações, clipboard, impressão |
+| [02-apis-de-shell.md](02-apis-de-shell.md) | Onda 2 — tray, notificações, clipboard, impressão, mixer |
 | [03-toolkit.md](03-toolkit.md) | Ondas 0 e 3 — higiene do toolkit e a FSA de verdade |
 | [04-runtime-composicao.md](04-runtime-composicao.md) | Ondas 4 e 5 — limites de recurso, GPU, composição entre apps |
 | [05-arquivos-de-rede.md](05-arquivos-de-rede.md) | Onda 6 — camada de arquivos de rede sem salto pelo Linux |
@@ -49,7 +49,10 @@ paralelo. Só a Onda 2 depende da 1; a Onda 3 é pré-requisito real dos arquét
 | 0b | [Limpeza](00-limpeza-de-terreno.md) Fase 3 — provisionador unificado + eixo headless | vssh-sso | ✅ concluído |
 | 1 | [Sessão desacoplada do Xpra](01-sessao-sem-xpra.md) | vssh-sso | ✅ concluído |
 | 2 | Canal shell↔app sem iframe | vssh-sso | ⬜ não iniciado |
-| 2 | Tray na taskbar | vssh-sso + toolkit | ⬜ não iniciado |
+| 2 | [Tray](02-apis-de-shell.md#21--tray---parcialmente-concluída) — renderizador + fonte de app com janela | vssh-sso + toolkit | ✅ concluído |
+| 2 | Tray — fonte de `engine`/`service` (`tray.json` + transporte) | vssh-sso + toolkit | ⬜ não iniciado |
+| 2 | [Taskbar honesta](02-apis-de-shell.md#o-item-irmão-que-apareceu-ao-testar-a-taskbar-mentia---feito): capabilities + tela cheia no hambúrguer | vssh-sso | ✅ concluído |
+| 2 | [Mixer de volume por aplicação](02-apis-de-shell.md#25--mixer-de-volume-por-aplicação) | vssh-sso + toolkit | ⬜ não iniciado |
 | 2 | Centro de notificações | vssh-sso + toolkit | ⬜ não iniciado |
 | 2 | Clipboard (ponte de arquivos + imagem) | vssh-sso + toolkit | ⬜ não iniciado |
 | 2 | Tela de impressão do ambiente | vssh-sso + toolkit | ⬜ não iniciado |
