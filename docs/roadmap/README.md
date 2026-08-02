@@ -47,7 +47,7 @@ paralelo. Só a Onda 2 depende da 1; a Onda 3 é pré-requisito real dos arquét
 | 0b | [Limpeza](00-limpeza-de-terreno.md) Fase 1 — exclusões, aliases de compat, docs superadas | vssh-sso | ✅ concluído |
 | 0b | [Limpeza](00-limpeza-de-terreno.md) Fase 2 — renames (`custom_xprahtml5` → `vssh-client` e cia.) | vssh-sso | ✅ concluído |
 | 0b | [Limpeza](00-limpeza-de-terreno.md) Fase 3 — provisionador unificado + eixo headless | vssh-sso | ✅ concluído |
-| 1 | Sessão desacoplada do Xpra | vssh-sso | ⬜ não iniciado |
+| 1 | [Sessão desacoplada do Xpra](01-sessao-sem-xpra.md) | vssh-sso | ✅ concluído |
 | 2 | Canal shell↔app sem iframe | vssh-sso | ⬜ não iniciado |
 | 2 | Tray na taskbar | vssh-sso + toolkit | ⬜ não iniciado |
 | 2 | Centro de notificações | vssh-sso + toolkit | ⬜ não iniciado |

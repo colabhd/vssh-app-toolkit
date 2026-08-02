@@ -20,8 +20,9 @@ detecção de drift por hash, `EnvironmentFile`); o proxy semântico com gate 40
 > **"existe túnel" como "o app está de pé"**. Como `_allocateAppPort` prefere sempre a mesma porta
 > determinística, o app voltava na mesma porta e o túnel morto continuava parecendo válido. O
 > invariante restaurado — **o túnel cai junto com o backend; ausência de túnel significa "confira se
-> está vivo"** — é exatamente o que a [Onda 1](01-sessao-sem-xpra.md) pode quebrar ao fazer a sessão
-> dona dos túneis.
+> está vivo"** — era o que a [Onda 1](01-sessao-sem-xpra.md) podia quebrar ao fazer a sessão dona dos
+> túneis. **Preservado:** o `endSession` fecha só os watchers de fs; túnel e supervisor sobrevivem à
+> sessão de propósito. Derrubar túnel por lease expirado quebraria usuário ativo que só perdeu rede.
 
 ## 1.2 Matriz de prontidão sem-X11
 
@@ -44,8 +45,8 @@ Não é lacuna, e construir substituto é desperdício: clipboard de texto/image
 
 | Capacidade | Com Xpra | Sem Xpra hoje |
 |---|---|---|
-| **Quem serve o shell HTML** | o próprio xpra (`--html=`), proxiado em `/<serverId>/proxy/desktop/` | **ninguém** |
-| **Supervisor de `kind:"service"`** | lançado em `startXpra()` | **não sobe** |
+| ~~**Quem serve o shell HTML**~~ | o xpra (`--html=`) em `/proxy/desktop/` | ✅ **o portal**, em `/proxy/vssh-desktop/` — [Onda 1](01-sessao-sem-xpra.md) |
+| ~~**Supervisor de `kind:"service"`**~~ | lançado em `startXpra()` | ✅ **`ensureSession`** (`services/session.ts`) — [Onda 1](01-sessao-sem-xpra.md) |
 | **System tray** | protocolo xpra (`#taskbar-tray`) | **vazio** |
 | **Notificação/diálogo vindo do backend** | `vssh-psdialogd` (hijack D-Bus) | **inexistente** |
 | **API de clipboard para apps** | inexistente | inexistente — lacuna nos dois modos |
@@ -55,18 +56,22 @@ Não é lacuna, e construir substituto é desperdício: clipboard de texto/image
 
 Nenhum deles aparece em `vssh-sso/docs/refactor-backlog.md`.
 
-**1. O supervisor de serviços é filho da sessão Xpra.**
-`src/services/provisioning/xpra.ts:292` lança `vssh-app-supervisor` dentro de `startXpra()`;
-`stopXpra()` o mata (linhas 328-330). Sem Xpra não existe hook de início de sessão — logo **nenhum
-app `kind:"service"` sobe**. Toda a categoria "daemon" depende hoje de X11 para existir. É o gargalo
-estrutural do objetivo.
+**1. ✅ RESOLVIDO — O supervisor de serviços era filho da sessão Xpra.**
+Nascia dentro do `startXpra()` e morria dentro do `stopXpra()`, então sem Xpra **nenhum app
+`kind:"service"` subia** e a categoria "daemon" inteira dependia de X11 para existir. Era o gargalo
+estrutural do objetivo. Hoje é o `ensureSession` (`services/session.ts`) quem o garante, chamado do
+`startXpra`, do upgrade de `/ws/events` e do start de app — nunca do proxy.
 
-**2. Sem Xpra ninguém serve o cliente HTML.**
-O desktop vive em `/<serverId>/proxy/desktop/` (`src/proxy.ts:431`), que resolve `getUserDesktopPort()`
-e proxia para o HTTP server do próprio xpra, cujo conteúdo vem do `--html=${htmlPath}`
-(`xpra.ts:220`) — o bundle mora **no servidor Linux**, em `/usr/share/xpra/vssh-client-www*`. `?xpra=0`
-desliga só o host no navegador; a página ainda veio do xpra. Existe um shell que **tolera** a
-ausência de X11 depois de carregado por ele — não um modo sem-X11 de ponta a ponta.
+**2. ✅ RESOLVIDO — Sem Xpra ninguém servia o cliente HTML.**
+O bundle vinha do `--html=` do próprio xpra, ou seja **do servidor Linux**; `?xpra=0` desligava só o
+host no navegador, mas a página ainda tinha vindo do xpra. Existia um shell que *tolerava* a ausência
+de X11 depois de carregado por ele — não um modo sem-X11 de ponta a ponta. Hoje
+`/<serverId>/proxy/vssh-desktop/` é servido pelo portal (`services/vssh-shell.ts`), com
+`window.VSSH_NO_XPRA` injetado, e **sem custar canal SSH**: sem `id -u`, sem porta, sem túnel.
+
+> A lacuna que sobrou dessa dupla é operacional, não de arquitetura: existem agora **dois caminhos de
+> deploy do mesmo bundle** (host via `vssh-update-client`, ou o deploy do portal).
+> `GET /api/shell/config` expõe o `buildId` servido para diagnosticar antes de virar bug reportado.
 
 **3. Existem três clipboards, e só o terceiro é lacuna.**
 (a) O de **arquivos**, em `FileOps.js:44` — `{action:'copy'|'cut', paths:[]}`, compartilhado entre
