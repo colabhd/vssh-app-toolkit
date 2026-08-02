@@ -33,7 +33,7 @@ Cada uma é entregável sozinha.
 | **1.0** | Criar `session.ts`; `ensureSession` faz exatamente o que `xpra.ts:292-294` fazia; `startXpra` passa a chamá-lo. Comportamento idêntico | nulo |
 | **1.1** | `ensureSession` também em `routes/apps.ts:114` e no ramo `desktop` de `proxy.ts:431`. **Já aqui um servidor sem xpra sobe serviços** | baixo — o supervisor é single-instance por lockfile |
 | **1.2** | Lease + heartbeat pelo `/ws/events` (ping/pong de 30 s já existe); `endSession` derruba túneis e watchers | médio |
-| **1.3** | Perfil `headless`: campo em `servers`, **portal serve o shell**. O `--profile headless` do lado do provisionamento vem da [Fase 3 da limpeza](00-limpeza-de-terreno.md#fase-3--provisionador-unificado--não-iniciada) — não duplicar | médio |
+| **1.3** | Perfil `headless`: campo em `servers`, **portal serve o shell**. O `--profile headless` do lado do provisionamento **já existe** ([Fase 3 da limpeza](00-limpeza-de-terreno.md#fase-3--provisionador-unificado--concluída)) — só consumir | médio |
 | **1.4** | Remover `xpra.ts:328-330`; `stopXpra` volta a ser só "parar o servidor X" | baixo |
 | **1.5** | Validar o supervisor num servidor real e remover `_eagerStartAlwaysRunningEngines` (`index.html:2111`) | — |
 
@@ -96,13 +96,15 @@ drift** entre cliente e backend.
 `servers` é `SCHEMALESS`, então do lado do portal é só um campo: `profile: 'x11' | 'headless'`
 (default `'x11'`).
 
-**O lado do provisionamento não é feito aqui** — é a [Fase 3 da
-limpeza](00-limpeza-de-terreno.md#eixo-headless), onde `provision-base.sh` ganha
-`--profile headless` e a lista monolítica de 44 pacotes é decomposta em grupos. Esta onda só
-**consome** esse flag; duplicar o trabalho seria criar duas verdades sobre o que é "sem X11".
+**O lado do provisionamento já está pronto** — a [Fase 3 da
+limpeza](00-limpeza-de-terreno.md#eixo-headless) entregou o `--profile headless` no
+`provision-base.sh` e no `vssh-provision.sh`. Esta onda só **consome** o flag; duplicar o trabalho
+seria criar duas verdades sobre o que é "sem X11".
 
-Um servidor headless é significativamente mais barato de provisionar — argumento por si só para nós
-de compute.
+O que "sem X11" significa é hoje uma definição executável, não uma descrição: 32 pacotes em vez de
+44, sem repositório apt do Xpra e sem `apt-mark hold`, com a lista travada por fixture em CI. Um
+servidor headless é significativamente mais barato de provisionar — argumento por si só para nós de
+compute.
 
 > Se a impressora de rede da [Onda 2.4](02-apis-de-shell.md) for adiante, o perfil headless precisa
 > instalar **CUPS** explicitamente, já que nasce pulando o stack gráfico.

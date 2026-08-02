@@ -113,7 +113,9 @@ Isso condiciona o desenho da [Onda 2](02-apis-de-shell.md) e é parte da justifi
 ### As demais
 
 - **Sem limites de recurso** (cgroups/`systemd-run`): um treino desgovernado derruba a sessão inteira.
-- **GPU não é conceito de runtime** — existe só no provisionamento (`lxc-create-nvidia.sh`).
+- **GPU não é conceito de runtime** — existe só no provisionamento (`provision-base.sh --gpu`, desde
+  a [Fase 3 da limpeza](00-limpeza-de-terreno.md)). Nenhum app declara precisar de GPU, e nada
+  arbitra entre dois que a queiram.
 - **Uma instância por (usuário, app)**: sem múltiplas janelas nem múltiplas instâncias.
 - **Supervisor nunca validado em servidor real** (`docs/refactor-backlog.md:86-104`), com
   `_eagerStartAlwaysRunningEngines` (`index.html:2111`) mantido como rede de segurança.

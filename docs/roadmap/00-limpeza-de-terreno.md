@@ -1,13 +1,13 @@
 # Onda 0b — Limpeza de terreno do `vssh-sso`
 
-> **Estado:** Fases 1 e 2 concluídas · Fase 3 não iniciada · **Atualizado:** 2026-08-02
+> **Estado:** ✅ concluída (Fases 1, 2 e 3) · **Atualizado:** 2026-08-02
 > **Repo:** `vssh-sso` (trabalho direto na `main` — o portão é o CI barrando subida para o Argo)
 
 Arrumar o terreno antes de mexer no que importa: apagar o inútil, renomear o que mente, e
 consolidar `infra/server/` num utilitário único já com o eixo headless.
 
 A varredura achou mais do que desarrumação. Achou **coisas quebradas em produção** — as três estão
-detalhadas na Fase 3, porque é lá que somem.
+detalhadas na Fase 3, porque é lá que sumiram.
 
 ---
 
@@ -134,45 +134,76 @@ de fallback transitório do `xpra.ts` podem sair.
 
 ---
 
-## Fase 3 — Provisionador unificado ⬜ **não iniciada**
+## Fase 3 — Provisionador unificado ✅ **concluída**
 
-Substitui cinco scripts por **um** `infra/server/vssh-provision.sh`.
+**18 arquivos, +1.417/−1.062.** Cinco scripts (718 linhas) viraram um `vssh-provision.sh` de 460.
+Portões: `tsc`, `eslint`, **178 testes** (eram 156), links, sintaxe shell.
 
 ```
 vssh-provision.sh --target <lxd|pct|vm|here> [<VMID-ou-nome>] [opções]
 ```
 
-**Plataforma é subcomando; GPU e perfil são flags** (`--gpu`, `--profile x11|headless`). A matriz é
-4×2×2 — nomear arquivo por combinação foi o que produziu 5 e produziria 16. É isso, e só isso, que
-impede o `pct-create-foo.sh` de voltar.
+**Plataforma é subcomando; GPU e perfil são flags.** A matriz é 4×2×2 — nomear arquivo por
+combinação foi o que produziu 5 e produziria 16.
 
-### Os três bugs que a consolidação dissolve
+### Os três bugs se dissolveram, nenhum foi consertado pontualmente
 
-- **`pct-create.sh` está quebrado**: empurra 3 dos 5 arquivos que `provision-base.sh` exige via
-  `cp "$(dirname $0)/…"`. Com `set -euo pipefail`, o provisionamento **aborta na l. 205**; as
-  l. 83-87 do próprio script são código morto que rodaria depois do abort.
-- **`lxc-create-nvidia.sh` nunca instala `100-vssh-gpu.conf`**: a variante "LXD com GPU" sobe usando
-  Xvfb por software.
-- **`cloud-init.yaml` nunca invoca `provision-base.sh`** — é a única variante **documentada como
-  funcionando que não funciona**.
-
-A correção é estrutural, não pontual: `provision-base.sh` ganha `fetch_asset()` e **o host deixa de
-precisar saber a lista de arquivos**. É esse acoplamento que quebrou o `pct-create.sh`, e ele some
-sem o arquivo ser tocado.
-
-### A consequência técnica que dita a arquitetura
-
-O provisionador tem que ser buscável por `curl` — hoje o portal emite `bash pct-create-nvidia.sh 201`
-**sem dizer de onde o arquivo vem**. Mas sob `bash <(curl …)`, `$0` é `/dev/fd/63`: `$(dirname "$0")`
-e `source lib/*.sh` deixam de funcionar. Distribuir por HTTP e matar a duplicação do bloco de push
-são, portanto, a **mesma** decisão.
+- **`pct-create.sh` empurrava 3 dos 5 arquivos exigidos** e abortava com `set -e`. O `fetch_asset()`
+  inverteu a responsabilidade — o guest busca os próprios assets, o host não conhece lista nenhuma.
+  O bug sumiu sem o arquivo ser tocado; o arquivo foi apagado depois.
+- **`lxc-create-nvidia.sh` nunca instalava o `100-vssh-gpu.conf`.** A config de GPU migrou para o
+  guest: `provision-base.sh --gpu` detecta o BusID e gera o `xorg.conf`. Nenhuma variante de host
+  consegue esquecer, porque nenhuma participa. Morreram junto o `nvidia-utils-<major>` do apt (só o
+  `.run` na versão exata do host) e o `security.privileged=true` do LXD.
+- **`cloud-init.yaml` nunca chamava o `provision-base.sh`** — `runcmd` era um `sysctl` e dois `echo`.
+  Agora busca por HTTP com placeholders renderizados, que é a única forma possível: não há como
+  empurrar arquivo numa VM que ainda não bootou.
 
 ### Eixo headless
 
-Decompor o `nala install` monolítico de 44 pacotes em `PKGS_CORE`/`PKGS_X11`/`PKGS_MEDIA`/
-`PKGS_SEARCH`/`PKGS_GPU`. **A propriedade que torna o corte revisável:** `--profile x11` tem de
-produzir conjunto **byte-idêntico** ao atual — materializar com `--print-packages` + fixture em CI.
-Sem isso, cortar 185 linhas é fé; com isso, é diff.
+44 pacotes viraram `PKGS_CORE`/`X11`/`MEDIA`/`SEARCH`/`GPU`. A propriedade que tornou o corte
+revisável em vez de fé:
+
+```
+antes: 44  depois: 44 · diff: IDÊNTICO
+```
+
+Headless cai para 32. A fixture trava **quais** 12 saem — se um pacote gráfico cair em CORE por
+engano, o headless continuaria "funcionando", arrastando X11 junto. Headless também pula o repo apt
+do Xpra e o `apt-mark hold`.
+
+### O que impede a fragmentação de voltar
+
+Três travas, porque a promessa "não crie `pct-create-foo.sh`" sozinha não vale nada:
+
+1. Teste de CI falha se `infra/server/*-create*.sh` reaparecer.
+2. `provision-targets.json` é **emitido pelo próprio script** (`--describe`), com paridade afirmada
+   em CI — duas fontes de verdade sobre os alvos seria o mesmo problema por outra porta.
+3. `installBuilder.js` valida contra esse catálogo: **o portal não consegue oferecer opção que o
+   provisionador ignore.** As 7 abas viraram 4 alvos + toggles de GPU e perfil.
+
+### O que a Fase 3 ensinou
+
+**A opção aceita-e-ignorada é pior que a opção ausente.** O levantamento já sabia de
+`CORES`/`MEMORY` em LXD e `GPU_INDEX` em lxc+nvidia; a execução achou mais: `SKIP_ONLYOFFICE` e
+`USE_WARP` **nunca funcionaram** em nenhum alvo de container, porque `pct exec -- bash script.sh`
+não carrega ambiente algum. O operador marcava "pular OnlyOffice", copiava o comando, e o OnlyOffice
+era instalado. É por isso que a regra virou dura: **env var errada é silenciosa, flag errada é
+erro** — três env no total, todas sobre onde fica o portal, nunca sobre o que instalar.
+
+**Converter env em flag é uma mudança de contrato, e ela vaza para quem emite o comando.** Ao fazer
+a conversão eu quebrei o one-liner do portal, que ainda emitia as quatro como env. Encontrado por
+varredura de chamadores, não por teste — não havia teste. Agora há.
+
+### Decidido diferente do plano, com o motivo
+
+- **`--gpu` em `--target vm` avisa em vez de aceitar.** Passthrough para VM exige `vfio` no host,
+  que o script não faz. Aceitar e ignorar seria reproduzir exatamente o defeito que a fase inteira
+  ataca.
+- **O `userdata` do cloud-init virou `chmod 600`, não 644.** Quando `VSSH_SERVER_TOKEN` é
+  renderizado, o arquivo passa a conter um segredo em claro no disco do host Proxmox.
+- **`--target here` substituiu o modo `base`** e cobre também bare-metal e cloud-init manual. É
+  literalmente `bash provision-base.sh`, que agora funciona por `curl` sem nenhum arquivo ao lado.
 
 ---
 

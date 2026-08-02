@@ -22,8 +22,9 @@ Caminho: `systemd-run --scope --user` com `MemoryMax`/`CPUQuota`, ou cgroup v2 d
 
 ### GPU como conceito de runtime
 
-Hoje GPU existe só no provisionamento (`infra/server/lxc-create-nvidia.sh`). Não há API de
-runtime, nem agendamento, nem pedido por app, nem visibilidade no portal.
+Hoje GPU existe só no provisionamento (`vssh-provision.sh --gpu`, que passa o passthrough ao host e
+delega a config de Xorg ao `provision-base.sh --gpu` dentro do guest). Não há API de runtime, nem
+agendamento, nem pedido por app, nem visibilidade no portal.
 
 Mínimo viável: `gpu: true` no manifest, `CUDA_VISIBLE_DEVICES` injetado no processo, e o estado
 visível em Configurações. Sem isso, o arquétipo B3 (inferência) não tem como conviver com outros
