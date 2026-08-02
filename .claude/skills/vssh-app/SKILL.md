@@ -13,12 +13,12 @@ infraestrutura do portal; quem constrói o app não edita nada no repositório d
 publica um pacote seguindo a convenção abaixo, e um admin instala com `vssh-app-install`.
 
 **Como o app fala com o ambiente** — trocar o título, abrir um diálogo, montar um menu de contexto,
-escolher arquivo, controlar a janela: [`docs/api.md`](../../docs/api.md) é a referência completa,
+escolher arquivo, controlar a janela: [`docs/api.md`](../../../docs/api.md) é a referência completa,
 com uma seção final sobre o que **não** existe. Esta SKILL cobre empacotar e instalar; aquela,
 programar contra o ambiente.
 
 **Portando um app que já existe** (web, Electron ou Tauri)? Comece por
-[`docs/porting.md`](../../docs/porting.md): tem a árvore de decisão e como medir, em minutos, o que
+[`docs/porting.md`](../../../docs/porting.md): tem a árvore de decisão e como medir, em minutos, o que
 falta num app concreto.
 
 ## Antes de codar: checklist de decisão
@@ -264,7 +264,7 @@ O usuário revoga em **Permissões de arquivo**, no menu de contexto da janela d
 
 Para saber que um arquivo mudou **por fora** do app (outro editor, `git pull`, upload pelo
 gerenciador de arquivos), use `vssh.fs.watch(path, cb)` — devolve a função que cancela, e cancelar
-importa: cada watch segura um vigia vivo no servidor. Ver [`docs/api.md`](../../docs/api.md).
+importa: cada watch segura um vigia vivo no servidor. Ver [`docs/api.md`](../../../docs/api.md).
 
 **Quando usar o `vssh-app-fs` então?** Quando o app quer um store **privado**: uma raiz confinada,
 com token próprio, funcionando inclusive fora do desktop. São casos diferentes, não alternativas.
@@ -433,8 +433,8 @@ modernos bloqueiam isso ativamente). Se o seu `engine` precisa estar de pé **an
 handshake assíncrono ser possível (esse é o caso), declare `"alwaysRunning": true` no manifest —
 `GET /api/apps` expõe esse campo, e o consumidor deve chamar `AppLauncher.ensureRunning(appId)`
 de forma *eager* (o quanto antes, best-effort, sem bloquear o resto da página) em vez de esperar
-o primeiro uso real — ver `custom_xprahtml5/index.html` (chama antes de registrar o service
-worker) e `custom_xprahtml5/sw.js` (faz o `importScripts` incondicional, síncrono, no topo do
+o primeiro uso real — ver `vssh-client/index.html` (chama antes de registrar o service
+worker) e `vssh-client/sw.js` (faz o `importScripts` incondicional, síncrono, no topo do
 arquivo, sob `try/catch` — nunca dentro de um listener).
 
 Importante: o proxy do portal **recusa** (409, ver `checkAppStatus` em `src/proxy.ts`) qualquer
@@ -445,7 +445,7 @@ curto/arbitrário) — `POST /api/apps/:id/start` já tem seu próprio teto inte
 healthcheck; um timeout externo só faz sentido como rede de segurança contra travamento de rede
 (bem mais generoso que esses ~15s), não como caminho normal. Isso só adiciona espera de fato em
 servidores que realmente têm um app `alwaysRunning` instalado — sem nenhum, a checagem resolve
-quase instantâneo. Ver `custom_xprahtml5/index.html` pro exato ponto onde isso é esperado antes
+quase instantâneo. Ver `vssh-client/index.html` pro exato ponto onde isso é esperado antes
 de `navigator.serviceWorker.register(...)`.
 
 Quando usar: sempre que o valor do app é uma capability de backend (um proxy, um motor de
@@ -535,7 +535,7 @@ só mandar o path absoluto. O handler é filtrado por `e.source === iframe.conte
 janela só trata os eventos do próprio iframe. Se o app roda fora do desktop (dev standalone,
 `window.parent === window`), não há pai vssh — trate isso no seu lado (ex.: um toast). O dispatch por
 extensão reaproveita `FileBrowserWindow.openPathInViewer(path)` / `FileBrowserWindow.openFolder(path)`
-(ver `custom_xprahtml5/js/FileBrowserWindow.js`); `vsshapp-recoll/static/js/utils.js`
+(ver `vssh-client/js/FileBrowserWindow.js`); `vsshapp-recoll/static/js/utils.js`
 (`openInViewer`/`openFolder`) é a implementação de referência do lado do app.
 
 ## App padrão por categoria (opt-in, via `"handles"` no manifest)

@@ -22,7 +22,7 @@ Caminho: `systemd-run --scope --user` com `MemoryMax`/`CPUQuota`, ou cgroup v2 d
 
 ### GPU como conceito de runtime
 
-Hoje GPU existe só no provisionamento (`infra/xpra-server/lxc-create-nvidia.sh`). Não há API de
+Hoje GPU existe só no provisionamento (`infra/server/lxc-create-nvidia.sh`). Não há API de
 runtime, nem agendamento, nem pedido por app, nem visibilidade no portal.
 
 Mínimo viável: `gpu: true` no manifest, `CUDA_VISIBLE_DEVICES` injetado no processo, e o estado
@@ -71,7 +71,7 @@ Primeiro consumidor real sugerido: o **engine de impressão** (`print/v1`) da
 
 ### Ponto de extensão no `FileOpener`
 
-`custom_xprahtml5/js/FileOpener.js` é um **mapa fixo** de extensão → ação. Não há como um engine
+`vssh-client/js/FileOpener.js` é um **mapa fixo** de extensão → ação. Não há como um engine
 contribuir miniatura, preview ou render (arquétipo B4). Um engine de thumbnails, um de OCR ou um
 transcodificador não têm onde se plugar.
 

@@ -80,7 +80,7 @@ O ícone **nunca** é HTML — mesma regra do menu de contexto atual: só dados 
 os elementos.
 
 **Arquivos:**
-- novo `custom_xprahtml5/js/TrayArea.js` — renderiza em `#taskbar-tray`, que **já existe**;
+- novo `vssh-client/js/TrayArea.js` — renderiza em `#taskbar-tray`, que **já existe**;
 - coexistência com o `_process_new_tray` do xpra por **namespace de id** (`x11:<wid>` vs `app:<id>`).
   **Não reescrever o upstream MPL** — a regra de `vssh-host.js` é não aumentar o delta;
 - ponte: novo `case 'tray'` no `_setupAppBridge`, caminho síncrono para apps **com** janela (sem
@@ -100,7 +100,7 @@ Hoje só há toasts efêmeros: sem histórico, sem persistência, sem identidade
 vira cache de leitura. Do-not-disturb é preferência de usuário → `/api/user/settings`.
 
 **Arquivos:**
-- novo `custom_xprahtml5/js/NotificationCenter.js` + sino em `#taskbar-right` com badge de não-lidas;
+- novo `vssh-client/js/NotificationCenter.js` + sino em `#taskbar-right` com badge de não-lidas;
 - `Toast.show` passa a **delegar** — mostra o toast **e** grava no histórico. Nenhum call-site muda;
 - `Notifications.js` é upstream MPL: envolver `window.doNotification` num **wrapper idempotente** (o
   idioma de `host-xpra.js`), para que notificações X11 entrem no mesmo histórico;
@@ -169,7 +169,7 @@ explicitamente**, já que nasce pulando o stack gráfico.
 
 1. **Canais SSH** — tudo aqui consome canal. Só o desenho por vigia-por-servidor não acrescenta um
    canal por usuário; qualquer variante precisa de contabilidade explícita e teardown ligado à sessão.
-2. **Duas SPAs** — `TrayArea`, `NotificationCenter` e o clipboard vivem em `custom_xprahtml5/`, nunca
+2. **Duas SPAs** — `TrayArea`, `NotificationCenter` e o clipboard vivem em `vssh-client/`, nunca
    em `public/`.
 3. **Deploy desacoplado shell↔apps** — o shim já reconhece que "versão dessincronizada é a regra".
    Toda mensagem nova precisa de timeout e de negociação por `vssh.capabilities()`; um shell antigo

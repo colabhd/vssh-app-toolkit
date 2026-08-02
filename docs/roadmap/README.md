@@ -1,9 +1,9 @@
 # Roadmap do ecossistema vssh-app
 
-> **Atualizado:** 2026-08-01
+> **Atualizado:** 2026-08-02
 
 Este diretório é o plano vivo do ecossistema VSSH — portal (`vssh-sso`), shell de desktop
-(`custom_xprahtml5/`) e este toolkit. Não é um documento de uma vez só: **cada arquivo tem cabeçalho
+(`vssh-client/`) e este toolkit. Não é um documento de uma vez só: **cada arquivo tem cabeçalho
 de estado e é para ser atualizado conforme avançamos**, não reescrito.
 
 ## A estrela-guia
@@ -45,7 +45,7 @@ paralelo. Só a Onda 2 depende da 1; a Onda 3 é pré-requisito real dos arquét
 | 0 | Higiene (versionamento, `lib/web/`, template, electron-shim, docs) | toolkit | ✅ concluído |
 | 0 | Confinamento do `static-spa` (bug achado na verificação) | toolkit | ✅ concluído |
 | 0b | [Limpeza](00-limpeza-de-terreno.md) Fase 1 — exclusões, aliases de compat, docs superadas | vssh-sso | ✅ concluído |
-| 0b | [Limpeza](00-limpeza-de-terreno.md) Fase 2 — renames (`custom_xprahtml5` → `vssh-client` e cia.) | vssh-sso | ⬜ não iniciado |
+| 0b | [Limpeza](00-limpeza-de-terreno.md) Fase 2 — renames (`custom_xprahtml5` → `vssh-client` e cia.) | vssh-sso | ✅ concluído |
 | 0b | [Limpeza](00-limpeza-de-terreno.md) Fase 3 — provisionador unificado + eixo headless | vssh-sso | ⬜ não iniciado |
 | 1 | Sessão desacoplada do Xpra | vssh-sso | ⬜ não iniciado |
 | 2 | Canal shell↔app sem iframe | vssh-sso | ⬜ não iniciado |

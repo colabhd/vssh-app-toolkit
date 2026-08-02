@@ -1,10 +1,10 @@
 # Onda 0b — Limpeza de terreno do `vssh-sso`
 
-> **Estado:** Fase 1 concluída · Fases 2 e 3 não iniciadas · **Atualizado:** 2026-08-02
+> **Estado:** Fases 1 e 2 concluídas · Fase 3 não iniciada · **Atualizado:** 2026-08-02
 > **Repo:** `vssh-sso` (trabalho direto na `main` — o portão é o CI barrando subida para o Argo)
 
 Arrumar o terreno antes de mexer no que importa: apagar o inútil, renomear o que mente, e
-consolidar `infra/xpra-server/` num utilitário único já com o eixo headless.
+consolidar `infra/server/` num utilitário único já com o eixo headless.
 
 A varredura achou mais do que desarrumação. Achou **coisas quebradas em produção** — as três estão
 detalhadas na Fase 3, porque é lá que somem.
@@ -47,32 +47,90 @@ viraria `#!/bin/bash\r` e quebraria no servidor.
   formulário quebrado — mas o CSS **nunca teve `<link>`**, então ele já roda sem estilo. E removê-lo
   não é limpeza: 20 call sites de JS no mesmo arquivo dependem dos campos, e 1330 das 1792 linhas
   são script. Seria reescrever o arquivo até sobrar a tela de disconnect.
-- **O bloco de eslint do `custom_xprahtml5` ficou.** `npx eslint custom_xprahtml5` acusa ~1560
+- **O bloco de eslint do `vssh-client` ficou.** `npx eslint vssh-client` acusa ~1560
   problemas, então incluí-lo no portão o deixaria vermelho permanentemente. Mas o bloco não é morto:
   sem ele, um `eslint .` trataria o cliente como ESM com globals de Node e produziria ruído *pior*.
   Caminho para trazê-lo ao portão: zerar por subdiretório, começando por `js/browser/` (código nosso).
 
 ---
 
-## Fase 2 — Renames ⬜ **não iniciada**
+## Fase 2 — Renames ✅ **concluída**
 
-Sem bloqueio cross-repo: com `.claude/skills/` fora, a amarra com o toolkit deixou de existir.
+**247 arquivos, 199 renomeações.** Portões verdes: `tsc`, `eslint`, 156 testes, zero links markdown
+quebrados, sintaxe de shell, e o contrato do artefato conferido ponta a ponta.
 
-| De | Para | Cuidado |
-|---|---|---|
-| `custom_xprahtml5/` | `vssh-client/` | **Falha silenciosa:** os `paths:` de `publish-customclient.yml` e `chrome-extension.yml` param de disparar sem erro |
-| `infra/xpra-server/` | `infra/server/` | Barato: `app.ts:146` monta `/infra` apontando *para* o diretório — a URL pública `/infra/vssh-register.sh` não muda |
-| `docs/xpra-client/` | `docs/client/` | — |
-| `getUserXpraPort` | `getUserDesktopPort` | 8 ocorrências |
-| `customclient` | `vssh-client` | D1, R2, escopo de token, e a URL que o servidor pede |
-| `vssh-update-xpra-client` | `vssh-update-client` | O `name` é a chave de rastreio; desabilitar o timer velho |
-| `xpra-browser` / `xpra-fileserver` | `vssh-browser` / `vssh-fileserver` | `.desktop`/mimeapps por sessão; `pkill -x` por nome exato |
-| `custom-www*` | `vssh-client-www*` | `rsync --delete` deixa o path antigo órfão |
+| De | Para |
+|---|---|
+| `custom_xprahtml5/` | `vssh-client/` |
+| `infra/xpra-server/` | `infra/server/` |
+| `docs/xpra-client/` | `docs/client/` |
+| `getUserXpraPort` | `getUserDesktopPort` |
+| `xpra-browser` / `xpra-fileserver` | `vssh-browser` / `vssh-fileserver` |
+| `xpra-player://` | `vssh-player://` |
+| `/usr/share/xpra/custom-www*` | `/usr/share/xpra/vssh-client-www*` |
+| `vssh-update-xpra-client` (+ units systemd) | `vssh-update-client` |
+| `GET/POST/PUT /api/admin/servers/:id/xpra-client/*` | `.../client/*` |
 
-`startXpra`/`stopXpra` ficam: são literalmente sobre o xpra.
+**Ficaram, e é escolha:** `startXpra`/`stopXpra` e a classe `XpraClient` de `Client.js` — são
+literalmente sobre o xpra, o protocolo. Renomeá-las seria mentir ao contrário.
 
-**Ordem:** repo primeiro (verificável por CI), servidor depois, `customclient` por último — é o
-único cujo passo em falso deixa o servidor sem atualização.
+### O que a Fase 2 ensinou
+
+**Um rename não é uma substituição de texto — é três, e elas não coincidem.** Cada armadilha abaixo
+teria passado por um `sed` global:
+
+- **`xpra-server` também é nome de pacote apt** (`provision-base.sh:122`, na lista de pins do
+  repositório do xpra). Trocar a string teria quebrado a instalação do xpra em todo provisionamento
+  novo — e só no servidor, longe do CI.
+- **`xpra-client` era duas coisas ao mesmo tempo:** o diretório de docs e um endpoint da API. Os dois
+  viraram `client`, mas por caminhos separados. Colapsar num replace só teria acertado um.
+- **Link markdown relativo não carrega o prefixo do diretório.** `docs/README.md` aponta para
+  `xpra-client/README.md`, não `docs/xpra-client/README.md` — então renomear o diretório não os
+  alcançava. Só uma varredura que **resolve** cada link contra o disco pega isso.
+
+**E um replace pode quebrar o que compila.** Dois casos, ambos do rename que acabou revertido:
+`data-xpra-update` virou `data-client-update` no HTML, mas o acessor `dataset.xpraUpdate` ficou —
+`undefined` silencioso, sem erro. E `customclient:` era uma **chave de objeto**; `vssh-client` com
+hífen não é identificador válido, e aí o `tsc` reclamou. O primeiro caso é o perigoso: nome com
+hífen no markup vira camelCase no DOM, e as duas pontas precisam ser renomeadas juntas.
+
+### Decidido diferente do plano, com o motivo
+
+- **O artefato do repositório continua se chamando `customclient`.** O plano mandava renomeá-lo, mas
+  o critério que justificou todos os outros renames — *o nome mente, diz xpra* — **não se aplica a
+  ele**. E era o único que mexeria em **dado vivo**: `kind`/`name` em D1, escopos de token, com
+  migration e deploy do Worker obrigatoriamente na mesma janela. Custo de migração de estado para um
+  ganho só de vocabulário. O que foi renomeado é o que de fato dizia xpra e vive dentro do portal (o
+  endpoint `/xpra-client/*`, `getXpraClientStatus`/`updateXpraClient`, o rótulo da UI). `repo-worker/`
+  ficou com diff zero.
+- **Os paths `custom-www*` voltaram à cadeia de fallback de `xpra.ts`, marcados como transitórios.**
+  Exceção deliberada à regra de arrancar compat, e o motivo é ordem de deploy: o Argo sobe o portal
+  assim que o CI passa, mas quem cria `/usr/share/xpra/vssh-client-www` é o updater **no servidor**.
+  Na janela entre os dois, a cadeia antiga cairia direto em `/usr/share/xpra/www` — o cliente do
+  upstream Xpra, sem nada do desktop VSSH — para **todo** usuário, até alguém entrar por SSH.
+- **O `.gitattributes` ganhou os cinco daemons do tarball do cliente** (`vssh-browser`,
+  `vssh-fileserver`, `vssh-psdialog`, `vssh-psdialogd`, `vssh-vscode`). A regra dele já dizia
+  "scripts que rodam em Linux, mesmo em checkout no Windows"; eles se qualificam e estavam de fora.
+  Os shebangs já estavam em LF — isto fecha a regra antes de alguém commitar de um checkout Windows.
+
+### Limpeza manual no servidor, depois do deploy
+
+Nada remove os nomes antigos. O `pkill` é o único com consequência silenciosa: o fileserver velho
+continua segurando a porta 18765 e o novo não binda.
+
+```bash
+sudo vssh-update-binaries --force          # instala o /usr/local/sbin/vssh-update-client
+sudo vssh-update-client stable && sudo vssh-update-client bleeding-edge
+sudo systemctl disable --now vssh-xpra-client-update.timer
+sudo pkill -x xpra-fileserver
+sudo rm -f /usr/local/bin/xpra-browser /usr/local/bin/xpra-fileserver \
+           /usr/local/sbin/vssh-update-xpra-client \
+           /usr/local/share/applications/xpra-browser.desktop
+sudo rm -rf /usr/share/xpra/custom-www /usr/share/xpra/custom-www-bleedingedge
+```
+
+Confirmado no painel admin (Repositório → Cliente mostra o build instalado por canal), as duas linhas
+de fallback transitório do `xpra.ts` podem sair.
 
 ---
 
@@ -133,3 +191,9 @@ Sem isso, cortar 185 linhas é fé; com isso, é diff.
 - **`design-tokens.css` duplicado** — ver [criterios.md](criterios.md); **não tocar antes de remover
   o tema neon**, senão o trabalho é feito duas vezes.
 - **`_eagerStartAlwaysRunningEngines`** — bloqueado até o supervisor ser validado num servidor real.
+- **`XPRA_FILE_SERVER_PORT`** e `XPRA_CUSTOM_HTML_PATH`/`XPRA_BLEEDINGEDGE_HTML_PATH` — as env vars
+  sobreviveram à Fase 2 com o prefixo antigo. Nenhuma está no `configmap` do k8s, então hoje só os
+  defaults do código rodam; renomeá-las é barato mas mexe em `.env.example` e docs sem ganho até
+  alguém precisar sobrescrevê-las.
+- **`servers.xpra_client_channel`** — coluna do SurrealDB, na mesma situação. Renomear exige migrar
+  as linhas existentes; foi por isso que ficou fora da Fase 2.

@@ -62,9 +62,9 @@ app `kind:"service"` sobe**. Toda a categoria "daemon" depende hoje de X11 para 
 estrutural do objetivo.
 
 **2. Sem Xpra ninguém serve o cliente HTML.**
-O desktop vive em `/<serverId>/proxy/desktop/` (`src/proxy.ts:431`), que resolve `getUserXpraPort()`
+O desktop vive em `/<serverId>/proxy/desktop/` (`src/proxy.ts:431`), que resolve `getUserDesktopPort()`
 e proxia para o HTTP server do próprio xpra, cujo conteúdo vem do `--html=${htmlPath}`
-(`xpra.ts:220`) — o bundle mora **no servidor Linux**, em `/usr/share/xpra/custom-www*`. `?xpra=0`
+(`xpra.ts:220`) — o bundle mora **no servidor Linux**, em `/usr/share/xpra/vssh-client-www*`. `?xpra=0`
 desliga só o host no navegador; a página ainda veio do xpra. Existe um shell que **tolera** a
 ausência de X11 depois de carregado por ele — não um modo sem-X11 de ponta a ponta.
 

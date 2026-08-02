@@ -59,8 +59,8 @@ canal derruba o servidor para todo mundo.
 ## O ponto crítico: quem serve o cliente HTML
 
 **O próprio portal, na exata mesma URL.** Em `src/proxy.ts`, no ramo `semanticService === 'desktop'`
-(linha 431), antes de `getUserXpraPort`: se o servidor for `headless`, servir
-`custom_xprahtml5/` estático com `<script>window.VSSH_NO_XPRA=true</script>` injetado no `<head>`.
+(linha 431), antes de `getUserDesktopPort`: se o servidor for `headless`, servir
+`vssh-client/` estático com `<script>window.VSSH_NO_XPRA=true</script>` injetado no `<head>`.
 
 ### Por que a mesma URL, e não uma nova
 
@@ -84,7 +84,7 @@ tentando xpra.
 ### Drift de bundle
 
 Passam a existir **dois caminhos de deploy do mesmo artefato**: no perfil x11 o bundle vem do host
-(`vssh-update-xpra-client.sh`, com canal stable/bleeding-edge por usuário); no headless vem do deploy
+(`vssh-update-client.sh`, com canal stable/bleeding-edge por usuário); no headless vem do deploy
 do portal. Expor o `buildId` num `GET /api/shell/config` para diagnosticar antes que vire bug
 reportado.
 
