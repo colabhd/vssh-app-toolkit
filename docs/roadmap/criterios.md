@@ -83,10 +83,35 @@ preferência e não segurança, **sincronizar no servidor é barato**.
 | Caminho **remoto** (polyfill FSA) | nós | sim — é preferência, e o grant é cerimonial |
 | Caminho **local do cliente** (FSA nativa) | o navegador | não — per-máquina por natureza, e não é nossa para sincronizar |
 
+### O fuso horário do usuário — o caso que mostra o critério funcionando
+
+O [relógio da Onda 2.2](02-apis-de-shell.md#o-relógio--porque-o-ambiente-não-tem-um) precisa saber
+**em que fuso mostrar a hora**. Três respostas passam pelo critério, e só uma sobrevive:
+
+| Onde o fuso mora | Passa no 3.2? |
+|---|---|
+| Detectado do navegador, e só | **Não.** O pesquisador que viaja vê a hora mudar sozinha, e a preferência dele — se tiver uma — não existe |
+| Fuso do host Linux | **Não responde a pergunta.** Não é preferência: é um fato do servidor, que ainda por cima pode estar errado |
+| **Preferência do usuário, no `/api/user/settings`** | **Sim.** Segue entre máquinas, e o fuso detectado do navegador vira só o **default** de quem nunca escolheu |
+
+E é o critério que decide também **quem tiquetaqueia**: o relógio ticka no navegador (custo zero) e
+se corrige contra o header `Date` de respostas que o shell já faz. O host Linux não vira fonte de
+hora — se o relógio dele divergir, isso é **diagnóstico**, não origem.
+
+> **O que este caso ensina, e vale além dele:** a pergunta "onde isto sobrevive?" e a pergunta "quem
+> é a autoridade sobre isto?" são diferentes, e confundi-las produz respostas ruins. A **autoridade**
+> sobre a hora é uma referência externa; a **preferência** sobre como exibi-la é do usuário. Só a
+> segunda atravessa este critério.
+
 ### O que já está do lado certo
 
 Estado de janela em lock files (`~/.vssh/psd/*.lock`) e preferências em `/api/user/settings`. Servem
 de modelo para o resto.
+
+> **Com uma ressalva descoberta na Onda 0c:** `/api/user/settings` valida **só o nome da chave**,
+> nunca o valor. Uma preferência inválida sobrevive no banco e é reenviada a cada GET — foi assim que
+> o tema `neon` se tornou capaz de voltar depois de removido. "Estar do lado certo" é necessário,
+> não suficiente.
 
 ---
 

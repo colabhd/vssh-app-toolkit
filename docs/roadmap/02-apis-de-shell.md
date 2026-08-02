@@ -7,7 +7,11 @@
 > **Feito:** a [2.1 inteira](#21--tray---concluída) — bandeja com as duas fontes (app com janela e
 > `engine`/`service` por arquivo), o transporte da [2.0](#o-transporte-o-coletor-por-servidor---feito),
 > a taskbar obedecendo às capabilities e a tela cheia no hambúrguer.
-> **Falta:** 2.2 a 2.5.
+> **Falta:** 2.2 a 2.6.
+>
+> ⚠ **A [Onda 0c](0c-colapso-de-variantes.md) é pré-requisito da 2.6** e recomendada antes da 2.2:
+> enquanto o tema `neon` e o modo `dock` existirem, cada superfície nova aqui nasce com duas
+> variantes para manter.
 
 Quatro superfícies que faltam para o ambiente ser um desktop de verdade. As quatro atravessam os
 [dois critérios](criterios.md) — e três delas mudaram de escopo por causa disso.
@@ -230,7 +234,20 @@ cheia lê "Sair da tela cheia" em vez de adivinhar um ícone.
 
 ---
 
-## 2.2 — Centro de notificações
+## 2.2 — Centro de notificações (e o relógio)
+
+### Pré-requisitos que valem antes de começar
+
+Dois, e os dois são para não pagar o mesmo custo três vezes nas subondas 2.2, 2.4 e 2.5:
+
+- **Helper `anchorPanel(el, anchorEl)`** — existem hoje **6** implementações de "ancorar painel no
+  botão da taskbar", e duas delas admitem a cópia por escrito no comentário. Sem o helper, 2.2, 2.4
+  e 2.5 escrevem a 7ª, 8ª e 9ª. Ver [diagnostico](diagnostico.md#14b-ui-do-shell--duplicações-medidas).
+- **Extrair o `/ws/events` do `Client.js`** para um `js/host/vssh-events.js`. Ele é ~55 linhas
+  **nossas dentro de arquivo upstream MPL**, e todo item desta onda que precisar do canal custa mais
+  uma edição lá ou mais um `CustomEvent` de contorno — como a bandeja já precisou fazer.
+
+### O centro de notificações
 
 Hoje só há toasts efêmeros: sem histórico, sem persistência, sem identidade por app, sem ações.
 
@@ -251,6 +268,40 @@ vira cache de leitura. Do-not-disturb é preferência de usuário → `/api/user
 **A Notification API do navegador entra como alcance complementar**, não como o mecanismo — é o
 [limite 1 do critério](criterios.md#31--o-navegador-já-faz-isso): em tela cheia não há barra de
 notificação do SO.
+
+### O relógio — porque o ambiente não tem um
+
+Vem junto com o sino, e não por conveniência: os dois dividem o mesmo container
+(`#taskbar-right`), o mesmo padrão de inserção como irmão, o mesmo helper de ancoragem e a mesma
+restrição de 48 px na barra vertical. Em quase todo desktop o relógio **é** o gatilho do centro de
+notificações; nascendo separado, a 2.2 mexeria nele de novo.
+
+**A hora serve ao usuário, não ao servidor.** É a decisão que dita o resto:
+
+| Peça | Decisão |
+|---|---|
+| Quem tiquetaqueia | O **navegador**. Zero backend, zero canal SSH, zero trabalho no host. |
+| Referência de precisão | O header `Date` de respostas que o shell **já faz** — o `fetch` de settings, o handshake do `/ws/events`. Custo zero, ~1 s de precisão. NTP por UDP não existe no navegador; este é o análogo alcançável do "pool de sincronização". |
+| Fuso exibido | **Preferência do usuário**, string IANA, default = `Intl.DateTimeFormat().resolvedOptions().timeZone`. Mora em `/api/user/settings` e portanto **segue entre máquinas** ([critério 3.2](criterios.md#32--isso-sobrevive-à-troca-de-máquina)). |
+| O host Linux | **Não é fonte da verdade.** O relógio dele pode estar errado, e isso não pode contaminar a barra. |
+
+**O relógio do host vira diagnóstico, não origem.** Se ele divergir da referência, isso aparece como
+uma linha em Configurações → Sistema — que é útil de verdade, porque um host com relógio errado
+carimba log, cron e mtime errados e ninguém percebe até doer.
+
+**E o efeito colateral que justifica o item sozinho:** existem hoje **6 formatadores de data
+espalhados**, todos `pt-BR` no fuso do navegador, nenhum declarando isso — e
+`FileBrowserWindow.js:1815` e `:3083` usam formatos **diferentes entre si**. O relógio força um
+formatador único, e a data do arquivo passa a concordar com a barra. Sem isso, o sintoma clássico é
+*"a data do arquivo está errada"* quando na verdade é o relógio novo que está certo.
+
+**Armadilhas nomeadas:**
+- chave nova fora de `ALLOWED_KEYS` (`settings.ts:12-25`) é descartada com **200 e sem log** —
+  funciona a semana toda na máquina de quem desenvolveu e some na outra;
+- **aba oculta**: o navegador estrangula timers, então segundos precisam de resync em
+  `visibilitychange`, não só `setInterval` — senão voltar depois de horas mostra o minuto errado;
+- existe um `init_clock` morto do upstream (47 linhas) e um `#clock_text` com CSS órfão
+  (`float:left; padding-left:100px`). Deletar, não reusar.
 
 ---
 
@@ -352,6 +403,64 @@ dívida para a [Onda 7](06-portabilidade.md) migrar — que é exatamente o que 
 > volume master no navegador, e a resposta não é "sem equivalente". Como TODA fonte de áudio do
 > ambiente ou é um elemento de mídia nosso ou é um gain node nosso, o master é um multiplicador —
 > e passa a existir porque o ambiente é que é o sistema operacional aqui.
+
+---
+
+## 2.6 — A janela de Configurações, refeita
+
+**Apagar e refazer, não reformar.** Estamos construindo um sistema operacional na web, e quase toda
+peça nova desta roadmap cria preferência — do-not-disturb (2.2), fuso do relógio (2.2), volume por
+app (2.5), limites de recurso (Onda 4). A tela que recebe tudo isso precisa ser digna da ambição, e
+a de hoje não é.
+
+**O que existe:** 1700 linhas, 6 abas fixas montadas por `innerHTML` num render único, **sem
+mecanismo de registro nenhum**. Não confundir um `switch` grande com extensibilidade.
+
+**O modelo:** uma janela de configurações de distro Linux — organizada, padronizada e **extensível**.
+É o mesmo idioma que a [2.1](#21--tray---concluída) estabeleceu para a bandeja: *a fonte é nomeada
+por quem instala, e o chrome monta o elemento*. Um `engine` precisa poder acrescentar a sua seção do
+mesmo jeito que um `service` acrescenta o seu ícone.
+
+> ### ⚠ O contrato NÃO é o do `TrayArea`, e copiá-lo falharia no caso que motiva a proposta
+>
+> A bandeja atravessa **dados** e tem **um** `onClick`. A seção do Scramjet consome **seis** APIs do
+> motor — `list`, `available`, `get`, `reset`, `clearCache`, `getStatus`, `reconnect`/`init` — com
+> **status ao vivo** e botões com estado de progresso. Um registro só-dados não carrega nada disso.
+>
+> O contrato precisa de um terceiro modo além de "dados" e "iframe": **seção montada por código do
+> próprio shell**, registrada por id. É o que serve motor de navegação, Serviços e teclado — todos
+> internos, todos hoje espalhados.
+
+**Consumidores, todos internos e todos já existentes:** motores de navegação (Scramjet), Serviços,
+teclado (que hoje vive num **segundo store**, `/api/user/preferences`), e `fileHandlers` — este
+último é o melhor primeiro cliente, porque o backend, o leitor e a matéria-prima estão prontos e
+**não há um único escritor**.
+
+**Sequenciamento honesto: a 2.6 vem DEPOIS de 2.2–2.5**, e quem chegar primeiro paga. A 2.2
+acrescenta seu checkbox à janela atual e joga ~20 linhas fora. É preço aceitável — fazer o Settings
+antes atrasaria a onda inteira atrás de um bloco muito maior.
+
+**Pré-requisito extraível, que pode ir antes de tudo:** um `js/VsshSettings.js` (`get`/`set`/
+`subscribe`/`hydrate`) tirado do `SettingsWindow`. Desacopla ~22 consumidores do arquivo que vai ser
+deletado **e** conserta dois bugs reais: o debounce que engole a primeira de duas escritas em menos
+de 400 ms, e o estado vazio quando o backend cai — hoje pins somem, launcher volta ao default e
+tiling reseta, **sem nada no console**.
+
+**Pré-requisitos de outra onda:** a [Onda 0c](0c-colapso-de-variantes.md) tira ~280 das 1700 linhas
+(neon + dock) **antes**, senão elas seriam reescritas para depois morrer — e a aba "Interface"
+inteira, que existe por causa do dock, seria projetada para ser deletada.
+
+**Duas decisões de desenho que precisam ser tomadas antes de codar, não durante:**
+- existem **dois stores** (`/api/user/settings` e `/api/user/preferences`) e **duas implementações
+  completas** da tela (a do shell e `public/js/modules/settings.js`, 356 linhas, mesmas chaves,
+  paletas duplicadas verbatim). Unificar ou conviver é decisão, não detalhe;
+- o merge do PUT é **raso**: uma seção que grave um campo objeto com só a sub-chave alterada apaga
+  as irmãs. O usuário configura A, depois B, e A volta ao default sem aviso.
+
+**A extensão para vssh-app de terceiro — manifesto declarando seção — não é desta onda.** Ela exige
+contrato versionado e negociação por `vssh.capabilities()`, e é ponto de extensão: vai para a
+[Onda 5](04-runtime-composicao.md#registro-de-capabilities), ao lado de `provides` e do `FileOpener`
+plugável. Um contrato de extensão, três consumidores.
 
 ---
 

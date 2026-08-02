@@ -126,6 +126,57 @@ Isso condiciona o desenho da [Onda 2](02-apis-de-shell.md) e é parte da justifi
   `_eagerStartAlwaysRunningEngines` (`index.html:2111`) mantido como rede de segurança.
 - **Sem descoberta entre apps**: um consumidor de `type:"engine"` fixa o `appId` no código.
 
+## 1.4b UI do shell — duplicações medidas
+
+Levantadas ao planejar a [Onda 0c](0c-colapso-de-variantes.md), com a contagem junto porque
+"tem duplicação" sem número não move ninguém. **O que une esta lista:** cada item cobra um imposto
+em *toda feature de UI nova*, não uma vez.
+
+| Dívida | Medida | Por que ainda não foi paga |
+|---|---|---|
+| **Ancorar painel no botão da taskbar** | **6** implementações — `index.html` (2×), `TilingPanel.js`, `TrayArea.js`, `StartMenu.js`, `ContextMenu.js`. Duas admitem a cópia no comentário; a do `TrayArea` **não clampa** contra a borda da tela | Vira o helper `anchorPanel()`, pré-requisito da [2.2](02-apis-de-shell.md#22--centro-de-notificações-e-o-relógio). Duas ficam de fora: o Start Menu carrega classes de animação e o menu de contexto faz *flip* |
+| **`/ws/events` dentro do `Client.js`** | ~55 linhas **nossas** em arquivo upstream MPL | Todo item da Onda 2 que precise do canal custa outra edição lá, ou outro `CustomEvent` de contorno — como a bandeja precisou. Extrair para `js/host/vssh-events.js` |
+| **`vsshHost.captureKeyboard()`** | **22 chamadas em 14 arquivos** — toda janela, diálogo e menu precisa alternar no foco | **Não é conserto mecânico.** A semântica diverge (`_onFocus`→`false`, `_onDefocus`→`true`, o menu de contexto alterna em volta do show/hide), e o ganho de runtime é **zero**: `capture_keyboard` nasce `false` e no host standalone o método é vazio. Içar para a classe base é **redesenho de foco de janela**, e a regressão só aparece no perfil Xpra. Volta quando alguém redesenhar isso de propósito |
+| **Cálculo de `serverId`** | **11 cópias** contra **1** uso do helper `VsshHost.serverSlug()`, que existe para isso | Barato, e vale na véspera da [Onda 7](06-portabilidade.md), que mexe em path. Duas não são mecânicas (um ServiceWorker, onde o host nem carrega) |
+| **A regra MPL aponta para o arquivo errado** | `MenuCustom.js` tem **245 de 379 linhas nossas** (é onde mora a taskbar) e não é protegido; o `Client.js`, protegido, já tem **4 ramos nossos** de `UI_MODE` | Dá falsa segurança onde já divergimos e desencoraja mexer onde o código é nosso. Corrigido na [Onda 0c](0c-colapso-de-variantes.md), junto com o split `MenuCustom.js` → `js/Taskbar.js` |
+| **Chaves que o código finge sincronizar** | `searchEngine` e `shortcuts` são gravadas pelo cliente e **descartadas** pelo backend (`ALLOWED_KEYS`), com 200 e sem log | Duas linhas. Sintoma: funciona a semana toda numa máquina e some na outra |
+
+### Três bugs vivos achados no mesmo levantamento
+
+1. **`_do_migrate` põe o shell headless em loop.** Ele chama `connect()` sem consultar
+   `VsshHost.xpraDisabled()`, e o `migrate` é broadcast para **todos**. Todo drain de pod manda o
+   perfil sem Xpra reconectar num endpoint Xpra que não existe, com overlay de desconexão.
+   *(**Não determinado**: se o `remove_windows()`/`clear_timers()` que roda antes derruba janelas do
+   shell.)*
+2. **"Diminuir Fonte" sem ícone.** `ContextMenu.js` mapeia para `#ico-minus`, que não existe entre os
+   43 símbolos do sprite. No tema padrão, hoje, renderiza um SVG vazio em dois menus.
+3. **Vazamento no Alt+Tab.** `toggle_window_preview` registra 4 listeners jQuery **antes** do early
+   return; no standalone a lista está sempre vazia, então são 4 por pressionada, nunca removidos.
+
+Os três entram na [Onda 0c](0c-colapso-de-variantes.md), que é onde o código já vai estar aberto.
+
+### Peso morto servido ao navegador
+
+`js/lib/aurora/{aac,flac,mp3}.js` = **401.838 B nunca referenciados**; `design-system.html` = 1854
+linhas públicas com zero referências, **já divergidas** do `design-tokens.css` real; três overlays
+órfãos do upstream, um deles se apresentando como *"Xpra HTML5 Client / Version 19"*.
+
+### ⚠ O que NÃO é dívida, e por que está escrito aqui
+
+**"No perfil sem Xpra os proxies de janela poderiam ser desligados."** Foi investigado e **não
+procede**. Os proxies declaram `pointer-events: auto` **inline**, então desligá-los pelo ancestral
+não faria nada; o `#screen` **não** fica vazio no standalone (tem um proxy por janela e um por ícone
+de desktop); e o menu de contexto do desktop e o upload por arraste no papel de parede vivem nesses
+listeners. Além disso, a proposta **adiciona uma variante** — dois caminhos de hit-test com ordem de
+evento diferente —, que é o oposto do que a Onda 0c persegue.
+
+O incômodo real por trás da ideia (clicar uma vez numa janela desfocada não age no conteúdo) existe
+nos **dois** perfis, então o conserto certo é no próprio proxy: depois do `focus()`, desligar
+`pointerEvents` e re-despachar em vez de comer o `mousedown`. É **pesquisa**, não item orçado —
+eventos sintéticos não reproduzem foco e seleção nativos com fidelidade.
+
+Fica registrado para não ser reproposto como "ganho barato".
+
 ## 1.5 Questões em aberto
 
 Decisões a tomar, não tarefas a executar.

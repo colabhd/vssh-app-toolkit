@@ -111,6 +111,28 @@ o que permite trocar o produtor sem tocar em nenhum consumidor.
 Primeiro consumidor real sugerido: o **engine de impressão** (`print/v1`) da
 [Onda 2.4](02-apis-de-shell.md) — nasce como caso concreto em vez de abstração especulativa.
 
+### Seção de Configurações declarada por manifesto
+
+O terceiro consumidor do mesmo contrato de extensão, e o que fecha a analogia com a bandeja: no
+Linux, um aplicativo instalado acrescenta a própria página às configurações do sistema.
+
+A [Onda 2.6](02-apis-de-shell.md#26--a-janela-de-configurações-refeita) constrói a janela nova e o
+registro **interno** — motor de navegação, Serviços, teclado, `fileHandlers`, todos código do
+próprio shell. O que fica para cá é a parte **declarativa**, para vssh-app de terceiro: o manifesto
+declara a seção, e o shell a monta.
+
+Por que aqui e não lá: um app de terceiro atravessa a mesma fronteira que `provides` e o
+`FileOpener` plugável — contrato **versionado**, negociação por `vssh.capabilities()`, e o
+tratamento de *"um shell antigo simplesmente não responde"* que os
+[riscos transversais da Onda 2](02-apis-de-shell.md#riscos-transversais) já nomeiam. É um contrato
+de extensão com três consumidores, não três mecanismos parecidos.
+
+> **A restrição que a 2.6 descobriu vale em dobro aqui:** um registro **só-dados**, como o da
+> bandeja, não sustenta uma seção com status ao vivo e ações. Para app de terceiro isso é ainda mais
+> apertado, porque ele não pode receber código do shell nem entregar código para ele. O caminho
+> provável é declarativo com campos tipados (`toggle`, `select`, `text`, `action`) mais o valor
+> lido/escrito pelo `/api/user/settings` — não um `innerHTML` atravessando a ponte.
+
 ### Ponto de extensão no `FileOpener`
 
 `vssh-client/js/FileOpener.js` é um **mapa fixo** de extensão → ação. Não há como um engine

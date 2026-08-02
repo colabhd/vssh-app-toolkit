@@ -220,7 +220,8 @@ varredura de chamadores, não por teste — não havia teste. Agora há.
 - **`connect.html`** — poderia encolher de 1792 para ~130 linhas (só a tela de disconnect), mas é
   reescrita, não limpeza.
 - **`design-tokens.css` duplicado** — ver [criterios.md](criterios.md); **não tocar antes de remover
-  o tema neon**, senão o trabalho é feito duas vezes.
+  o tema neon**, senão o trabalho é feito duas vezes. ➜ **destravado pela
+  [Onda 0c](0c-colapso-de-variantes.md)**, que é justamente a remoção do neon.
 - **`_eagerStartAlwaysRunningEngines`** — bloqueado até o supervisor ser validado num servidor real.
 - **`XPRA_FILE_SERVER_PORT`** e `XPRA_CUSTOM_HTML_PATH`/`XPRA_BLEEDINGEDGE_HTML_PATH` — as env vars
   sobreviveram à Fase 2 com o prefixo antigo. Nenhuma está no `configmap` do k8s, então hoje só os
