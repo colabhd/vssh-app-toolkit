@@ -190,8 +190,10 @@ resolvidos em `lib/` — vendorize com `vssh-app-lib-sync` e commite o resultado
 alcançar registry npm num exec por SSH, e o publish empacota o que está versionado).
 
 ```bash
-bash /caminho/do/toolkit/scripts/vssh-app-lib-sync . --parts fs,spa,log,sse
-git add backend/vendor/vssh && git commit -m "sync vssh libs"
+# libs de backend ao lado do backend; libs de frontend sob a raiz que o static-spa serve
+bash /caminho/do/toolkit/scripts/vssh-app-lib-sync . --parts fs,spa,log,sse --dest backend/vendor/vssh
+bash /caminho/do/toolkit/scripts/vssh-app-lib-sync . --parts web            --dest frontend/vendor/vssh
+git add backend/vendor/vssh frontend/vendor/vssh && git commit -m "sync vssh libs"
 ```
 
 | Peça | Resolve |
@@ -206,7 +208,18 @@ Comece pelo `templates/hello-vssh-app-node/`, que já nasce com tudo isso ligado
 ## Falar com o desktop: diálogo, notificação, seletor, arquivos
 
 **Não construa essa UI.** O desktop já tem, e o app alcança por uma ponte de `postMessage` —
-carregue `lib/web/vssh-app-shim.js` (pelo `injectScripts` do `static-spa`, sem tocar no seu HTML):
+carregue `lib/web/vssh-app-shim.js`. São **dois passos**, e esquecer o primeiro é o erro clássico:
+vendorize `lib/web/` sob a raiz do frontend (`--dest frontend/vendor/vssh`, acima) e só então aponte
+o `injectScripts` do `static-spa` para ele — sem tocar no seu HTML:
+
+```js
+createStaticSpa({ root: 'frontend', injectScripts: ['vendor/vssh/web/vssh-app-shim.js'] })
+```
+
+`injectScripts` **só injeta a tag `<script>`**; quem serve o arquivo é o `static-spa`, e ele só serve
+o que está sob `root`. Se a lib ficar em `backend/vendor/`, a tag aponta para 404 e o `vssh` nunca
+existe — silenciosamente, porque a página carrega normalmente. Ver
+`templates/hello-vssh-app-node/`, que já vem com os dois passos ligados.
 
 ```js
 await vssh.dialog.confirm('Descartar alterações?');      // diálogo do desktop

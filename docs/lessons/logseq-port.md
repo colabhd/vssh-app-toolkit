@@ -235,7 +235,17 @@ verdade se o script tratar o diretório vazio, o que fecha o círculo com o par�
 
 ## 9. O watcher de mudanças externas: o que é do toolkit
 
-Está fora do escopo deste app na v1, e quando for feito a divisão sugerida é:
+> **Feito desde então.** `vssh.fs.watch(path, cb)` existe (ver [api.md](../api.md)), com um canal
+> multiplexado por usuário no portal e `inotifywait` com fallback escolhido no servidor remoto. A
+> pergunta em aberto no fim desta seção — "o proxy bufferiza SSE?" — foi respondida construindo
+> `lib/node/sse.js`, que carrega os headers que sobrevivem ao proxy e ao CDN.
+>
+> A seção fica como registro do raciocínio, que continua valendo. Uma ressalva que só apareceu
+> depois: cada watch segura um canal SSH, e o orçamento é de ~8 **por servidor** — por isso
+> `cancelar` não é opcional, e por isso o desenho vai mudar para um vigia por servidor. Ver
+> [roadmap/02-apis-de-shell.md](../roadmap/02-apis-de-shell.md).
+
+Estava fora do escopo deste app na v1, e a divisão sugerida era:
 
 | camada | onde | por quê |
 |---|---|---|

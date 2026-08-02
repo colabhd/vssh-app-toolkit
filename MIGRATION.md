@@ -137,11 +137,17 @@ recebe uma cópia rasa, não o objeto que o IDB guardou. `getAllKeys` ficou deli
 ## Como atualizar
 
 ```bash
-bash scripts/vssh-app-lib-sync <dir-do-app> --parts <...> --ref main
+bash scripts/vssh-app-lib-sync <dir-do-app> --parts fs,spa,log,sse --dest backend/vendor/vssh
+bash scripts/vssh-app-lib-sync <dir-do-app> --parts web            --dest frontend/vendor/vssh
 ```
 
-**Use `--ref main`, não o default.** O default é `--ref v1`, e a tag `v1` aponta para um commit
-anterior à criação de `lib/` — fora de um clone, o sync falha com "lib/ não encontrado no tarball".
+**Dois destinos.** As libs de `node/` são `require()`adas pelo backend; as de `web/` são carregadas
+pelo navegador e precisam estar sob a raiz que o `static-spa` serve, senão a tag injetada por
+`injectScripts` aponta para 404.
+
+**O default de `--ref` passou a ser `main`.** Antes era `v1`, e a tag `v1` aponta para um commit
+anterior à criação de `lib/` — fora de um clone, o sync falhava com "lib/ não encontrado no tarball".
+Ver [`docs/roadmap/03-toolkit.md`](docs/roadmap/03-toolkit.md).
 
 Depois de sincronizar, revise o diff e rode o app contra os quatro primeiros itens desta página.
-`backend/vendor/vssh/.vssh-lib-version` registra de onde veio a cópia.
+`.vssh-lib-version` (em cada destino) registra de onde veio a cópia.

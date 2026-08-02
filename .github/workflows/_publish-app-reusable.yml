@@ -6,7 +6,7 @@ name: Publish App (reusable)
 #
 #   jobs:
 #     publish:
-#       uses: colabhd/vssh-app-toolkit/.github/workflows/_publish-app-reusable.yml@v1
+#       uses: colabhd/vssh-app-toolkit/.github/workflows/_publish-app-reusable.yml@main
 #       with:
 #         app_dir: "."
 #         repo_api: "https://vssh-repo.colabh.org"
@@ -14,6 +14,13 @@ name: Publish App (reusable)
 #         publish_token: ${{ secrets.VSSH_REPO_PUBLISH_TOKEN }}   # token escopado app:<id>
 #
 # Faz checkout do repo do app (chamador) + deste toolkit (só scripts/) e roda vssh-app-publish.
+#
+# POR QUE `main` E NÃO `@v1`:
+#   A tag `v1` é do toolkit ORIGINAL, anterior à criação de `lib/`, `schema/` e `docs/` — ela não
+#   contém `schema/vssh-app.schema.json`. Um repo pinado em `@v1` publica com validação MÍNIMA e só
+#   avisa numa linha do log (`aviso: schema não encontrado; validando só o mínimo`), o que é fácil de
+#   não ver. Enquanto não existir uma tag `v2`, `main` é a única ref que valida de verdade.
+#   Ver docs/roadmap/03-toolkit.md, item 0.1.
 
 on:
   workflow_call:
@@ -31,9 +38,9 @@ on:
         type: string
         required: true
       tools_ref:
-        description: 'Ref deste toolkit de onde puxar o script de publish'
+        description: 'Ref deste toolkit de onde puxar o script de publish (precisa conter schema/)'
         type: string
-        default: 'v1'
+        default: 'main'
     secrets:
       publish_token:
         description: 'Token de publicação escopado (app:<id> ou kind:app)'

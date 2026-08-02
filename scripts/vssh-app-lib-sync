@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 # vssh-app-lib-sync — copia as bibliotecas do toolkit para dentro do repo de um vssh-app.
-# Uso: vssh-app-lib-sync <dir-do-app> [--parts fs,spa,log,sse,web] [--ref v1] [--dest vendor/vssh]
+# Uso: vssh-app-lib-sync <dir-do-app> [--parts fs,spa,log,sse,web] [--ref main] [--dest vendor/vssh]
+#
+# DOIS DESTINOS, e a distinção importa:
+#
+#   vssh-app-lib-sync . --parts fs,spa,log,sse --dest backend/vendor/vssh
+#   vssh-app-lib-sync . --parts web            --dest frontend/vendor/vssh
+#
+# As libs de `node/` são `require()`adas pelo backend, então ficam ao lado dele. As de `web/` são
+# carregadas pelo NAVEGADOR por uma tag <script> — precisam estar sob a raiz que o `static-spa`
+# serve (`frontend/`), senão a tag injetada por `injectScripts` aponta para 404. Esse era o defeito
+# do template até a Onda 0: a tag era injetada e ninguém servia o arquivo.
 #
 # Por que copiar em vez de instalar: o servidor-alvo pode não ter acesso a registry npm num exec
 # não-interativo por SSH, e `vssh-app-publish` empacota o que está VERSIONADO. Então o caminho que
@@ -19,7 +29,9 @@
 #   all  → tudo (default)
 set -euo pipefail
 
-APP_DIR="" PARTS="all" REF="v1" DEST="vendor/vssh"
+# `main` e não `v1`: a tag `v1` é do toolkit original, anterior à criação de `lib/` — fora de um
+# clone, `--ref v1` falha com "lib/ não encontrado no tarball". Ver docs/roadmap/03-toolkit.md.
+APP_DIR="" PARTS="all" REF="main" DEST="vendor/vssh"
 REPO="colabhd/vssh-app-toolkit"
 
 while [ $# -gt 0 ]; do

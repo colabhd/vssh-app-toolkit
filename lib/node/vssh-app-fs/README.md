@@ -2,9 +2,10 @@
 
 Expõe um diretório do servidor ao frontend de um vssh-app, por HTTP.
 
-Mora dentro do `vsshapp-logseq` por enquanto, mas é escrita como peça independente: nenhuma linha
-aqui menciona Logseq, nenhuma lê variável de ambiente, nenhuma dependência npm. O critério para
-promovê-la ao `vssh-app-toolkit` é um segundo app usá-la sem editar nada deste diretório.
+Nasceu dentro do `vsshapp-logseq` e **foi promovida ao `vssh-app-toolkit`** — o critério era um
+segundo app usá-la sem editar nada deste diretório, e foi o que aconteceu. Continua escrita como peça
+independente: nenhuma linha aqui menciona Logseq, nenhuma lê variável de ambiente, nenhuma
+dependência npm.
 
 ```
 index.js   API pública
@@ -43,8 +44,9 @@ if (await handler(req, res, url)) return; // true = atendeu
 adaptador para servir binário sem passar por JSON.
 
 Os defaults de `contentExtensions` e `ignore` estão em `ops.js` (`DEFAULT_CONTENT_EXTENSIONS`,
-`DEFAULT_IGNORE`) e reproduzem as regras de `deps/common/src/logseq/common/graph.cljs` do Logseq.
-São defaults, não política da lib: outro app passa os seus.
+`DEFAULT_IGNORE`) e são **genéricos** desde a promoção ao toolkit. As regras específicas do Logseq
+(que antes eram o default) viraram um preset — ver `presets/logseq.js` e `MIGRATION.md`. São
+defaults, não política da lib: outro app passa os seus.
 
 ## Contrato de wire
 
@@ -159,9 +161,22 @@ python sem alteração.
 
 ## Testes
 
+No toolkit, junto do resto das libs:
+
 ```
-node --test "backend/**/*.test.js"
+npm test                      # = node --test "lib/**/*.test.js"
+```
+
+Vendorizada no repo de um app, aponte para onde ela foi parar:
+
+```
+node --test "backend/vendor/vssh/node/vssh-app-fs/test/*.test.js"
 ```
 
 Rodam contra `mkdtemp`, sem nenhuma variável de ambiente do VSSH. Se um teste daqui precisar de
 uma, a fronteira da lib vazou.
+
+> `mkdtemp` é justamente o caso que expôs um bug de confinamento no `static-spa` irmão: no Windows o
+> TEMP tem nome curto 8.3, e canonicalizar a raiz e o alvo com funções diferentes de `realpath` fazia
+> as duas grafias nunca casarem. Se for portar `paths.js`, canonicalize os dois lados com a **mesma**
+> função.

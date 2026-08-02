@@ -31,6 +31,22 @@ const log = createAppLog({ appId: APP_ID });
 
 const spa = createStaticSpa({
   root: path.join(__dirname, '..', 'frontend'),
+
+  // A PONTE COM O DESKTOP, em dois passos — esquecer o primeiro é o erro clássico:
+  //   1. a lib precisa estar SOB `root`, porque é o navegador que a carrega (por isso ela é
+  //      vendorizada em `frontend/vendor/vssh/`, e não junto das libs de backend);
+  //   2. `injectScripts` só acrescenta a tag <script> antes do </head> do index — quem SERVE o
+  //      arquivo é este mesmo `createStaticSpa`, e ele só serve o que está sob `root`.
+  // Com a lib no lugar errado a página carrega normalmente, a tag aponta para 404 e o `vssh`
+  // simplesmente não existe — sem erro nenhum que ligue uma coisa à outra.
+  injectScripts: ['vendor/vssh/web/vssh-app-shim.js'],
+
+  // O polyfill da File System Access API (`showDirectoryPicker()` e cia.) está vendorizado ao lado,
+  // mas NÃO é injetado por padrão: ele tem limites estruturais conhecidos hoje — `new Response(file)`,
+  // `FileReader` e `FormData` leem 0 bytes em silêncio, e `slice()` lança. Ligue-o conscientemente,
+  // depois de ler docs/roadmap/03-toolkit.md, acrescentando à lista acima:
+  //   'vendor/vssh/web/fsa-polyfill.js'   (SEMPRE depois do shim — ele depende do `vssh`)
+
   // Descomente se o seu app usa roteamento HTML5 (History API) em vez de fragmento:
   // spaFallback: true,
   missingBundleHint: 'Rode o build do frontend antes de subir o backend.',

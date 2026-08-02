@@ -5,13 +5,8 @@
 // Escopo, e por que ele é este: o caro de portar um app Electron nunca foi o transporte do IPC
 // (~150 linhas sobre HTTP) — são os handlers do outro lado, escritos sob medida por aquele app.
 // Uma camada de `ipcRenderer` genérica entrega o cano e ZERO dos handlers. Então este shim cobre
-// o que é padrão do Electron (dialog, shell, clipboard de texto, Notification, controles de janela)
-// e recusa, com mensagem clara, o que é bespoke.
-//
-// Fora de escopo hoje, e cada um por um motivo diferente:
-//   - clipboard de IMAGEM: o shell ainda não tem API de clipboard (ver docs/roadmap/02-apis-de-shell.md);
-//   - `setSize`/`setPosition`: por desenho — a janela é do usuário depois de aberta;
-//   - `ipcRenderer.invoke` de canal próprio: é o trabalho real do port, e vira o seu backend.
+// o que é padrão do Electron (dialog, shell, clipboard, Notification, controles de janela) e
+// recusa, com mensagem clara, o que é bespoke.
 //
 // O que sobra é o trabalho real do port: aquilo vira o backend do vssh-app. Ver docs/porting.md
 // para medir isso em minutos num app concreto.
@@ -104,82 +99,25 @@
     sendSync: bespoke('ipcRenderer.sendSync'),
   };
 
-  // ── Notification ──────────────────────────────────────────────────────────
-  // Um app Electron notifica pela API padrão do navegador (`new Notification(...)`), no renderer.
-  // Deixar a nativa passar seria errado DENTRO do desktop por um motivo concreto: a notificação do
-  // SO aparece numa área do navegador que não existe em tela cheia — que é como o desktop VSSH roda
-  // na maior parte do tempo. Então lá dentro roteamos para o toast do shell.
-  //
-  // Fora do desktop não mexemos em nada: a nativa é a resposta certa no `npm run dev`.
-  //
-  // O que NÃO dá para honrar ainda: `onclick`/`'click'`. O shell não devolve um handle para a
-  // notificação, então o clique não volta. Isso é ruído silencioso o suficiente para merecer um
-  // aviso no console em vez de um listener que nunca dispara sem explicação.
-  if (window.vssh.inDesktop) {
-    class VsshNotification extends EventTarget {
-      constructor(title, options = {}) {
-        super();
-        this.title = String(title ?? '');
-        this.body = options.body ?? '';
-        window.vssh.notify(this.body || this.title, {
-          title: this.body ? this.title : undefined,
-          level: options.vsshLevel || 'info',
-        });
-      }
-      close() {}
-      addEventListener(type, ...rest) {
-        if (type === 'click') {
-          console.warn('[electron-shim] clique em Notification não volta ao app: o shell não ' +
-                       'devolve handle. Use um botão na própria janela para a ação.');
-        }
-        return super.addEventListener(type, ...rest);
-      }
-      set onclick(_fn) {
-        console.warn('[electron-shim] Notification.onclick não dispara — ver addEventListener.');
-      }
-      get onclick() { return null; }
-      static requestPermission() { return Promise.resolve('granted'); }
-      static get permission() { return 'granted'; }   // o toast do shell não pede permissão
-    }
-    window.Notification = VsshNotification;
-  }
-
   // ── app / BrowserWindow ───────────────────────────────────────────────────
   const app = {
     getName:    () => document.title || 'vssh-app',
-    // O `version` do manifest não chega ao frontend — o proxy serve o app, não injeta metadados.
-    // Em vez de mentir com um literal, lemos do que o app pode declarar, nesta ordem:
-    //   <meta name="vssh-app-version" content="1.2.3">  ou  window.__VSSH_APP_VERSION__
-    // Sem nenhum dos dois, '0.0.0' continua sendo a resposta — mas agora é a resposta de quem não
-    // declarou, não a de quem não tinha como declarar.
-    getVersion: () =>
-      window.__VSSH_APP_VERSION__ ||
-      document.querySelector('meta[name="vssh-app-version"]')?.content ||
-      '0.0.0',
+    getVersion: () => '0.0.0',
     getPath: bespoke(
       'app.getPath()',
       'Peça a pasta ao usuário (showDirectoryPicker) ou use $VSSH_APP_DATA_DIR pelo seu backend.'
     ),
-    quit()  { window.vssh.window.close(); },
-    exit()  { window.vssh.window.close(); },
+    quit()  { window.close(); },
+    exit()  { window.close(); },
   };
 
-  // A janela é do shell, não do app — mas o app PEDE ao shell pela ponte, e isso existe desde que
-  // `vssh.window.*` entrou no shim. Eram no-ops aqui só porque este arquivo é anterior a ela.
-  //
-  // `setSize`/`setPosition` continuam de fora, e por desenho: o tamanho inicial vem do manifest e
-  // depois a janela é do usuário (ver a tabela "O que não existe" em docs/api.md).
+  // A janela é do shell, não do app. O pouco que faz sentido daqui é o título.
   const currentWindow = {
-    setTitle(t) { document.title = String(t); },   // o shim espelha o <title> sozinho
+    setTitle(t) { document.title = String(t); },
     getTitle()  { return document.title; },
-    close()      { window.vssh.window.close(); },
-    minimize()   { window.vssh.window.minimize(); },
-    maximize()   { window.vssh.window.maximize(); },
-    unmaximize() { window.vssh.window.restore(); },
-    focus()      { window.vssh.window.focus(); },
-    show()       { window.vssh.window.focus(); },     // o mais próximo: trazer para a frente
-    hide()       { window.vssh.window.minimize(); },  // o mais próximo: tirar da frente
-    isMaximized: () => false,   // o shell não expõe geometria de volta ao app
+    close()     { window.close(); },
+    minimize() {}, maximize() {}, unmaximize() {}, focus() {}, show() {}, hide() {},
+    isMaximized: () => false,
     on() {}, once() {}, removeListener() {},
   };
 

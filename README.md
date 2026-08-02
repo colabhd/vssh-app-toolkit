@@ -25,6 +25,7 @@ padrão — **sem nenhum PAT/GitHub App**.
 | [`docs/api.md`](docs/api.md) | **Referência de API** — o que o app pode pedir ao ambiente: janela, título, diálogos, menu de contexto, seletores, arquivos, abas. E o que não existe. |
 | [`docs/porting.md`](docs/porting.md) | Portar um app web/Electron/Tauri: árvore de decisão e como medir o buraco em minutos. |
 | [`docs/lessons/logseq-port.md`](docs/lessons/logseq-port.md) | O que portar um app real ensinou — a origem da maioria das regras acima. |
+| [`docs/roadmap/`](docs/roadmap/) | **Plano vivo do ecossistema** — diagnóstico, casos de uso, critérios de projeto e as ondas de trabalho, com estado por item. |
 
 ## Bibliotecas (`lib/`)
 
@@ -33,6 +34,8 @@ config é o backend do app. São vendorizadas, não instaladas — o servidor-al
 npm acessível num exec não-interativo por SSH, e o `vssh-app-publish` empacota o que está
 **versionado**.
 
+### Backend (`lib/node/`) — `require()`adas pelo seu processo
+
 | Peça | Para quê |
 |---|---|
 | `lib/node/vssh-app-fs/` | Filesystem **privado** do app por HTTP: 12 ops, confinamento à raiz com `realpath`, assets binários com `Range`, gate de `X-Vssh-App-Token` timing-safe, errno classificado (4xx x 500 honesto). |
@@ -40,11 +43,32 @@ npm acessível num exec não-interativo por SSH, e o `vssh-app-publish` empacota
 | `lib/node/app-log.js` | Log estruturado em `$VSSH_APP_DATA_DIR`. Vinte linhas que se pagam na primeira depuração remota. |
 | `lib/node/sse.js` | Server-Sent Events com os headers que sobrevivem ao proxy e ao CDN (`X-Accel-Buffering: no` + `flushHeaders`). |
 
+### Frontend (`lib/web/`) — carregadas pelo navegador, por tag `<script>`
+
+É a superfície inteira de API do cliente. Referência completa em [`docs/api.md`](docs/api.md).
+
+| Peça | Para quê |
+|---|---|
+| `lib/web/vssh-app-shim.js` | **A ponte com o desktop**: `vssh.dialog`, `vssh.notify`, `vssh.pickFile`, `vssh.fs`, `vssh.window`, `vssh.contextMenu`, `vssh.tabs`, `vssh.capabilities`. Fora do desktop cada função **degrada** para o equivalente do navegador em vez de lançar. |
+| `lib/web/fsa-polyfill.js` | File System Access API (`showDirectoryPicker()` e cia.) sobre o `/api/fs/*` do portal — um web app que já usa FSA roda **sem fork**. Requer o shim carregado antes. ⚠ Tem limites estruturais conhecidos: veja [`docs/roadmap/03-toolkit.md`](docs/roadmap/03-toolkit.md#onda-3--a-fsa-de-verdade) antes de depender dele. |
+| `lib/web/electron-shim.js` | Superfície padrão do Electron (`dialog`, `shell`, `clipboard`, `Notification`, controles de janela) mapeada para o shim. Para portar um app Electron sem reescrever as chamadas. |
+| `lib/web/tauri-shim.js` | Idem para a superfície padrão do Tauri (`fs`, `dialog`, `shell`, `notification`, `path`). |
+
+### Vendorizando
+
+**Dois destinos, e a distinção importa:** as libs de backend ficam ao lado do backend; as de
+frontend precisam ficar **sob a raiz que o `static-spa` serve**, senão a tag injetada por
+`injectScripts` aponta para 404.
+
 ```bash
 # no repo do seu app
-bash /caminho/do/toolkit/scripts/vssh-app-lib-sync . --parts fs,spa,log,sse
-git add backend/vendor/vssh && git commit -m "sync vssh libs"
+bash /caminho/do/toolkit/scripts/vssh-app-lib-sync . --parts fs,spa,log,sse --dest backend/vendor/vssh
+bash /caminho/do/toolkit/scripts/vssh-app-lib-sync . --parts web            --dest frontend/vendor/vssh
+git add backend/vendor/vssh frontend/vendor/vssh && git commit -m "sync vssh libs"
 ```
+
+O template [`templates/hello-vssh-app-node/`](templates/hello-vssh-app-node/) já vem com os dois
+lados ligados — copie de lá em vez de montar à mão.
 
 **Precisa dar ao app acesso aos arquivos do usuário** (a home, não uma raiz privada)? Não é o
 `vssh-app-fs`: é o polyfill da File System Access API, que fala com o `/api/fs/*` do portal pelo
@@ -82,7 +106,7 @@ Apps de referência mais completos moram em repositórios próprios: `colabhd/vs
      workflow_dispatch:
    jobs:
      publish:
-       uses: colabhd/vssh-app-toolkit/.github/workflows/_publish-app-reusable.yml@v1
+       uses: colabhd/vssh-app-toolkit/.github/workflows/_publish-app-reusable.yml@main
        with:
          app_dir: "."
          repo_api: "https://vssh-repo.colabh.org"       # = seu VSSH_REPO_API
@@ -108,10 +132,22 @@ O script valida o `vssh-app.json`, empacota **o que está versionado** (via `git
 repo git — então `node_modules/`/`vendor/` **commitados entram** e cruft ignorado pelo `.gitignore`
 fica de fora), verifica o sha256 e faz `POST /v1/publish/app`. Ver `--help`.
 
-## Versionamento (`@v1`)
+## Versionamento
 
-Referencie o reusable por **tag** (`@v1`), não `@main` — assim uma mudança interna do toolkit não
-quebra seu CI. Bumps compatíveis movem a tag `v1`; mudanças incompatíveis viram `v2`.
+A intenção é que você referencie o reusable por **tag**, não por branch — assim uma mudança interna
+do toolkit não quebra seu CI. Bumps compatíveis movem a tag maior; mudanças incompatíveis criam a
+próxima.
+
+**Hoje, porém, use `@main`** — e isto é uma correção de rota, não a política final:
+
+> A tag `v1` é do toolkit **original**, anterior à criação de `lib/`, `schema/` e `docs/`. Um repo
+> pinado em `@v1` faz o `vssh-app-publish` publicar com **validação mínima**, avisando só numa linha
+> do log (`aviso: schema não encontrado; validando só o mínimo`) que é fácil não ver. O mesmo vale
+> para `vssh-app-lib-sync --ref v1`, que falha com "lib/ não encontrado no tarball".
+>
+> Enquanto uma tag `v2` não for criada neste repositório, `main` é a única ref que valida de verdade.
+> Assim que ela existir, `@v2` passa a ser a recomendação e os defaults acompanham. Acompanhe em
+> [`docs/roadmap/03-toolkit.md`](docs/roadmap/03-toolkit.md).
 
 ## Migrando de `colabhd/vssh-sso`
 
@@ -122,7 +158,7 @@ Antes, o script/reusable viviam no `vssh-sso` **privado**, o que exigia um PAT (
 Para migrar:
 
 - **Repo que usava o reusable do vssh-sso** (`uses: colabhd/vssh-sso/.../_publish-app-reusable.yml@main`):
-  troque para `uses: colabhd/vssh-app-toolkit/.github/workflows/_publish-app-reusable.yml@v1` e
+  troque para `uses: colabhd/vssh-app-toolkit/.github/workflows/_publish-app-reusable.yml@main` e
   **remova** o secret `tools_token`/`VSSH_TOOLS_TOKEN`.
 - **Repo que inlineava os passos** (checkout do script via PAT): substitua tudo pelo bloco `uses:`
   do Quickstart acima e apague o `VSSH_TOOLS_TOKEN`.
