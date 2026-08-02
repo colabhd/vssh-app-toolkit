@@ -1,8 +1,12 @@
 # Onda 0c — Colapso de variantes
 
-> **Estado:** não iniciada · **Atualizado:** 2026-08-02 · **Repo:** `vssh-sso`
+> **Estado:** ✅ concluída · **Atualizado:** 2026-08-02 · **Repo:** `vssh-sso`
 > **Independente das Ondas 1 e 2**, mas **pré-requisito da [2.6](02-apis-de-shell.md) e da dívida
 > de `design-tokens.css`** registrada na [Onda 0b](00-limpeza-de-terreno.md).
+>
+> **Resultado: −1850 / +323 linhas em 40 arquivos, mais 6 arquivos deletados.** Nenhum `UI_MODE`
+> e nenhum `data-theme` bifurcando código em lugar nenhum do shell. Ver
+> [o que ficou de fora](#o-que-ficou-de-fora-e-por-quê) no fim.
 
 O shell tem duas variantes que ninguém usa: o tema **`neon`** e o modo de UI **`dock`**. O custo
 delas não é o código parado — é que **toda adição de UI precisa ser pensada duas vezes**. É uma
@@ -200,6 +204,44 @@ depois.
 | `tests/unit/tiling-geometry.test.js:17-18` | Usa `UI_MODE:'dock'` para exercitar o caso "sem barra descontada". Removido o modo, ele passa a exercitar um estado impossível: **precisa ser reescrito, não ajustado** |
 
 ---
+
+## O que a execução ensinou
+
+**A remoção expôs três bugs que ninguém teria achado procurando.** Não estavam na lista de riscos:
+
+1. **`remove_windows` limpava a lista errada.** Ele chamava só `removeWindowListItem` — a lista do
+   *dock*. Enquanto o dock existia, o vazamento ficava escondido; com ele fora viraria no-op, e os
+   botões da **taskbar** vazariam a cada reconexão, porque `remove_windows` roda no `migrate`. O
+   upstream já chamava o par certo no `_process_lost_window`; aqui chamava metade.
+2. **`float_menu_item_size` era global do `index.html`** e o `Client.js` o usa como lado do canvas
+   de um ícone de bandeja X11. Apagar o markup do dock levaria o global junto — `ReferenceError` no
+   primeiro ícone de bandeja, só no perfil Xpra. Virou `TRAY_ICON_SIZE`, dentro do `Client.js`.
+3. **`process_xdg_menu` montava um menu que ninguém lia.** Ele construía `<li>` por categoria dentro
+   do `#startmenu` do dock — e os consumidores reais, `StartMenu.populate()` e
+   `Launchpad.populate()`, sempre leram `client.xdg_menu` **direto do objeto**. Eram 82 linhas
+   alimentando um DOM que só o dock via.
+
+**E a ordem do plano provou-se, mas por um motivo diferente do previsto.** O plano mandava mover os
+handlers antes de apagar o markup — e a razão não era estética: `#clipboard_button` e
+`#sound_button` **eram os handlers reais**, com a taskbar só disparando `.trigger('click')` neles.
+Apagar o markup primeiro mataria clipboard e áudio no perfil Xpra sem uma linha no console.
+
+## O que ficou de fora, e por quê
+
+- **`settings-window.css` não foi achatado** — decisão registrada acima, e mantida: as classes
+  `--tuff` passaram a ser emitidas incondicionalmente até a [2.6](02-apis-de-shell.md) reescrever a
+  janela.
+- **O split `MenuCustom.js` → `js/Taskbar.js` não foi feito.** O arquivo já é a taskbar (o bloco do
+  dock saiu dele), mas o rename é churn puro num arquivo de 240 linhas, e a regra de
+  `vssh-host.js:9-13` que ele deveria corrigir continua apontando para o alvo errado. Fica para
+  quando alguém mexer ali de propósito.
+- **`qt/kvantum/VsshNeon/` continua no repositório**, pelo motivo já escrito: apagar a referência é
+  reversível, apagar o diretório não, e **não foi determinado** se algum provisionamento fora deste
+  repositório o copia.
+- **Duas classes ficaram sem regra CSS** (`tb-icon-tuff`, `sb-icon-tuff`) e isso é o resultado
+  certo: as únicas regras delas eram `display:none` **dentro do bloco neon**, ou seja, existiam só
+  para escondê-las no outro tema. Sem tema, o elemento é visível por padrão. Outras 4 classes órfãs
+  encontradas na varredura **já eram órfãs antes** desta onda.
 
 ## Como verificar
 
