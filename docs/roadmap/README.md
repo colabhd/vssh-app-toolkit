@@ -26,6 +26,7 @@ Duas consequências que precisam estar ditas antes de qualquer tabela:
 | [diagnostico.md](diagnostico.md) | Onde estamos: matriz de prontidão sem-X11, dívidas do toolkit e da plataforma, questões em aberto |
 | [casos-de-uso.md](casos-de-uso.md) | 20 arquétipos de aplicação, motor e daemon — e o que bloqueia cada um |
 | [criterios.md](criterios.md) | Os dois critérios de projeto que toda decisão atravessa |
+| [00-limpeza-de-terreno.md](00-limpeza-de-terreno.md) | Onda 0b — limpeza do `vssh-sso`: exclusões, renames, provisionador unificado |
 | [01-sessao-sem-xpra.md](01-sessao-sem-xpra.md) | Onda 1 — desacoplar o ciclo de vida da sessão do Xpra |
 | [02-apis-de-shell.md](02-apis-de-shell.md) | Onda 2 — tray, notificações, clipboard, impressão |
 | [03-toolkit.md](03-toolkit.md) | Ondas 0 e 3 — higiene do toolkit e a FSA de verdade |
@@ -43,6 +44,9 @@ paralelo. Só a Onda 2 depende da 1; a Onda 3 é pré-requisito real dos arquét
 | 0 | Documentação da roadmap | toolkit | ✅ concluído |
 | 0 | Higiene (versionamento, `lib/web/`, template, electron-shim, docs) | toolkit | ✅ concluído |
 | 0 | Confinamento do `static-spa` (bug achado na verificação) | toolkit | ✅ concluído |
+| 0b | [Limpeza](00-limpeza-de-terreno.md) Fase 1 — exclusões, aliases de compat, docs superadas | vssh-sso | ✅ concluído |
+| 0b | [Limpeza](00-limpeza-de-terreno.md) Fase 2 — renames (`custom_xprahtml5` → `vssh-client` e cia.) | vssh-sso | ⬜ não iniciado |
+| 0b | [Limpeza](00-limpeza-de-terreno.md) Fase 3 — provisionador unificado + eixo headless | vssh-sso | ⬜ não iniciado |
 | 1 | Sessão desacoplada do Xpra | vssh-sso | ⬜ não iniciado |
 | 2 | Canal shell↔app sem iframe | vssh-sso | ⬜ não iniciado |
 | 2 | Tray na taskbar | vssh-sso + toolkit | ⬜ não iniciado |

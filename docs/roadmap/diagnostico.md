@@ -1,7 +1,10 @@
 # Diagnóstico — onde estamos
 
-> **Estado:** vigente · **Atualizado:** 2026-08-01
-> Base: `vssh-sso` na branch `frontend-revisao-geral` (`da6bfb5`) e este toolkit em `main` (`2ba6efc`).
+> **Estado:** vigente · **Atualizado:** 2026-08-02
+> Base: `vssh-sso` na `main` (`frontend-revisao-geral` já mergeada via PR #17) e este toolkit em `main`.
+>
+> A [Fase 1 da limpeza](00-limpeza-de-terreno.md) já resolveu parte do que está descrito abaixo —
+> os itens afetados estão marcados. O resto do diagnóstico continua valendo.
 
 ## 1.1 O que já é sólido
 
@@ -125,10 +128,15 @@ Decisões a tomar, não tarefas a executar.
 o modelo de iframe do app e com o proxy. **Precisa ser decidido antes**, não depois — habilitar
 depois quebra o que já estiver embutido sem CORP.
 
-**Terminal persistente.** O embutido não persiste (SSH novo por WebSocket, sem dtach/tmux), apesar do
-README do `vssh-sso` afirmar o contrário. `terminal-latch` foi o experimento nessa direção e **não se
-firmou**. A [Onda 1](01-sessao-sem-xpra.md) abre um caminho novo — uma sessão dona de recursos pode
-ser dona de um `dtach` — a avaliar quando o fundamento existir.
+**Terminal persistente.** O embutido não persiste: `terminal.ts` abre um `ssh.shell()` novo por
+conexão e faz `dispose()` no close, e não há `dtach`/`tmux`/`screen` em lugar nenhum do repositório.
+`terminal-latch` foi o experimento nessa direção e **não se firmou**. A
+[Onda 1](01-sessao-sem-xpra.md) abre um caminho novo — uma sessão dona de recursos pode ser dona de
+um `dtach` — a avaliar quando o fundamento existir.
+
+> A afirmação contrária aparecia em **quatro** docs do `vssh-sso`, e o `smoke-checklist.md` mandava
+> validar a persistência — um teste manual que sempre falharia. Corrigido na
+> [Fase 1 da limpeza](00-limpeza-de-terreno.md).
 
 **Extensão de navegador.** MV2 é **deliberado e viável**: é o que a torna possível em Edge, Brave e
 Firefox; só o Chrome removeu. O Scramjet se provou o caminho certo, e a pergunta não é "migrar para
