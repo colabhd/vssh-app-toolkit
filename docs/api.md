@@ -86,6 +86,120 @@ vssh.notify('Índice reconstruído', { title: 'Busca', level: 'success', timeout
 
 `level`: `info` (padrão), `success`, `warning`, `error`.
 
+O aviso aparece como toast **e** fica no centro de notificações, com o seu `id` de app como
+dono. Se o usuário estiver em "não perturbe", o toast não aparece — a entrada fica lá mesmo
+assim, esperando ser lida. Silenciar as duas coisas seria perder informação.
+
+Com a aba oculta e a permissão concedida, o aviso também sai como **notificação do sistema
+operacional** — alcance a mais, não mecanismo: nunca conte com ela. O usuário concede no botão
+"Avisar fora da aba", dentro do painel de notificações.
+
+### Notificação que pede resposta
+
+```js
+vssh.notify('Backup falhou: disco cheio', {
+  title: 'Backup',
+  level: 'error',
+  persistent: true,                                  // não some sozinho
+  actions: [
+    { id: 'retry',  label: 'Tentar de novo' },
+    { id: 'ignore', label: 'Ignorar' },
+  ],
+});
+```
+
+A resposta chega de volta no seu frontend como uma mensagem comum da ponte:
+
+```js
+window.addEventListener('message', (e) => {
+  const m = e.data;
+  if (m?.vsshApp && m.type === 'notify-action') {
+    // m.notificationId, m.actionId
+  }
+});
+```
+
+| | |
+|---|---|
+| `actions` | No máximo **3**, cada uma `{id, label}`. `id` casa `[\w-]{1,32}`; id repetido é descartado. São **dados** — nunca uma função, e nunca um caminho por botão. |
+| `persistent` | O toast não some sozinho. É o `requireInteraction` da Notification API. O **histórico** já é persistente de qualquer forma; isto governa só a interrupção. |
+
+Os botões aparecem **no toast e na linha do painel**. O toast some — é o que ele faz —, e uma
+notificação que só pudesse ser respondida enquanto o toast estivesse na tela seria uma
+notificação que expira sem avisar.
+
+### Responder a um app sem janela
+
+Se a notificação veio do journal (backend, sem janela aberta), não há iframe para receber o
+`postMessage`. Declare para onde o shell deve mandar:
+
+```jsonc
+{"id":"backup-2026-08-02","appId":"meu-backup","body":"Backup falhou","level":"error",
+ "persistent":true,
+ "actions":[{"id":"retry","label":"Tentar de novo"}],
+ "onAction":{"path":"api/notificacao"}}
+```
+
+O clique vira um `POST` em `/<serverId>/proxy/app/<id>/api/notificacao` — a mesma rota
+autenticada que o seu app já usa, com o `X-Vssh-App-Token` injetado — com o corpo:
+
+```json
+{"event":"notify-action","notificationId":"backup-2026-08-02","actionId":"retry"}
+```
+
+`path` é **relativo ao seu app**: sem esquema, sem `..`, sem `//`. Qualquer outra coisa é
+recusada na fronteira.
+
+**Se o app tiver uma janela aberta, ela ganha** — a resposta vai por `postMessage` e o `POST`
+não acontece. Um `kind:"service"` pode ter as duas coisas ao mesmo tempo, e entregar pelos dois
+lados faria "tentar de novo" clicado uma vez virar dois backups.
+
+Sem janela **e** sem `onAction.path`, o shell diz ao usuário que não há como responder, em vez
+de engolir o clique.
+
+### Notificar sem janela aberta (backend, `kind:"service"`)
+
+`vssh.notify` é do frontend: precisa de uma janela viva para atravessar a ponte de
+`postMessage`. Um daemon que termina um backup às 3h **não tem janela** — e é exatamente ele
+que mais precisa avisar.
+
+Para esse caso, o backend acrescenta uma linha ao **journal** do usuário:
+
+```
+~/.vssh-notifications/journal.ndjson
+```
+
+Um objeto JSON por linha, sem vírgula e sem colchete em volta (NDJSON):
+
+```jsonc
+{"id":"backup-2026-08-02","appId":"meu-backup","title":"Backup",
+ "body":"Concluído: 4,2 GB em 12 min","level":"success","at":1754150400000}
+```
+
+| Campo | |
+|---|---|
+| `id` | **Obrigatório.** É a chave de deduplicação — o portal manda uma janela do fim do arquivo, então a mesma linha pode ser lida várias vezes. Linha sem `id` é descartada. Use algo estável e único para o evento (`backup-<data>`), nunca um contador que reinicia com o processo. |
+| `body` | O texto. `message` também é aceito. |
+| `title`, `level`, `icon` | Opcionais; mesmos valores de `vssh.notify`. |
+| `appId` | Quem emitiu. Sem ele a notificação aparece como `sistema`. |
+| `at` | Instante da emissão, em ms. **Vale informar:** sem ele a hora exibida é a da entrega, e para um evento que aconteceu com o desktop fechado isso é a hora errada. |
+
+Em shell, é uma linha:
+
+```bash
+printf '%s\n' "{\"id\":\"backup-$(date +%F)\",\"appId\":\"meu-backup\",\"body\":\"Backup concluído\",\"level\":\"success\",\"at\":$(date +%s000)}" \
+  >> ~/.vssh-notifications/journal.ndjson
+```
+
+**Como chega ao desktop:** o portal lê a **janela do fim** do arquivo (as últimas ~50 linhas)
+no mesmo tick que já coleta a bandeja — um exec por servidor, cobrindo todos os usuários, e
+nenhum canal SSH segurado entre os ticks. Quem abrir o desktop depois recebe o atraso; quem já
+viu não vê de novo. A latência é de segundos, não instantânea.
+
+**Duas consequências de ser append-only:** escreva com `>>` (nunca `>`, que apagaria o
+histórico), e **rotacione você mesmo** se o app for tagarela — o portal só lê o fim, então um
+arquivo grande não o atrapalha, mas ocupa o disco do usuário para sempre.
+
 ### Diálogos (bloqueiam, devolvem valor)
 
 ```js

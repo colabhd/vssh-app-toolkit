@@ -65,8 +65,9 @@ controle"* — ficou desatualizado na Onda 1 e sai junto.
 
 ### O transporte: o coletor por servidor · ✅ feito
 
-`src/services/tray-collector.ts`. A escolha entre as duas opções que este plano listava caiu na
-**segunda**, e não por acaso.
+`src/services/server-collector.ts` — nasceu como `tray-collector.ts` e foi renomeado na 2.2, quando
+o journal de notificações passou a viajar no mesmo tick. A escolha entre as duas opções que este
+plano listava caiu na **segunda**, e não por acaso.
 
 O plano preferia um **vigia privilegiado com inotify** (1 canal permanente por servidor) e tratava
 o **poll em lote** como alternativa "ao preço de latência". Invertemos: um exec transiente por
@@ -190,7 +191,7 @@ consertado** — pela mesma regra.
 - [`../api.md`](../api.md) perdeu a linha "Ícone de bandeja — sem equivalente".
 
 **Da fonte por arquivo:**
-- `src/services/tray-collector.ts` (ver [o transporte](#o-transporte-o-coletor-por-servidor---feito));
+- `src/services/server-collector.ts` (ver [o transporte](#o-transporte-o-coletor-por-servidor---feito));
 - `sendToSession()` / `hasSessionListeners()` no `ws/events.ts`, e `activeSessions()` no
   `services/session.ts`;
 - `Client.js` ganhou **uma linha** — repassa `{type:'tray'}` como evento de DOM. Quem sabe o que é
@@ -256,9 +257,9 @@ Dois, e os dois são para não pagar o mesmo custo três vezes nas subondas 2.2,
 
 ### O centro de notificações
 
-> **Estado: metade feita.** O sino, o histórico, a identidade por app e o "não perturbe" estão de
-> pé (`js/NotificationCenter.js`, 14 testes de modelo). Falta o **jornal no servidor** — e é ele
-> que atende o caso que motiva o item: um `kind:"service"` notificando com o shell fechado.
+> **Estado: ✅ concluída.** Sino, histórico, identidade por app, "não perturbe", journal no
+> servidor, `actions`/`persistent` e a Notification API como alcance complementar. Fica em aberto
+> só uma peça de conveniência no toolkit (ver o fim desta seção).
 
 Havia só toasts efêmeros: sem histórico, sem persistência, sem identidade por app, sem ações.
 
@@ -283,14 +284,75 @@ Havia só toasts efêmeros: sem histórico, sem persistência, sem identidade po
   porque o ponto está na classe — `../../etc/passwd` passava inteiro. A validação virou segmento a
   segmento.
 
-**O que falta:**
+**✅ O journal no servidor — e o que ele custou de decisão:**
 
-- o **journal append-only** em `~/.vssh-notifications/journal.ndjson` como verdade, lido pelo tick
-  do coletor por servidor que a 2.1 já criou (é o que respeita o teto de ~8 canais SSH por
-  servidor) e empurrado pelo `/ws/events`;
-- `notify` com `actions: [{id,label}]` e `persistent: true`, com a resposta voltando por
-  `postMessage` (app com janela) ou `POST` (engine);
-- a **Notification API do navegador** como alcance complementar.
+- **`tray-collector.ts` virou `server-collector.ts`.** As duas cargas viajam no **mesmo exec**,
+  porque o recurso escasso é canal SSH e um segundo coletor dobraria os execs por servidor sem
+  dobrar informação nenhuma. Um arquivo chamado "coletor de bandeja" que também lê notificações
+  seria um nome que mente; o módulo não é da bandeja, é do servidor.
+- **As duas cargas são de NATUREZA diferente, e o código diz isso.** `tray.json` é **estado** —
+  vale o conteúdo atual, sumiu o arquivo sumiu o ícone, e o que atravessa é o diff. O journal é
+  **histórico** — nada some, e o que atravessa é o que ainda não foi entregue *àquela sessão*.
+  Tratar os dois igual daria ou bandeja piscando ou notificação repetida.
+- **Janela, não offset.** Lê-se o fim do arquivo (50 linhas / 16 KB), não um deslocamento de
+  bytes guardado por usuário. Um offset se corrompe quando alguém trunca ou rotaciona o journal,
+  e o sintoma seria notificação **nunca mais entregue** — falha silenciosa e permanente. Errar
+  para o lado de reler é seguro porque `merge()` é idempotente por `id`; é para isso que ele
+  existe desde a primeira metade.
+- **O `id` é obrigatório e é do emissor.** É a chave de deduplicação de ponta a ponta. Linha sem
+  `id` é descartada com contagem no log — uma linha por tick, não uma por linha torta, senão um
+  journal corrompido produz 50 avisos a cada 5 s e vira motivo para desligar o log.
+
+**Dois bugs que apareceram ao costurar, e que não eram do item:**
+
+1. **A sessão sobrevive ao F5 — e o coletor não sabia disso.** O lease existe justamente para
+   não derrubar watcher de quem só recarregou, então o `_lastSent` continuava dizendo "já
+   entreguei". Para um cliente que não existe mais. O sintoma **na bandeja já existia hoje**:
+   recarregar a página deixava a bandeja vazia até algum app mudar de estado. Consertado com
+   `forgetSession()` no upgrade do `/ws/events`. Preço dito por extenso: abrir uma segunda aba
+   faz a primeira receber a bandeja inteira de novo no tick seguinte, fechando um menu aberto
+   lá — raro, instantâneo, e barato perto de "recarreguei e sumiu".
+2. **O canal abre antes de o sino montar.** `init_page()` chama `EventsChannel.open()` antes de
+   `_shellReady()`, e quem lê o localStorage é o `mount()`. Um lote chegando nessa fresta fazia
+   o `merge` gravar uma lista só com os itens novos — **apagando o histórico local**, sem erro
+   nenhum. A fresta é de milissegundos e o primeiro tick demora segundos, que é a definição de
+   bug que ninguém reproduz e que come dado quando acontece.
+
+**✅ `actions` e `persistent` — e a regra que decide a rota:**
+
+- **Ação é DADO: `{id, label}`.** Nunca uma função, e — a parte menos óbvia — nunca um caminho
+  **por botão**. O caminho é um só, da notificação (`onAction.path`), e o `actionId` viaja no
+  corpo. É o mesmo formato do `onClick.path` da bandeja, e a razão é a mesma: quem transforma
+  caminho em requisição é o shell, não o emissor.
+- **Janela ganha do arquivo, sempre** — a terceira vez que essa regra aparece nesta onda. Um
+  `kind:"service"` pode ter um daemon rodando **e** uma janela aberta; entregar pelos dois
+  lados faria "tentar de novo" clicado uma vez virar dois backups.
+- **Sem janela e sem `path`, o shell DIZ que não deu.** Botão que não faz nada ensina o
+  usuário a não clicar em botão nenhum — e o `runAction` devolve `false` para quem chamou.
+- **Os botões vivem no toast E na linha do painel.** O toast some — é o que ele faz —, e uma
+  notificação respondível só enquanto o toast está na tela expira sem avisar.
+- **`persistent` não precisou de mecanismo novo:** `timeout: 0` já significava "não some
+  sozinho" no `Toast`.
+
+**✅ A Notification API — e por que ela é alcance, não mecanismo:**
+
+Dispara **só com a página oculta**. Com a aba à frente o toast já apareceu, e disparar os dois
+daria a mesma notificação em dois lugares, com dois cliques para dispensar. O `tag` é o `id`, que
+faz o SO substituir em vez de empilhar — o par natural da idempotência do lado de cá. "Não
+perturbe" cala **as duas** interrupções: silenciar o toast e deixar o SO tocar seria o oposto do
+que o usuário pediu.
+
+A permissão é pedida num botão do painel, nunca no boot: o navegador ignora o pedido fora de
+gesto do usuário, e o boot seria a pior hora de qualquer forma — ninguém concede permissão a um
+ambiente que acabou de abrir e ainda não fez nada. É o [limite 1 do
+critério](criterios.md#31--o-navegador-já-faz-isso) na prática: um ambiente remoto não pode
+depender de uma permissão que talvez nunca seja concedida.
+
+**O que falta (conveniência, não capacidade):**
+
+- uma peça em `lib/` do toolkit para o app não escrever a linha do journal na mão. Hoje o
+  contrato está em [`docs/api.md`](../api.md) e é uma linha de shell — suficiente para usar, não
+  para não errar o `id`, que é a chave de deduplicação de ponta a ponta.
 
 **Onde mora o estado:** journal append-only em `~/.vssh-notifications/journal.ndjson` como **verdade**
 — o emissor está no servidor, e um `kind:"service"` pode notificar com o shell fechado. `localStorage`

@@ -60,7 +60,9 @@ UI, cada superfície nova nasce com duas para manter.
 | 2 | Pré-requisito: helper `anchorPanel()` (`js/AnchorPanel.js`) | vssh-sso | ✅ concluído |
 | 2 | [Relógio](02-apis-de-shell.md#o-relógio) — fuso do usuário, formatador único do shell | vssh-sso | ✅ concluído |
 | 2 | [Centro de notificações](02-apis-de-shell.md#o-centro-de-notificações) — sino, histórico, identidade por app, "não perturbe" | vssh-sso | ✅ concluído |
-| 2 | Centro de notificações — jornal no servidor, ações, `persistent` | vssh-sso + toolkit | ⬜ não iniciado |
+| 2 | [Centro de notificações — journal no servidor](02-apis-de-shell.md#o-centro-de-notificações) — app sem janela notifica com o shell fechado | vssh-sso + toolkit | ✅ concluído |
+| 2 | [Centro de notificações — `actions`, `persistent`, Notification API](02-apis-de-shell.md#o-centro-de-notificações) — a notificação passa a poder ser respondida | vssh-sso | ✅ concluído |
+| 2 | Peça em `lib/` para o app escrever no journal sem errar o `id` | toolkit | ⬜ não iniciado |
 | 2 | Clipboard (ponte de arquivos + imagem) | vssh-sso + toolkit | ⬜ não iniciado |
 | 2 | Tela de impressão do ambiente | vssh-sso + toolkit | ⬜ não iniciado |
 | 2 | [Mixer de volume por aplicação](02-apis-de-shell.md#25--mixer-de-volume-por-aplicação) | vssh-sso + toolkit | ⬜ não iniciado |
