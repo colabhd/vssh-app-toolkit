@@ -256,7 +256,41 @@ Dois, e os dois são para não pagar o mesmo custo três vezes nas subondas 2.2,
 
 ### O centro de notificações
 
-Hoje só há toasts efêmeros: sem histórico, sem persistência, sem identidade por app, sem ações.
+> **Estado: metade feita.** O sino, o histórico, a identidade por app e o "não perturbe" estão de
+> pé (`js/NotificationCenter.js`, 14 testes de modelo). Falta o **jornal no servidor** — e é ele
+> que atende o caso que motiva o item: um `kind:"service"` notificando com o shell fechado.
+
+Havia só toasts efêmeros: sem histórico, sem persistência, sem identidade por app, sem ações.
+
+**O que ficou de pé, e as decisões que valem registrar:**
+
+- **A delegação acontece dentro do `Toast.show`, não nos 13 chamadores.** Nenhum call-site mudou, e
+  nenhum deles pode esquecer. Quem quiser identidade passa `appId`; quem não passar é o shell
+  falando, e o histórico diz `sistema` em vez de inventar um dono.
+- **"Não perturbe" silencia a interrupção, não o registro.** O toast não aparece; a notificação
+  continua no centro, com badge, esperando ser lida. Silenciar as duas coisas seria perder
+  informação — e aí ninguém liga o modo. O botão mora no próprio painel, que é onde a mão vai
+  quando o toast interrompe pela terceira vez, e grava em `/api/user/settings` (segue entre
+  máquinas).
+- **`merge()` já existe e é idempotente por `id`.** É o formato que o coletor vai empurrar: uma
+  JANELA de entradas, não um delta exato — o mesmo que a bandeja faz. Sem idempotência, cada tick
+  somaria as mesmas notificações e o badge cresceria sozinho para sempre.
+- **As notificações X11 entram pelo mesmo histórico** por um wrapper idempotente sobre
+  `window.doNotification` (idioma do `host-xpra.js`), e não por edição do `Notifications.js`, que é
+  upstream MPL. A marca `_ncWrapped` impede empilhar wrapper sobre wrapper — que seria a mesma
+  notificação gravada duas vezes, depois quatro.
+- **O teste achou um buraco na primeira execução:** o regex de ícone `^[\w.-]+$` aceita `..`,
+  porque o ponto está na classe — `../../etc/passwd` passava inteiro. A validação virou segmento a
+  segmento.
+
+**O que falta:**
+
+- o **journal append-only** em `~/.vssh-notifications/journal.ndjson` como verdade, lido pelo tick
+  do coletor por servidor que a 2.1 já criou (é o que respeita o teto de ~8 canais SSH por
+  servidor) e empurrado pelo `/ws/events`;
+- `notify` com `actions: [{id,label}]` e `persistent: true`, com a resposta voltando por
+  `postMessage` (app com janela) ou `POST` (engine);
+- a **Notification API do navegador** como alcance complementar.
 
 **Onde mora o estado:** journal append-only em `~/.vssh-notifications/journal.ndjson` como **verdade**
 — o emissor está no servidor, e um `kind:"service"` pode notificar com o shell fechado. `localStorage`

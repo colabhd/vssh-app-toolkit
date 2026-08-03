@@ -59,7 +59,8 @@ UI, cada superfície nova nasce com duas para manter.
 | 2 | [Um index por modo](diagnostico.md#-resolvido-um-index-por-modo-sem-um-segundo-arquivo) — o perfil sem Xpra deixa de baixar 40,4% do JS | vssh-sso | ✅ concluído |
 | 2 | Pré-requisito: helper `anchorPanel()` (`js/AnchorPanel.js`) | vssh-sso | ✅ concluído |
 | 2 | [Relógio](02-apis-de-shell.md#o-relógio) — fuso do usuário, formatador único do shell | vssh-sso | ✅ concluído |
-| 2 | Centro de notificações | vssh-sso + toolkit | ⬜ não iniciado |
+| 2 | [Centro de notificações](02-apis-de-shell.md#o-centro-de-notificações) — sino, histórico, identidade por app, "não perturbe" | vssh-sso | ✅ concluído |
+| 2 | Centro de notificações — jornal no servidor, ações, `persistent` | vssh-sso + toolkit | ⬜ não iniciado |
 | 2 | Clipboard (ponte de arquivos + imagem) | vssh-sso + toolkit | ⬜ não iniciado |
 | 2 | Tela de impressão do ambiente | vssh-sso + toolkit | ⬜ não iniciado |
 | 2 | [Mixer de volume por aplicação](02-apis-de-shell.md#25--mixer-de-volume-por-aplicação) | vssh-sso + toolkit | ⬜ não iniciado |
