@@ -26,6 +26,7 @@
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
+const crypto = require('node:crypto');
 
 // Mapa próprio, e não o de vssh-app-fs: aquele cobre conteúdo de dados do app (imagem, PDF,
 // áudio), este cobre bundle web (js, css, fonte, wasm). Duplicar um mapa pequeno é o preço de as
@@ -62,11 +63,69 @@ function contentTypeFor(p) {
   return CONTENT_TYPES[ext] || 'application/octet-stream';
 }
 
-function scriptTags(sources) {
+function scriptTags(sources, carimbo) {
   // Sem `defer`: precisa executar antes dos scripts diferidos do bundle, que já esperam o parse.
   // `src` vem do app, não do usuário — mas interpolar em HTML sem escapar é o tipo de coisa que
   // envelhece mal, então quebramos aspas duplas.
-  return sources.map((src) => `<script src="${String(src).replace(/"/g, '&quot;')}"></script>`).join('\n');
+  return sources.map((src) => {
+    const v = carimbo(src);
+    const url = v ? `${src}${String(src).includes('?') ? '&' : '?'}v=${v}` : String(src);
+    return `<script src="${url.replace(/"/g, '&quot;')}"></script>`;
+  }).join('\n');
+}
+
+// ─── Carimbo de versão: por que ele existe, e por que header não bastava ─────
+//
+// O caso real que produziu isto: o `vssh-app-shim.js` foi atualizado e reinstalado no servidor,
+// o arquivo em disco estava CERTO, e o navegador continuou executando o antigo — o app quebrava
+// com `vssh.audio` undefined enquanto o `index.html` já era o novo.
+//
+// A defesa que havia era `Cache-Control: no-cache` mais revalidação por `Last-Modified`, e ela
+// depende de TODO MUNDO no caminho colaborar: navegador, proxy do portal, CDN. Basta um elo
+// guardar a resposta ou engolir o `If-Modified-Since` e o usuário fica com bytes velhos sem
+// nenhum sinal — a página carrega, o script roda, só que é outro script.
+//
+// A correção não é um header melhor: é **fazer o conteúdo novo morar noutra URL**. Cache nenhum
+// pode servir velho no lugar de novo se as duas coisas nem são o mesmo recurso. É exatamente o
+// que o portal já faz com os assets do shell (`/b/<buildId>/...`, ver src/utils/build-id.ts) e o
+// raciocínio de lá vale igual aqui: o hash sai do CONTEÚDO, não da versão do manifest nem da
+// data, então ele muda quando — e só quando — os bytes mudam. Reinstalar a mesma versão mantém a
+// URL, e o cache do usuário sobrevive.
+//
+// O `index.html` é `no-store`, então ele sempre chega fresco trazendo a URL carimbada nova. É
+// esse par que fecha o ciclo: index nunca cacheado, asset cacheado para sempre.
+const HASH_MAX_BYTES = 4 * 1024 * 1024;
+
+function criarCarimbador(root, onWarn) {
+  const cache = new Map();   // caminho absoluto → { mtimeMs, size, hash }
+
+  /** Hash do conteúdo, memoizado por (mtime, tamanho). `null` = arquivo ilegível. */
+  return function hashDe(file) {
+    let stat;
+    try { stat = fs.statSync(file); } catch { return null; }
+    if (!stat.isFile()) return null;
+    const hit = cache.get(file);
+    if (hit && hit.mtimeMs === stat.mtimeMs && hit.size === stat.size) return hit.hash;
+
+    let hash;
+    if (stat.size > HASH_MAX_BYTES) {
+      // Arquivo grande (wasm, modelo, vídeo): ler tudo para carimbar custaria mais que o
+      // problema resolve. mtime+tamanho é carimbo pior — muda entre instalações da mesma
+      // versão, o que só custa um download a mais — mas nunca DEIXA de mudar quando o
+      // conteúdo muda, que é a propriedade da qual a correção depende.
+      hash = crypto.createHash('sha1')
+        .update(`${stat.mtimeMs}:${stat.size}`).digest('hex').slice(0, 12);
+    } else {
+      try {
+        hash = crypto.createHash('sha1').update(fs.readFileSync(file)).digest('hex').slice(0, 12);
+      } catch (err) {
+        onWarn({ event: 'stamp-failed', file, message: err.message });
+        return null;
+      }
+    }
+    cache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, hash });
+    return hash;
+  };
 }
 
 // O fallback de SPA só vale para navegação. Um `fetch('/api/x')` que erra o caminho tem de receber
@@ -85,7 +144,9 @@ function looksLikeAsset(pathname) {
  * @param {object} options
  * @param {string} options.root            diretório do bundle construído
  * @param {string} [options.indexFile]     default 'index.html'
- * @param {string[]} [options.injectScripts] srcs injetados antes de </head> no index
+ * @param {string[]} [options.injectScripts] srcs injetados antes de </head> no index. Cada um sai
+ *   com `?v=<hash do conteúdo>` e é servido como `immutable` — ver "Carimbo de versão" acima. Um
+ *   src que não exista em disco sai sem carimbo, para não prometer uma versão que não há.
  * @param {Record<string,string>} [options.aliasPrefixes] prefixo → substituição, tentado quando o
  *   caminho pedido não existe (ver "Prefixos alias" no topo deste arquivo)
  * @param {boolean} [options.spaFallback] serve o index em rota desconhecida (roteamento HTML5)
@@ -118,19 +179,29 @@ function createStaticSpa(options) {
   const onWarn = options.onWarn || (() => {});
 
   let indexCache = null;
+  const hashDe = criarCarimbador(root, onWarn);
+  const carimboDoSrc = (src) => hashDe(path.join(root, String(src).split('?')[0].replace(/^\/+/, '')));
 
   async function loadIndex() {
     const indexPath = path.join(root, indexFile);
     const stat = await fsp.stat(indexPath);
-    if (indexCache && indexCache.mtimeMs === stat.mtimeMs) return indexCache.body;
+    // Os carimbos entram na CHAVE do cache, e não só no corpo: um shim atualizado sem que o
+    // index mude é o caso normal (vssh-app-lib-sync mexe em `vendor/`, não em `index.html`).
+    // Sem isto o processo continuaria servindo a URL carimbada antiga até alguém tocar no
+    // index — e o carimbo teria virado enfeite justamente no cenário que ele existe para
+    // cobrir.
+    const carimbos = injectScripts.map((s) => `${s}=${carimboDoSrc(s) || ''}`).join('|');
+    if (indexCache && indexCache.mtimeMs === stat.mtimeMs && indexCache.carimbos === carimbos) {
+      return indexCache.body;
+    }
 
     let html = await fsp.readFile(indexPath, 'utf8');
     if (injectScripts.length) {
-      const tags = scriptTags(injectScripts);
+      const tags = scriptTags(injectScripts, carimboDoSrc);
       if (html.includes('</head>')) html = html.replace('</head>', `${tags}\n</head>`);
       else html = tags + html;
     }
-    indexCache = { mtimeMs: stat.mtimeMs, body: Buffer.from(html, 'utf8') };
+    indexCache = { mtimeMs: stat.mtimeMs, carimbos, body: Buffer.from(html, 'utf8') };
     return indexCache.body;
   }
 
@@ -224,9 +295,16 @@ function createStaticSpa(options) {
     }
     const { target, stat } = resolved;
 
+    // `?v=` CONFERIDO contra o hash de agora, e não aceito de boca. Carimbo velho — de um index
+    // que sobreviveu em algum cache apesar do `no-store` — não pode ganhar `immutable`, senão
+    // fixaria os bytes errados por um ano. Não bate, não é imutável: cai na revalidação de
+    // sempre e o usuário recebe o arquivo certo.
+    const pedido = url.searchParams?.get('v');
+    const imutavel = !!pedido && pedido === hashDe(target);
+
     const lastModified = stat.mtime.toUTCString();
     const ims = req.headers['if-modified-since'];
-    if (ims && ims === lastModified) {
+    if (!imutavel && ims && ims === lastModified) {
       res.writeHead(304, { 'Last-Modified': lastModified, 'Cache-Control': 'no-cache' });
       res.end();
       return true;
@@ -236,9 +314,12 @@ function createStaticSpa(options) {
       'Content-Type': contentTypeFor(target),
       'Content-Length': stat.size,
       'Last-Modified': lastModified,
-      // Bundle sem hash no nome (main.js, style.css) faria cache longo servir versão velha depois
-      // de um upgrade do app. `no-cache` revalida e o 304 acima resolve em bytes zero.
-      'Cache-Control': 'no-cache',
+      // Com carimbo válido, conteúdo novo mora em OUTRA URL — então esta pode ser cacheada para
+      // sempre, e nenhum elo do caminho tem como servir velho no lugar de novo.
+      //
+      // Sem carimbo, é bundle de nome fixo (main.js, style.css): cache longo aí serviria versão
+      // velha depois de um upgrade. `no-cache` revalida e o 304 acima resolve em bytes zero.
+      'Cache-Control': imutavel ? 'public, max-age=31536000, immutable' : 'no-cache',
     });
     if (req.method === 'HEAD') res.end();
     else fs.createReadStream(target).pipe(res);

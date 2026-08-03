@@ -251,11 +251,30 @@
       // `el.volume` continua vendo o valor que o app pediu, e o que sai pelo alto-falante é o
       // produto dos dois. Se fosse sobrescrita, o próximo `el.volume = 1` do app desfaria o
       // mixer em silêncio — e ninguém descobriria por quê.
+      //
+      // ── E por que este `if` existe ──
+      //
+      // `vssh.audio` só existe a partir do shim da Onda 2.5. **Shell e apps são deployados à
+      // parte, então versão dessincronizada é a regra, não a exceção** — um app publicado hoje
+      // roda contra o shim que estiver instalado, que pode ser o de meses atrás. Sem esta
+      // guarda, um template novo contra um shim velho estoura `undefined.onChange` no load e
+      // leva junto tudo que viesse depois nesta função.
+      //
+      // Repare no que a mensagem diz e no que ela NÃO diz: com o shim velho, o problema não é
+      // que "faltam os números" — é que o mixer não alcança este app de jeito nenhum, porque
+      // quem multiplica a mídia e interpõe o GainNode é o shim. `vssh.audio` é só a leitura.
+      const temAudio = typeof vssh.audio !== 'undefined';
       function relatar() {
         const meu = el ? ` · o app pediu el.volume=${el.volume}` : '';
+        if (!temAudio) {
+          au.textContent = 'este shim é anterior à Onda 2.5 e não tem vssh.audio — o mixer do '
+                         + 'desktop NÃO controla este app. Rode `vssh-app-lib-sync . --parts web '
+                         + '--dest frontend/vendor/vssh`, commite e reinstale.' + meu;
+          return;
+        }
         au.textContent = `ambiente: gain=${vssh.audio.gain().toFixed(2)} mudo=${vssh.audio.muted()}${meu}`;
       }
-      vssh.audio.onChange(relatar);
+      if (temAudio) vssh.audio.onChange(relatar);
       relatar();
     }
   </script>

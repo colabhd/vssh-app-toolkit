@@ -199,7 +199,7 @@ git add backend/vendor/vssh frontend/vendor/vssh && git commit -m "sync vssh lib
 | Peça | Resolve |
 |---|---|
 | `app-log.js` | Log estruturado em `$VSSH_APP_DATA_DIR`. **Comece por esta**, na primeira linha de código. |
-| `static-spa.js` | Servir uma SPA construída sob o prefixo do proxy: 304, prefixos alias, injeção de script de boot, fallback de SPA. |
+| `static-spa.js` | Servir uma SPA construída sob o prefixo do proxy: 304, prefixos alias, injeção de script de boot com **carimbo de versão** (o conserto do cache velho — ver abaixo), fallback de SPA. |
 | `sse.js` | Server-Sent Events com os headers que sobrevivem ao proxy e ao CDN. Sem eles os eventos chegam em lote, ou nunca — e sem erro nenhum. |
 | `vssh-app-fs/` | Filesystem **privado** do app por HTTP: confinado a uma raiz, token-gated, errno classificado. |
 | `vssh-tray.js` | Ícone na bandeja para app **sem janela** (`engine`/`service`) — escrita atômica de `tray.json`, e o clique volta como POST no seu backend. App COM janela usa `vssh.tray.*` do shim, que é síncrono. |
@@ -222,6 +222,19 @@ createStaticSpa({ root: 'frontend', injectScripts: ['vendor/vssh/web/vssh-app-sh
 o que está sob `root`. Se a lib ficar em `backend/vendor/`, a tag aponta para 404 e o `vssh` nunca
 existe — silenciosamente, porque a página carrega normalmente. Ver
 `templates/hello-vssh-app-node/`, que já vem com os dois passos ligados.
+
+> **Cache: por que a tag sai com `?v=…`.** O `static-spa` carimba cada script injetado com o hash do
+> conteúdo dele e serve a URL carimbada como `immutable`. Não é otimização — é o conserto de um bug
+> que custou caro: um shim atualizado e reinstalado, arquivo em disco **certo**, e o navegador
+> executando o antigo. `Cache-Control: no-cache` mais `Last-Modified` só funciona se todo o caminho
+> colaborar (navegador, proxy do portal, CDN); basta um elo guardar a resposta e o usuário fica com
+> bytes velhos sem nenhum sinal. Conteúdo novo morando em **outra URL** não depende de ninguém
+> colaborar. O `index.html` é `no-store`, então é ele que traz a URL nova.
+>
+> **Isso vale para os scripts que o `static-spa` injeta, não para os assets do seu bundle.** Se o seu
+> `index.html` referencia `app.js` com nome fixo, ele continua no `no-cache` de sempre — hashear o
+> nome dos próprios assets é trabalho do seu bundler, e todo bundler moderno já faz. Se você carimbar
+> à mão (`app.js?v=<hash>`), o `static-spa` reconhece e serve como `immutable` de graça.
 
 ```js
 await vssh.dialog.confirm('Descartar alterações?');      // diálogo do desktop
