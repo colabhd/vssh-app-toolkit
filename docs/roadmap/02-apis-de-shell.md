@@ -585,8 +585,120 @@ O template `hello-vssh-app-node` ganhou o botão que exercita o par `pickFile` �
 onde a regra fica visível: sem escolher um arquivo não há o que imprimir, e escolher **é** o
 consentimento.
 
+### ✅ E então virou um diálogo de impressão de verdade
+
+Ao testar, a resposta foi curta e certeira: *"não tem como ela ser realmente um diálogo de
+impressão?"*, apontando para a tela nativa do Chrome. E era justo — o que tínhamos era um
+**seletor de impressora com um botão**. Faltava prévia, intervalo de páginas, cópias, tamanho de
+papel, páginas por folha, frente e verso.
+
+**O achado que dispensou metade do trabalho:** `/api/fs/read` **já** faz streaming com `Range`/206,
+com seek real no servidor (`dd iflag=skip_bytes`). E o repositório documenta isso onde ninguém
+procuraria — `tests/unit/ssh-slots.test.js:174-180` explica que existe um **semáforo de leitura
+dedicado** justamente porque *"o visualizador de PDF pede um Range novo a cada página rolada"*.
+
+Ou seja: a prévia preguiçosa é o comportamento **nativo** do visualizador do navegador sobre a rota
+que já existia. Não houve streaming a construir — houve um `<embed>` a apontar. E nem o `<embed>`
+foi escrito: `browser/ContentRenderer.buildContent` já monta por tipo, e `ContentTypeDetector` já
+classifica pela extensão.
+
+**O custo, dito por extenso:** a prévia consome os mesmos slots de leitura do resto do ambiente,
+com teto por usuário. Um PDF grande aberto ali degrada a navegação de **quem o abriu** — que é
+exatamente o que o teto por usuário existe para garantir. Não é regressão; é o desenho funcionando.
+
+#### Virou janela, e isso corrigiu uma mentira
+
+A primeira versão inventou um backdrop com caixa centrada — e o cabeçalho do CSS afirmava que ela
+"segue o vocabulário dos outros overlays do shell". **Não seguia:** todo diálogo daqui (`VsshDialog`)
+**estende `VsshWindow`**, e quando o shell precisa de superfície grande ele abre uma janela inteira
+(é o que `getOpenFileName` faz com o gerenciador em modo seletor). Não existe modal grande em lugar
+nenhum deste ambiente.
+
+Era comentário descrevendo a intenção, não o arquivo. Agora é janela como as outras: arrastar,
+focar, redimensionar — que a prévia quer — e o botão de fechar do ambiente. O prefixo `.pd-*`
+encolheu para só o que é desta tela, e uma variante de "o que é uma caixa de diálogo aqui" deixou
+de existir.
+
+#### As opções saem da impressora — e isso dispensa lista branca
+
+`lpoptions -p <fila> -l` diz o que aquele modelo aceita. A consequência é melhor que a feature:
+**o que a fila declarou É a lista branca**. Um `-o k=v` só atravessa se a chave estiver entre as
+opções daquela impressora e o valor entre as escolhas daquela opção. Mais preciso que qualquer
+regex, e cobre nomes de PPD que ninguém aqui conhece. Oferecer frente e verso numa impressora sem
+duplex era produzir um trabalho que sai errado sem ninguém saber por quê.
+
+`no-options` é resposta, não erro: impressora **raw** não declara nada, e aí o diálogo cai para
+cópias e intervalo — que o `lp` aceita de qualquer forma.
+
+#### O que os testes acharam, incluindo em mim
+
+1. **A mensagem de erro do `lpoptions` virava uma opção.** `lpoptions: Unknown printer or class.`
+   tem exatamente a forma `chave: valores`, e aparecia no menu do usuário como uma opção chamada
+   "lpoptions". A defesa estrutural foi parar de misturar `stderr` na leitura (ao contrário do
+   `lpstat`, onde o `2>&1` é útil); a validação de token no parser é a segunda linha.
+2. **E o token deixava `class.` passar**, porque eu pus o ponto dentro da classe do regex. É
+   literalmente a mesma armadilha do ícone da notificação, onde `^[\w.-]+$` aceitava `..`. Virou
+   segmento a segmento — a terceira vez que este idioma aparece, o que já sugere um helper.
+3. **`.pnd-input` e `.pnd-btn--primary`:** escrevi os dois por analogia e um deles não existe.
+   Campo de texto **não tem idioma compartilhado** nos diálogos do shell — `.pnd-select` existe,
+   `.pnd-input` não. Virou `.pd-input` local, dito no comentário, em vez de fingir reuso.
+
+**E o bug que a investigação previu:** `_NAVEGAVEIS` listava `csv` e `log`, e nenhum dos dois está
+na tabela MIME de `_streamFile` — a rota os serve como `attachment`. "No navegador" **baixava** o
+arquivo em vez de abri-lo para imprimir. Duas listas que precisavam concordar divergiram na
+primeira semana.
+
+#### O que o teste manual achou — e os dois eram de DESENHO
+
+Verificada num host real, e as duas coisas que apareceram não eram bugs de implementação:
+
+**1. O `<embed>` trazia o visualizador inteiro do Chrome.** Paginação, zoom, girar, anotar,
+desfazer, salvar, baixar — e um **botão de imprimir próprio**. Uma tela de impressão com dois
+botões de imprimir, com destinos diferentes, é pior que uma sem prévia. Consertado com
+`#toolbar=0&navpanes=0&statusbar=0&view=FitH`, o que obrigou o PDF a sair do reuso do
+`ContentRenderer`: o fragmento tem de ser aplicado **depois** da detecção de tipo, e o renderizador
+chama o detector com a mesma URL que recebe. Imagem, vídeo e áudio continuam no reuso.
+
+**2. "No navegador" era um botão, e devia ser um DESTINO.** Foi a observação mais valiosa do teste,
+e ela expôs um erro de modelagem, não de layout: num host sem fila configurada, a coluna virava uma
+mensagem de erro com um botão solto embaixo — não havia seletor, porque "seletor" era sinônimo de
+"fila CUPS".
+
+Modelando o navegador como mais uma linha da lista — que é como o Chrome trata "Salvar em PDF" —
+três coisas se resolvem de uma vez: a coluna **sempre** tem um seletor, um destino a mais não é um
+botão a mais, e volta a existir **uma** ação principal em vez de dois "imprimir" competindo pelo
+mesmo clique. A mensagem do servidor virou dica sob o seletor, e os campos da fila somem quando o
+destino é o navegador — lá quem pergunta cópias e papel é o diálogo do próprio navegador, e
+perguntar duas vezes é pior que não perguntar.
+
+O navegador é o **primeiro da lista, mas não o pré-selecionado** quando há fila: no servidor o
+arquivo não viaja, e o padrão deve ser o barato.
+
+**Uma "Debug Printer (não faz nada)" entrou na lista**, declarando as cinco opções que um PPD comum
+declara. Existe porque a coluna de opções só aparece com uma fila CUPS respondendo, e não havia como
+olhar para ela sem um host com impressora configurada. Imprimir nela não faz nada, e o toast diz
+isso junto com as opções escolhidas — destino que aceita o trabalho e o descarta em silêncio seria
+pior que não existir.
+
+#### E a terceira coisa virou critério
+
+O terceiro veredito do teste não era desta tela: *"o frontend em si não ficou bom, e aqui fica uma
+lição para tudo que nós desenvolvermos de UI: tem que ser BELO"*. Select com aparência nativa,
+scrollbar do sistema, campos sem hierarquia.
+
+Virou o [critério 3.3](criterios.md#33--está-belo), ao lado de "o navegador já faz isso?" e "isso
+sobrevive à troca de máquina?" — e com a mesma força: condição de pronto, não etapa de polimento no
+fim. A armadilha que apareceu junto está registrada lá: eu tinha concluído **por escrito** que
+campos de texto não tinham idioma compartilhado nos diálogos, porque procurei `.pnd-input`. O que
+existe é `.pnd-field`, e estava lá o tempo todo — a conclusão errada virou uma variante nova.
+
 **Continua faltando só o que depende da Onda 5:** o PDF gerado no ambiente, com fidelidade ao CSS
 de impressão, quando houver um motor `provides: ["print/v1"]`.
+
+**O que ainda não foi verificado:** um host **com** fila CUPS de verdade (a prévia, a troca de
+impressora recarregando opções e o `lp` com cópias e intervalo foram exercitados só pela Debug
+Printer), um `.docx` (placeholder na prévia **e** impressão pelo servidor), e uma fila **raw**
+(`no-options`).
 
 **A decisão de projeto é como o PDF é gerado.** Gerar no cliente e subir por `/api/fs/write` custa
 pouco mas diverge do CSS de impressão; um **engine de impressão** (`provides: ["print/v1"]`, chromium

@@ -25,7 +25,7 @@ Duas consequências que precisam estar ditas antes de qualquer tabela:
 |---|---|
 | [diagnostico.md](diagnostico.md) | Onde estamos: matriz de prontidão sem-X11, dívidas do toolkit e da plataforma, questões em aberto |
 | [casos-de-uso.md](casos-de-uso.md) | 20 arquétipos de aplicação, motor e daemon — e o que bloqueia cada um |
-| [criterios.md](criterios.md) | Os dois critérios de projeto que toda decisão atravessa |
+| [criterios.md](criterios.md) | Os três critérios de projeto que toda decisão atravessa — o navegador já faz isso, sobrevive à troca de máquina, e está belo |
 | [00-limpeza-de-terreno.md](00-limpeza-de-terreno.md) | Onda 0b — limpeza do `vssh-sso`: exclusões, renames, provisionador unificado |
 | [0c-colapso-de-variantes.md](0c-colapso-de-variantes.md) | Onda 0c — matar o tema `neon` e o modo `dock`: uma variante de UI, não duas |
 | [01-sessao-sem-xpra.md](01-sessao-sem-xpra.md) | Onda 1 — desacoplar o ciclo de vida da sessão do Xpra |
@@ -66,6 +66,7 @@ UI, cada superfície nova nasce com duas para manter.
 | 2 | [Clipboard](02-apis-de-shell.md#23--clipboard-integração-não-construção) — ponte de arquivos; imagem ficou **sem** ponte, e por quê | vssh-sso + toolkit | ✅ concluído |
 | 2 | [Impressão — fila do servidor](02-apis-de-shell.md#-destino-3-primeiro--e-a-ordem-tem-motivo) — o arquivo não viaja para imprimir | vssh-sso | ✅ concluído |
 | 2 | [Impressão — `vssh.print()` e o destino no navegador](02-apis-de-shell.md#-e-os-outros-dois-destinos-desbloqueados) | vssh-sso + toolkit | ✅ concluído |
+| 2 | [Impressão — a tela vira diálogo de verdade](02-apis-de-shell.md#-e-então-virou-um-diálogo-de-impressão-de-verdade) — prévia preguiçosa, opções da própria fila, o overlay vira janela, e o navegador vira um destino da lista | vssh-sso | ✅ concluído |
 | 2 | Impressão — PDF gerado no ambiente (**bloqueado**: precisa do motor `print/v1` da Onda 5) | vssh-sso | ⬜ não iniciado |
 | 2 | [Mixer de volume por aplicação](02-apis-de-shell.md#25--mixer-de-volume-por-aplicação) | vssh-sso + toolkit | ⬜ não iniciado |
 | 2 | [Configurações refeitas](02-apis-de-shell.md#26--a-janela-de-configurações-refeita) + registro interno de seção | vssh-sso | ⬜ não iniciado |

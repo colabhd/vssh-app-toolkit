@@ -115,10 +115,47 @@ de modelo para o resto.
 
 ---
 
+## 3.3 — Está BELO?
+
+Terceiro critério, e ele nasceu de um jeito específico: a tela de impressão da 2.4 passou nos dois
+primeiros, funcionou no primeiro teste, e mesmo assim a entrega não prestava. O veredito foi
+*"o frontend em si não ficou bom, e aqui fica uma lição para tudo que nós desenvolvermos de UI:
+tem que ser BELO"*.
+
+**Por que isso é critério e não gosto.** Este produto é um ambiente de desktop completo, e a
+promessa dele é que o usuário esqueça que está num navegador. Um `<select>` com aparência nativa,
+uma scrollbar cinza do sistema no meio de uma janela escura, campos sem hierarquia — cada um deles
+denuncia que aquela tela é remendo. O custo não é estético: é de confiança no ambiente inteiro,
+porque a pessoa passa a duvidar do que mais foi feito às pressas.
+
+**O que isso exige na prática:**
+
+| | |
+|---|---|
+| Controle nativo | Nunca. `<select>`/`<input>` do shell usam `.pnd-field` (a caixa) **mais** `.pnd-select` (a seta). Os dois — só o segundo dá seta certa e caixa nenhuma. |
+| Scrollbar | A do tema, não a do sistema: `::-webkit-scrollbar` de 6px, track transparente, polegar em `--ds-border` (idioma de `archive-window.css` e `file-browser-window.css`), mais `scrollbar-color` para Firefox. |
+| Hierarquia | Rótulo e valor não podem ter o mesmo peso. Sem hierarquia, uma coluna de opções vira uma pilha de pares iguais — a leitura de "está tudo jogado". |
+| Divisas e âncoras | Barra de botões grudada no fim do painel; blocos que mudam juntos separados por linha. Botão flutuando no meio do espaço é o sintoma mais comum. |
+| `option` | Estilizar também a lista aberta: em Windows ela herda o fundo do sistema e sai branca sob um controle escuro. |
+
+**E a armadilha que apareceu junto:** procurar o vocabulário existente não é procurar pelo nome que
+se espera. Cheguei a registrar por escrito que "campo de texto não tem idioma compartilhado nos
+diálogos" — porque procurei `.pnd-input`, que não existe. `.pnd-field` estava lá o tempo todo, e a
+conclusão errada virou uma variante nova. **Antes de escrever CSS, ler o que está lá; a ausência de
+um nome não é a ausência da coisa.**
+
+**Limite honesto, para o critério não virar promessa vazia:** há superfície que não se alcança. A
+scrollbar de dentro do visualizador de PDF do Chrome é outro documento, servido por um plugin —
+nenhuma regra nossa a atinge. Nesses casos a entrega é não somar a nossa feiura à dele, e dizer que
+o limite existe.
+
+---
+
 ## Como aplicar
 
-Todo item das Ondas 2, 4 e 5 atravessa as duas perguntas antes de virar tarefa. Se a resposta da
+Todo item das Ondas 2, 4 e 5 atravessa as **três** perguntas antes de virar tarefa. Se a resposta da
 primeira for "sim, o navegador faz", ainda falta checar os dois limites. Se a resposta da segunda for
-"não sobrevive", o item não está pronto para ser executado — só para ser redesenhado.
+"não sobrevive", o item não está pronto para ser executado — só para ser redesenhado. E a terceira
+não é etapa de polimento no fim: é condição de pronto, do mesmo jeito que as outras duas.
 
 A portabilidade não é só critério: virou entrega na [Onda 7](06-portabilidade.md).

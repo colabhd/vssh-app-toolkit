@@ -356,6 +356,24 @@ download do StreamSaver (a parte viva do arquivo) tem de continuar respondendo. 
 teste passava com o cache religado, porque o `caches` falso não tinha estado; a mutação mostrou, e o
 falso ganhou estado.
 
+#### Dívida medida: o teste de ícones confere o mapa, não os pedidos
+
+`tests/unit/sprite-icons.test.js` garante que todo **valor** do `ContextMenu._ICON_MAP` existe no
+sprite. O que ele **não** garante é que todo `icon:` pedido por um chamador esteja no mapa — e
+`_icon()` cai em `'file'` quando não está.
+
+Foi assim que "Imprimir…" entrou com ícone de arquivo, na 2.4: `print` não estava no mapa nem no
+sprite, e nada reclamou. Não quebra (há fallback), mas é o mesmo modo de falha silencioso que
+criou o teste — o `ico-minus` de "Diminuir Fonte" —, só que pela porta que ele não cobre.
+
+O conserto é varrer os `icon:` literais dos chamadores e exigir que estejam no mapa. O custo real
+não é o teste: é decidir o que fazer com os que hoje caem no fallback de propósito.
+
+**Um idioma que já apareceu três vezes e ainda não é helper:** validar um valor *segmento a
+segmento* em vez de com uma classe de caracteres que inclui o ponto. Foi o ícone da notificação
+(`^[\w.-]+$` aceitava `..`), foi o caminho de `onAction`, e foi a escolha de PPD do `lpoptions`
+(`class.` passava e uma mensagem de erro virava opção). Três chamadores é a hora de extrair.
+
 ### ⚠ O que NÃO é dívida, e por que está escrito aqui
 
 **"No perfil sem Xpra os proxies de janela poderiam ser desligados."** Foi investigado e **não
