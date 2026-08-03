@@ -314,6 +314,48 @@ saíram do mesmo log:
 diferentes, e a segunda não tem atalho — abre-se o console do perfil e lê-se o boot inteiro, linha
 por linha, perguntando de cada uma "isto serve a quem está sem Xpra?".
 
+#### ✅ Resolvido: duas camadas de cache com políticas contrárias
+
+Sintoma relatado: **no perfil sem Xpra, F5 não mostrava a build nova — só reabrir mostrava.** No
+perfil Xpra, F5 funcionava. A assimetria é a resposta.
+
+`vssh-client/sw.js` serve `index.html`, `js/**` e `css/**` **cache-first, sem revalidar**, e só liga
+quando alguém substitui o placeholder de build id. Havia dois substituidores, e eles não eram
+equivalentes:
+
+| Perfil | Quem substituía | Quando o id mudava |
+|---|---|---|
+| Xpra | `sed` em `publish-customclient.sh` | só ao publicar/instalar um customclient |
+| sem Xpra | o portal, ao servir (`vssh-shell.ts`) | **todo deploy** — é hash do conteúdo |
+
+Como o servidor de teste roda um customclient não publicado pelo CI, lá o placeholder ficava intacto
+e o SW era **inerte**: sempre fresco. No portal ele era real, e aí o atraso aparecia — **de
+exatamente um load, e estrutural**: quem atende um F5 é o SW **antigo**, que já respondeu todo o JS
+e CSS do cache antes de o SW novo instalar, ativar e limpá-lo. Como `skipWaiting()`+`claim()` correm
+no meio da carga, dava até para terminar com assets de duas builds na mesma página.
+
+**O que torna isso mais que um bug:** o portal já servia os assets com `Cache-Control: no-cache` +
+ETag, *exatamente* para que um deploy não sirva arquivo velho. Duas camadas com políticas contrárias,
+e vence sempre a que está na frente — o Service Worker fica **antes** do cache HTTP, então a política
+honesta da camada de baixo era decorativa. Um invariante que só vale se ninguém o contradisser acima
+não é um invariante.
+
+O cache foi desligado nos dois perfis (o `sed` do tarball saiu junto — lá era pior: o id era o sha do
+**tarball**, então nenhum deploy do portal invalidava nada). Quem cacheia agora é o navegador, com
+revalidação condicional: 304 barato em HTTP/2. Custo da migração: **uma última carga velha** para
+quem já tem cache populado — o `activate` do SW novo apaga tudo e a carga seguinte é limpa.
+
+**Se algum dia valer religar**, o que falta é versionar a URL do asset (`js/x.js?b=<buildId>`,
+injetado por quem serve o HTML): chave nova por build, cache-first nunca acerta entrada velha, e o
+atraso de um load some. Religar sem isso traz o sintoma de volta. Está escrito no cabeçalho do
+`sw.js`, junto do código que ficou dormente.
+
+`tests/unit/sw-cache.test.js` mede isso **executando** o `sw.js` num escopo de service worker falso —
+o `install` não pode abrir cache, o `fetch` de `js/**` tem de vir da rede, e o passthrough de
+download do StreamSaver (a parte viva do arquivo) tem de continuar respondendo. A primeira versão do
+teste passava com o cache religado, porque o `caches` falso não tinha estado; a mutação mostrou, e o
+falso ganhou estado.
+
 ### ⚠ O que NÃO é dívida, e por que está escrito aqui
 
 **"No perfil sem Xpra os proxies de janela poderiam ser desligados."** Foi investigado e **não
