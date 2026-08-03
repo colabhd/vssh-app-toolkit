@@ -68,6 +68,23 @@
   <button id="print">escolher arquivo e vssh.print</button>
   <pre id="printout">—</pre>
 
+  <h2 style="margin:1rem 0 0;font-size:1.1rem">Som</h2>
+  <p style="margin:0">
+    O desktop tem um <strong>mixer de volume</strong> na barra, e este app já obedece a ele
+    <strong>sem chamar nada</strong> — quem cuida disso é o shim. Toque um dos dois abaixo e mexa
+    no slider deste app lá na barra.
+  </p>
+  <p style="margin:0">
+    São dois caminhos porque <code>&lt;audio&gt;</code> e Web Audio não se alcançam pelo mesmo
+    lugar, e só o primeiro o desktop enxerga de fora. <strong>Um app que toca por
+    <code>AudioContext</code> e não carrega o shim nem aparece no mixer</strong> — não por
+    esquecimento: um slider que não morde é pior que slider nenhum.
+  </p>
+
+  <button id="som-media">tocar um &lt;audio&gt;</button>
+  <button id="som-wa">tocar por AudioContext</button>
+  <pre id="audio">—</pre>
+
   <script>
     // URLs RELATIVAS, sempre: o app é servido sob /<serverId>/proxy/app/<id>/, então uma barra no
     // começo apontaria para a raiz do portal, não para o app.
@@ -176,6 +193,70 @@
         count = 0;
         tr.textContent = 'removido da bandeja';
       });
+
+      // ─── Som ────────────────────────────────────────────────────────────────
+      //
+      // Estes dois botões existem para EXERCITAR o mixer, e são os dois porque as vias são
+      // diferentes: o shell enxerga os `<audio>` deste iframe (mesma origem) mas não tem como
+      // saber que existe um AudioContext aqui dentro — o segundo caminho só é controlável
+      // porque o shim envolve `AudioNode.connect` e desvia por um GainNode.
+      //
+      // Repare no que NÃO tem aqui: nenhuma chamada a `vssh.audio`. O app toca do jeito mais
+      // banal possível e obedece ao slider assim mesmo. É esse o contrato.
+      const au = document.getElementById('audio');
+
+      // Um segundo de senoide em memória, em loop. Um arquivo de áudio no pacote seria mais
+      // simples de ler, mas o template não deve carregar binário só para demonstrar.
+      const tomWav = (hz = 220, taxa = 8000) => {
+        const n = taxa, buf = new ArrayBuffer(44 + n * 2), dv = new DataView(buf);
+        const txt = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+        txt(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); txt(8, 'WAVEfmt ');
+        dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+        dv.setUint32(24, taxa, true); dv.setUint32(28, taxa * 2, true);
+        dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+        txt(36, 'data'); dv.setUint32(40, n * 2, true);
+        for (let i = 0; i < n; i++) dv.setInt16(44 + i * 2, Math.sin(2 * Math.PI * hz * i / taxa) * 6000, true);
+        return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+      };
+
+      let el = null;
+      document.getElementById('som-media').addEventListener('click', (e) => {
+        if (el) { el.pause(); el.remove(); el = null; e.target.textContent = 'tocar um <audio>'; relatar(); return; }
+        el = new Audio(tomWav(220));
+        el.loop = true;
+        el.volume = 0.5;          // "metade do MEU volume máximo"
+        document.body.appendChild(el);
+        el.play();
+        e.target.textContent = 'parar o <audio>';
+        relatar();
+      });
+
+      let ctx = null, osc = null;
+      document.getElementById('som-wa').addEventListener('click', (e) => {
+        if (osc) { osc.stop(); osc.disconnect(); osc = null; e.target.textContent = 'tocar por AudioContext'; relatar(); return; }
+        ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+        ctx.resume();
+        const g = ctx.createGain();
+        g.gain.value = 0.15;      // senoide crua é agressiva; isto é do APP, não do ambiente
+        osc = ctx.createOscillator();
+        osc.frequency.value = 330;
+        osc.connect(g);
+        g.connect(ctx.destination);   // ← é ESTA linha que o shim intercepta
+        osc.start();
+        e.target.textContent = 'parar o AudioContext';
+        relatar();
+      });
+
+      // O ponto que a leitura do painel não mostra sozinha: o ambiente MULTIPLICA. Quem lê
+      // `el.volume` continua vendo o valor que o app pediu, e o que sai pelo alto-falante é o
+      // produto dos dois. Se fosse sobrescrita, o próximo `el.volume = 1` do app desfaria o
+      // mixer em silêncio — e ninguém descobriria por quê.
+      function relatar() {
+        const meu = el ? ` · o app pediu el.volume=${el.volume}` : '';
+        au.textContent = `ambiente: gain=${vssh.audio.gain().toFixed(2)} mudo=${vssh.audio.muted()}${meu}`;
+      }
+      vssh.audio.onChange(relatar);
+      relatar();
     }
   </script>
 </body>

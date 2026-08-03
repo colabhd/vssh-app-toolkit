@@ -235,6 +235,21 @@ await vssh.openWith('/home/user/nota.md');                // deixa o usuário es
 **Nada disso passa pelo Xpra**, então o app se comporta igual com ou sem ele. Fora do desktop
 (dev standalone) cada função degrada para o equivalente do navegador em vez de lançar.
 
+### Se o app toca som, carregar o shim é o que o põe no mixer
+
+O desktop tem um mixer de volume na barra, com uma linha por aplicativo, e **carregar o shim é a
+única coisa que o app precisa fazer** — ele multiplica o volume dos `<audio>`/`<video>` e interpõe
+um `GainNode` no que vai para `ctx.destination`. O app não chama nada e obedece ao slider.
+
+A consequência de não carregar: um app que toca por **Web Audio** fica **invisível** no mixer.
+Não é esquecimento — é a regra do painel, que só lista o que consegue controlar de fato, e um
+slider que não morde é pior que slider nenhum. Com `<audio>` o desktop ainda alcança por
+varredura, mas quem multiplica em vez de sobrescrever é o shim.
+
+Só de leitura, para quem desenha o próprio controle: `vssh.audio.gain()`, `.muted()`,
+`.onChange(cb)`. **Não** reaja ao `onChange` escrevendo `el.volume` — isso desfaz a
+multiplicação. Detalhes em [`docs/api.md`](../../../docs/api.md).
+
 ### Arquivos do usuário: use a File System Access API
 
 Para ler e gravar na home do usuário, **não** monte o `vssh-app-fs`: carregue

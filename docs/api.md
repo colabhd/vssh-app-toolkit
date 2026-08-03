@@ -36,6 +36,8 @@ no-op. Você desenvolve fora do VSSH sem `if` nenhum.
 | Deixar o usuário escolher com que abrir | `vssh.openWith()` |
 | Receber um arquivo que abriram com o meu app | `vssh.onOpenContext()` |
 | Abas no cabeçalho da janela | `vssh.tabs.*` (exige `richChrome`) |
+| Tocar som obedecendo ao volume do ambiente | **nada** — já é automático |
+| Ler o volume que o ambiente aplica | `vssh.audio.gain()` / `.muted()` / `.onChange()` |
 | Saber onde estou rodando | `await vssh.capabilities()` |
 
 ---
@@ -285,6 +287,52 @@ usuário acharia que a impressão falhou.
 
 Se o servidor não tem CUPS — o caso comum no perfil sem X11 — a tela diz isso com essas
 palavras, em vez de mostrar uma lista vazia.
+
+### Som: o ambiente é o mixer, e você não precisa fazer nada
+
+O desktop tem um mixer de volume na barra, com uma barra geral e uma linha por aplicativo. **O seu
+app já obedece a ele**, sem chamar nada, sem configurar nada:
+
+```js
+new Audio('/algo.mp3').play();      // respeita o volume do app no mixer
+ctx.createOscillator().connect(ctx.destination);   // este também
+```
+
+O shim cuida das duas vias, que são diferentes porque `<audio>` e Web Audio não se alcançam pelo
+mesmo lugar: ele **multiplica** o volume dos elementos de mídia e **interpõe um `GainNode`** no
+que vai para `ctx.destination`.
+
+**Multiplica, não sobrescreve** — e é a diferença que importa para quem escreve o app:
+
+```js
+el.volume = 0.5;        // "metade do meu volume máximo"
+// usuário põe este app em 40% no mixer → sai 0.2
+el.volume;              // 0.5 — você continua lendo o SEU valor
+```
+
+Se o shim sobrescrevesse, o seu próximo `el.volume = 1` desfaria o mixer sem ninguém entender por
+quê. Pelo mesmo motivo, **não reaja ao mixer escrevendo `el.volume`**: isso é o que o shim já faz,
+e escrever por cima só desfaz a conta.
+
+Para quem desenha o próprio controle de volume ou quer pausar trabalho enquanto está mudo:
+
+```js
+vssh.audio.gain();                       // 0 a 1, já com o mudo aplicado
+vssh.audio.muted();
+const parar = vssh.audio.onChange(({ gain, muted }) => desenharBarrinha(gain, muted));
+```
+
+Fora do desktop, `gain()` devolve `1` e `muted()` devolve `false` — o app toca normal em dev.
+
+> **Uma consequência de projeto:** só aparece no mixer o app que o desktop **consegue controlar**.
+> Um app que toca por Web Audio e **não carrega o shim** é invisível lá — não porque foi esquecido,
+> mas porque um slider que não morde é pior que slider nenhum. Carregar o shim é o que põe o seu
+> app na lista. Ver [SKILL.md](../.claude/skills/vssh-app/SKILL.md) para os dois passos do
+> vendoring.
+>
+> Isso **não** depende de Xpra: no perfil sem X11 o mixer controla exatamente as mesmas fontes,
+> porque todas elas são elementos do documento do desktop ou de iframes mesma-origem. O que muda
+> é só que a linha "Sessão remota" (o stream do Xpra) não existe lá.
 
 ### Diálogos (bloqueiam, devolvem valor)
 
@@ -627,9 +675,14 @@ window.parent.postMessage({ vsshApp: true, type, requestId?, ...payload }, locat
 | `open-with` | sim | `path` |
 | `tabs` | não | `tabs[]`, `activeTabId` |
 | `tray` | sim | `op`: `set`\|`remove`, `item` (só dados: `icon`, `tooltip`, `badge`, `menu`) |
+| `audio-state` | sim | `hasAudio`, `playing` — "tenho som"; é o que põe o app no mixer |
 
 Do shell para o app, sem `requestId`: `open-context`, `grants`, `fs-change`, `tray-event`,
-`restore-tabs`, `activate-tab`, `close-tab`, `new-tab`.
+`volume`, `restore-tabs`, `activate-tab`, `close-tab`, `new-tab`.
+
+`volume` traz `{ gain, muted }` e chega a cada mexida no mixer. Sem o shim, aplicá-lo é por sua
+conta — e o `audio-state` também: o shell **enxerga** os seus `<audio>`, mas não tem como saber
+que existe um `AudioContext` aí dentro, e é o relato que faz o app aparecer no painel.
 
 `tray-event` traz `event: 'click'|'menu'` e, no segundo caso, o `menuId` do item escolhido. As
 funções `onClick`/`onMenu` não atravessam a ponte — função não serializa; o shim as guarda no lado

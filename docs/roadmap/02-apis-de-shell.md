@@ -1,13 +1,15 @@
 # Onda 2 — APIs de shell: tray, notificações, clipboard, impressão
 
-> **Estado:** em andamento · **Atualizado:** 2026-08-02 · **Repos:** `vssh-sso` + toolkit
+> **Estado:** em andamento · **Atualizado:** 2026-08-03 · **Repos:** `vssh-sso` + toolkit
 > **Dependência da** [Onda 1](01-sessao-sem-xpra.md) **satisfeita** — a sessão existe
 > (`services/session.ts`), e com ela o canal que esta onda precisava.
 >
 > **Feito:** a [2.1 inteira](#21--tray---concluída) — bandeja com as duas fontes (app com janela e
 > `engine`/`service` por arquivo), o transporte da [2.0](#o-transporte-o-coletor-por-servidor---feito),
-> a taskbar obedecendo às capabilities e a tela cheia no hambúrguer.
-> **Falta:** 2.2 a 2.6.
+> a taskbar obedecendo às capabilities e a tela cheia no hambúrguer; e a
+> [2.5](#25--mixer-de-volume-por-aplicação---concluída), que devolveu o botão de volume ao perfil
+> sem Xpra — como mixer, e não como o toggle que a 2.1 tirou.
+> **Falta:** 2.6. (2.2, 2.3 e 2.4 estão marcadas nas suas seções.)
 >
 > ⚠ **A [Onda 0c](0c-colapso-de-variantes.md) é pré-requisito da 2.6** e recomendada antes da 2.2:
 > enquanto o tema `neon` e o modo `dock` existirem, cada superfície nova aqui nasce com duas
@@ -225,7 +227,7 @@ contrato do `vsshHost`, e a taskbar consultando antes de mostrar.
 | `clipboardServer` | seleção X sincronizada com o clipboard do navegador |
 | `keyboardLayout` | trocar o layout do teclado do servidor (`send_keymap`) |
 
-O nome de `audioStream` é deliberado e o [2.5](#25--mixer-de-volume-por-aplicação) explica por quê:
+O nome de `audioStream` é deliberado e o [2.5](#25--mixer-de-volume-por-aplicação---concluída) explica por quê:
 `audio: false` seria falso já no passo seguinte. `#tb-layout-button` (tiling) ficou de fora do
 gating — o tiling é do shell, DOM puro, e funciona igual sem X11.
 
@@ -715,52 +717,93 @@ explicitamente**, já que nasce pulando o stack gráfico.
 
 ---
 
-## 2.5 — Mixer de volume por aplicação
+## 2.5 — Mixer de volume por aplicação · ✅ concluída
 
-**O próximo passo desta onda.** Nasceu do mesmo teste que achou os botões mortos: o de volume ia
-sumir no headless por não ter contraparte — e some, na 2.1 — mas a pergunta certa era outra. Os
-apps são **iframes no nosso documento**. Quem faz papel de sistema operacional para o áudio deles
-somos nós. Então o botão não volta como toggle: volta como **mixer**, uma coluna master e uma
-coluna por fonte, no espírito do mixer do Windows 7.
+Nasceu do mesmo teste que achou os botões mortos: o de volume ia sumir no headless por não ter
+contraparte — e sumiu, na 2.1 — mas a pergunta certa era outra. Os apps são **iframes no nosso
+documento**. Quem faz papel de sistema operacional para o áudio deles somos nós. Então o botão não
+voltou como toggle: voltou como **mixer**, com uma barra geral e uma linha por fonte, e no
+navegador uma linha por aba.
 
 **As premissas, conferidas contra o código antes de escrever isto:**
 
-| Premissa | Onde |
-|---|---|
-| Alcançar o `contentDocument` do iframe já é idioma da casa, não técnica nova | `ScramjetEngine.js:681`, `BrowserWindow.js:756`, `UrlViewerWindow.js:175`, `ExtensionRuntime.js:378` |
-| O áudio do Xpra é um `<audio>` do **próprio documento do shell** | `Client.js:4249` — `this.audio = document.createElement("audio")` |
-| O shim roda dentro da página do app, então alcança o que a varredura não alcança | `lib/web/vssh-app-shim.js` |
+| Premissa | Onde | Sobreviveu? |
+|---|---|---|
+| Alcançar o `contentDocument` do iframe já é idioma da casa | `ScramjetEngine.js:681`, `BrowserWindow.js:756`, `UrlViewerWindow.js:175`, `ExtensionRuntime.js:378` | sim |
+| O áudio do Xpra é um `<audio>` do **próprio documento do shell** | `Client.js:4090` — `this.audio = document.createElement("audio")` | sim, mas a âncora estava errada: era 4090, não 4249 (4237 é `on_audio_state_change`) |
+| O shim roda dentro da página do app, então alcança o que a varredura não alcança | `lib/web/vssh-app-shim.js` | sim, e virou obrigatório para Web Audio |
 
-A segunda é a que muda o desenho: **o stream do Xpra vira mais uma linha do mixer**, não um caso
-especial. O botão deixa de ter dois comportamentos (liga/desliga no x11, nada no headless) e passa
-a ter um só — abre o mixer.
+A segunda mudou o desenho como previsto: **o stream do Xpra é mais uma linha do mixer**, não um
+caso especial. O botão deixou de ter dois comportamentos e passou a ter um só.
 
-**As três vias de controle, em ordem de cobertura:**
+**As três vias de controle, como ficaram:**
 
-1. **Varredura de mídia** — `<audio>`/`<video>` no `contentDocument`, com `MutationObserver` para os
-   que nascem depois. Funciona **sem cooperação nenhuma** do app;
-2. **Hook de Web Audio no shim** — envolver `AudioNode.prototype.connect` e desviar o que vai para
-   `ctx.destination` por um `GainNode` nosso. É o que cobre o app que toca por `AudioContext`, que
-   a varredura não alcança;
-3. **A linha do Xpra** — `.volume` no `<audio>` do `Client.js`, de fora, sem tocar no upstream. O
-   mute dela **para o stream** (o que o botão de hoje já faz), porque volume zero continuaria
-   gastando banda.
+1. **Varredura de mídia** — `<audio>`/`<video>` no documento do shell e nos iframes mesma-origem.
+   Funciona **sem cooperação nenhuma**. Reaplicada no `load` da aba, no `load` do app, na criação
+   de aba de mídia e no watcher de documento do Scramjet;
+2. **Hook de Web Audio no shim** — `AudioNode.prototype.connect` envolvido, e o que ia para
+   `ctx.destination` passa por um `GainNode` nosso. O shim **multiplica** o volume do app em vez de
+   sobrescrever — sem isso, o próximo `el.volume = 0.5` do app desfaria o mixer em silêncio;
+3. **A linha do Xpra** — mute **para o stream**, porque volume zero continuaria gastando banda.
 
-**O limite honesto, e ele precisa aparecer na UI:** app que usa Web Audio **e** não carrega o shim é
-incontrolável. A regra é **só listar fonte que a gente controla de fato** — um slider que não morde
-é o mesmo botão morto que a 2.1 acabou de tirar da taskbar.
+### A inversão que a execução acrescentou, e ela é o achado da onda
 
-**Estado no servidor** (`/api/user/settings`), master e por app: é o
-[critério 3.2](criterios.md#32--isso-sobrevive-à-troca-de-máquina) aplicado na hora, em vez de virar
-dívida para a [Onda 7](06-portabilidade.md) migrar — que é exatamente o que aconteceu com os grants.
+O desenho óbvio era o mixer consultar `VsshHost.can('audioStream')` e escrever em `client.audio`.
+Está errado, e o modo de falha é sutil: `client-undefined-refs.test.js` declara `client` como
+global **gravável** de propósito, então `client.audio` escrito ali atravessaria a análise estática
+sem uma queixa e só quebraria em runtime — no perfil sem X11, que é a estrela-guia.
 
-**Painel** ancorado no botão, com o mesmo posicionamento que `#kb-layout-dropdown` e o
-`TilingPanel.js:253` já resolvem para as quatro posições de taskbar.
+Então `VolumeMixer` **não conhece Xpra**. Ele tem um registro genérico, e o `index.html` nomeia a
+fonte de dentro do `if (client)` que já existia — mesmo contrato da bandeja da 2.1: *a fonte é
+nomeada por quem a tem, e o chrome monta o elemento*. No headless ninguém registra, e a ausência
+vira a ausência de uma **chamada**: não há guarda a esquecer nem `null` a desreferenciar.
+
+A garantia virou asserção de **texto** sobre o arquivo (`volume-mixer.test.js`), porque nenhuma
+rede existente a pegava. É a lição generalizável: *quando o teste declara um nome como global para
+não dar falso positivo, ele para de proteger contra o uso errado daquele nome.*
+
+**O limite honesto, e ele aparece na UI:** app que usa Web Audio **e** não carrega o shim é
+incontrolável, e **não é listado**. A regra é só listar fonte que se controla de fato — slider que
+não morde é o mesmo botão morto que a 2.1 tirou da barra.
+
+**Estado no servidor** (`volumes` em `/api/user/settings`), master, Xpra e por `appId`: critério 3.2
+aplicado na hora. Aba e janela de navegador ficam em memória — não têm identidade que atravesse
+máquinas, e persistir por URL seria configuração de site, que é outra coisa.
+
+**Painel** ancorado por `AnchorPanel`, com uma diferença que os outros popovers não tinham: ele
+**muda de altura** ao expandir, então reancora; e o fechamento por clique de fora precisou
+sobreviver ao fim de um arraste de slider — `click` dispara síncrono depois do `pointerup`, e
+baixar a flag direto fechava o painel toda vez que o usuário soltava o volume.
+
+**Três coisas vieram de graça, e as três eram bugs:**
+
+- `_toggleMuteTab` recusava toda aba não-`web`: uma aba tocando um `.mp3` local **não podia ser
+  mutada**, e é o caso mais fácil de todos (o `<audio>` é elemento do nosso documento);
+- o mute do Scramjet era um `querySelectorAll` de uma vez só — mídia criada depois escapava. O
+  caminho da extensão tinha `MutationObserver`; este não;
+- `.sw-dpi-*` (33 linhas) era CSS morto, achado ao procurar se já existia um slider do tema.
+
+### O que o critério 3.3 exigiu
+
+Não existia slider do tema — existiam três `accent-color` sobre o controle nativo. Quem ganhou
+trilho e polegar próprios foi **`.pnd-slider`**, em `vssh-dialogs.css`, e não uma classe do mixer:
+era o vocabulário compartilhado que já existia, e `VsshDialogs.slider()` melhorou junto. É a lição
+do `.pnd-field` aplicada antes de errar de novo.
+
+E ela virou rede: **`client-css-classes.test.js`** — toda classe de prefixo nosso ou estiliza algo
+ou serve de âncora de busca. A primeira versão perguntava só "está no CSS?" e acusou 46 classes,
+quase todas legítimas (metade do vocabulário existe para ser *achada*). Perguntando as duas coisas
+sobraram 17, e essas são de fato inertes — entre elas `.tb-icon-tuff`, usada em 12 `<svg>` e uma
+transposição de `.tb-tuff-ico`, que existe.
 
 > Isto é o [critério do navegador](criterios.md#31--o-navegador-já-faz-isso) pelo avesso: não existe
 > volume master no navegador, e a resposta não é "sem equivalente". Como TODA fonte de áudio do
 > ambiente ou é um elemento de mídia nosso ou é um gain node nosso, o master é um multiplicador —
 > e passa a existir porque o ambiente é que é o sistema operacional aqui.
+
+**Falta a verificação manual**, e ela é onde mora o risco: nada disto tem cobertura de ponta a
+ponta. Os passos estão no plano da onda, e o primeiro é o perfil **sem** Xpra — que aqui é o caso
+principal, não o degradado.
 
 ---
 

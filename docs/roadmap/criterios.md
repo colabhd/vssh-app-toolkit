@@ -144,6 +144,23 @@ diálogos" — porque procurei `.pnd-input`, que não existe. `.pnd-field` estav
 conclusão errada virou uma variante nova. **Antes de escrever CSS, ler o que está lá; a ausência de
 um nome não é a ausência da coisa.**
 
+**A armadilha virou rede na [2.5](02-apis-de-shell.md#o-que-o-critério-33-exigiu):**
+`tests/unit/client-css-classes.test.js` recusa classe de prefixo nosso que não estiliza nada **nem**
+serve de âncora de busca. É o simétrico do `client-dom-ids.test.js`, e a diferença de gravidade
+está no modo de falha: id que não existe estoura um `null`; classe que não existe **não faz nada e
+não avisa** — o elemento só nasce sem estilo, e quem escreveu jura que escreveu.
+
+A formulação levou duas tentativas, e a primeira ensina o que a pergunta tinha de errado.
+"Está declarada no CSS?" acusou 46 classes, quase todas legítimas: **metade do vocabulário existe
+para ser ACHADA**, não pintada. Perguntando as duas coisas sobraram 17 — entre elas
+`.tb-icon-tuff`, em 12 `<svg>`, uma transposição de `.tb-tuff-ico`, que existe. Um teste com 46
+exceções no primeiro dia é um teste que ninguém lê.
+
+E a 2.5 mostrou que o critério tem um efeito além da tela: ao procurar se já havia um slider do
+tema, apareceram três `accent-color` sobre o controle nativo e **33 linhas de CSS provadamente
+morto** (`.sw-dpi-*`). Quem ganhou trilho e polegar próprios foi `.pnd-slider` — o slider genérico
+dos diálogos —, e não uma classe do mixer. Um vocabulário, não uma variante.
+
 **Limite honesto, para o critério não virar promessa vazia:** há superfície que não se alcança. A
 scrollbar de dentro do visualizador de PDF do Chrome é outro documento, servido por um plugin —
 nenhuma regra nossa a atinge. Nesses casos a entrega é não somar a nossa feiura à dele, e dizer que

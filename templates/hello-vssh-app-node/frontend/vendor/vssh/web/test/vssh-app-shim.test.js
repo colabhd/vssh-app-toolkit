@@ -29,13 +29,49 @@ function fakeDocument() {
   return doc;
 }
 
+// ── Plataforma de áudio de mentira ──────────────────────────────────────────
+//
+// Duas coisas precisam existir para o shim ter o que envolver: o par de acessores
+// `volume`/`muted` do HTMLMediaElement (é sobre eles que a multiplicação é montada) e o
+// `AudioNode.prototype.connect`. Nenhum dos dois existe em Node, e imitá-los é o que permite
+// medir a conta em vez de confiar nela.
+function fakeAudio() {
+  // O "hardware": o que sobrou depois de o shim escrever. É o que o teste observa.
+  const HTMLMediaElement = function () {};
+  Object.defineProperties(HTMLMediaElement.prototype, {
+    volume: { configurable: true, get() { return this._realVol ?? 1; }, set(v) { this._realVol = v; } },
+    muted:  { configurable: true, get() { return this._realMudo ?? false; }, set(v) { this._realMudo = v; } },
+  });
+
+  const nós = [];
+  const AudioNode = function () {};
+  AudioNode.prototype.connect = function (d) { nós.push(['connect', this, d]); return d; };
+  AudioNode.prototype.disconnect = function (d) { nós.push(['disconnect', this, d]); };
+
+  const criarCtx = (estado = 'running') => {
+    const ctx = { state: estado };
+    ctx.destination = Object.assign(new AudioNode(), { context: ctx, __nome: 'destination' });
+    ctx.createGain = () => Object.assign(new AudioNode(), {
+      context: ctx, __nome: 'gain', gain: { value: 1 },
+    });
+    return ctx;
+  };
+
+  const midia = (tag = 'AUDIO') => Object.assign(new HTMLMediaElement(), {
+    tagName: tag, nodeType: 1, paused: true, ended: false,
+  });
+
+  return { HTMLMediaElement, AudioNode, criarCtx, midia, nós };
+}
+
 function run(win, pathname, doc = null, extras = null) {
   const warnings = [];
   const sandbox = {
     window: win,
     location: { pathname, origin: 'https://portal', search: '' },
     console: { log: () => {}, error: () => {}, info: () => {}, warn: (m) => warnings.push(String(m)) },
-    setTimeout, clearTimeout, Map, Set, btoa, atob, Promise, Object, Error,
+    setTimeout, clearTimeout, setInterval: () => 0, Map, Set, WeakMap,
+    btoa, atob, Promise, Object, Error,
   };
   if (doc) { sandbox.document = doc; sandbox.MutationObserver = doc.__Observer; }
   // `navigator`/`document` de mentira para o clipboard de texto e imagem, que NÃO passa pela
@@ -99,7 +135,17 @@ function loadShim({ pathname = '/srv1/proxy/app/meu-app/', doc = null, extras = 
       });
     }
   };
-  return { vssh: win.vssh, sent, warnings, reply, pushGrants, pushChange, pushClipboard, doc };
+  // O mixer da barra empurrando volume. Mão única: o app nunca pede.
+  const pushVolume = (gain, muted = false) => {
+    for (const fn of listeners) {
+      fn({
+        origin: 'https://portal',
+        source: win.parent,
+        data: { vsshApp: true, type: 'volume', gain, muted },
+      });
+    }
+  };
+  return { vssh: win.vssh, sent, warnings, reply, pushGrants, pushChange, pushClipboard, pushVolume, doc };
 }
 
 // ── Impressão ─────────────────────────────────────────────────────────────
@@ -538,4 +584,170 @@ test('fora do desktop, os seletores devolvem null em vez de lançar', async () =
   assert.equal(win.vssh.inDesktop, false);
   assert.equal(await win.vssh.pickFile(), null);
   assert.equal(await win.vssh.pickDirectory(), null);
+});
+
+// ── Áudio: o ambiente é o mixer ───────────────────────────────────────────────
+//
+// O que estes testes protegem não é uma API — é o fato de o app não precisar de nenhuma. Um
+// vssh-app que nunca ouviu falar do mixer tem de obedecer ao slider assim mesmo, e é isso que
+// justifica o shim mexer em `HTMLMediaElement.prototype` e em `AudioNode.prototype`.
+
+/** Um app com mídia e/ou Web Audio, já carregado, com a plataforma falsa injetada. */
+function comAudio(midias = []) {
+  const A = fakeAudio();
+  const doc = fakeDocument();
+  const ouvidos = [];
+  doc.querySelectorAll = () => midias;
+  doc.documentElement = { tag: 'html' };
+  doc.addEventListener = (tipo, fn) => ouvidos.push([tipo, fn]);
+  const h = loadShim({
+    doc,
+    extras: { HTMLMediaElement: A.HTMLMediaElement, AudioNode: A.AudioNode },
+  });
+  return { ...h, A, ouvidos, dispara: (tipo) => ouvidos.filter(([t]) => t === tipo).forEach(([, f]) => f()) };
+}
+
+test('o volume do ambiente MULTIPLICA o do app, em vez de sobrescrever', () => {
+  const A = fakeAudio();
+  const el = A.midia();
+  const { vssh, pushVolume } = comAudio([el]);
+  void vssh;
+
+  // O app pediu meio volume.
+  el.volume = 0.5;
+  assert.equal(el._realVol, 0.5, 'sem mixer, o que o app pede é o que toca');
+
+  // O usuário põe o master em 40%.
+  pushVolume(0.4);
+  assert.ok(Math.abs(el._realVol - 0.2) < 1e-9, `esperava 0.5×0.4=0.2, veio ${el._realVol}`);
+
+  // E o app continua dono do valor DELE: quem lê `el.volume` vê o que pediu.
+  assert.equal(el.volume, 0.5, 'o getter devolve o volume do app, não o do ambiente');
+
+  // Se o app mexer de novo depois, a multiplicação continua valendo — este é o ponto: sem
+  // interceptar o setter, o próximo `el.volume = 1` do app desfaria o mixer em silêncio.
+  el.volume = 1;
+  assert.ok(Math.abs(el._realVol - 0.4) < 1e-9, `esperava 1×0.4, veio ${el._realVol}`);
+});
+
+test('mudo do ambiente vence, e desmutar não desfaz o mudo do APP', () => {
+  const A = fakeAudio();
+  const el = A.midia();
+  const { pushVolume } = comAudio([el]);
+
+  pushVolume(1, true);
+  assert.equal(el._realMudo, true);
+
+  pushVolume(1, false);
+  assert.equal(el._realMudo, false);
+
+  // Agora o APP se cala. O ambiente não pode "desmutar" o que não foi ele que calou.
+  el.muted = true;
+  pushVolume(1, false);
+  assert.equal(el._realMudo, true, 'o mudo do app sobreviveu ao desmute do ambiente');
+});
+
+test('mídia que nasce DEPOIS entra no mesmo regime', () => {
+  const A = fakeAudio();
+  const lista = [];
+  const h = comAudio(lista);
+  h.pushVolume(0.5);
+
+  const novo = A.midia();
+  lista.push(novo);
+  h.doc.__flush();      // dispara o MutationObserver do shim
+  // O observer do harness não passa `addedNodes`; o que importa é que a próxima aplicação
+  // adote o elemento novo — e é o que o push seguinte faz.
+  h.pushVolume(0.5);
+  assert.ok(Math.abs(novo._realVol - 0.5) < 1e-9, `esperava 0.5, veio ${novo._realVol}`);
+});
+
+test('Web Audio: o que ia para a saída passa pelo NOSSO gain', () => {
+  const { A, pushVolume } = comAudio([]);
+  const ctx = A.criarCtx();
+  const fonte = new A.AudioNode();
+  fonte.context = ctx;
+
+  fonte.connect(ctx.destination);
+
+  // Duas ligações: o nosso gain → destination (feita pelo shim), e a fonte → nosso gain.
+  const ligacoes = A.nós.filter(([tipo]) => tipo === 'connect');
+  const gainNoDestino = ligacoes.find(([, de, para]) => de.__nome === 'gain' && para.__nome === 'destination');
+  const fonteNoGain   = ligacoes.find(([, de, para]) => de === fonte && para.__nome === 'gain');
+  assert.ok(gainNoDestino, 'o shim não ligou o gain à saída');
+  assert.ok(fonteNoGain, 'a fonte foi ligada direto na saída — o mixer não a alcança');
+
+  // E o slider mexe nele.
+  pushVolume(0.25);
+  assert.equal(fonteNoGain[2].gain.value, 0.25);
+  pushVolume(0.25, true);
+  assert.equal(fonteNoGain[2].gain.value, 0, 'mudo tem de zerar o gain, não só baixar');
+});
+
+test('Web Audio: desconectar da saída desliga do gain, não do destination', () => {
+  const { A } = comAudio([]);
+  const ctx = A.criarCtx();
+  const fonte = new A.AudioNode();
+  fonte.context = ctx;
+  fonte.connect(ctx.destination);
+  fonte.disconnect(ctx.destination);
+
+  const [, , alvo] = A.nós.find(([tipo]) => tipo === 'disconnect');
+  assert.equal(alvo.__nome, 'gain',
+    'sem o disconnect simétrico o nó nunca se desliga — ele nunca esteve ligado ao destination');
+});
+
+test('o app que toca por Web Audio se ANUNCIA — senão o mixer não o lista', () => {
+  const { A, sent } = comAudio([]);
+  assert.ok(!sent.some((m) => m.type === 'audio-state' && m.hasAudio),
+    'app silencioso não deve anunciar áudio');
+
+  const ctx = A.criarCtx();
+  const fonte = new A.AudioNode();
+  fonte.context = ctx;
+  fonte.connect(ctx.destination);
+
+  const relato = sent.filter((m) => m.type === 'audio-state').pop();
+  assert.ok(relato?.hasAudio, 'sem relato o app fica controlável mas invisível no mixer');
+  assert.equal(relato.playing, true, 'contexto rodando é som tocando');
+});
+
+test('vssh.audio é só leitura, e degrada fora do desktop', () => {
+  const { vssh, pushVolume } = comAudio([]);
+  const vistos = [];
+  const cancelar = vssh.audio.onChange((v) => vistos.push(v));
+
+  pushVolume(0.6);
+  assert.equal(vssh.audio.gain(), 0.6);
+  assert.equal(vssh.audio.muted(), false);
+
+  pushVolume(0.6, true);
+  assert.equal(vssh.audio.gain(), 0, 'gain() já leva o mudo em conta');
+  assert.equal(vssh.audio.muted(), true);
+  // Campo a campo: os objetos nascem DENTRO do vm, com outro Object.prototype, e um
+  // deepEqual entre realms falha por identidade de protótipo mesmo com a estrutura igual.
+  assert.deepEqual(vistos.map((v) => [v.gain, v.muted]), [[0.6, false], [0.6, true]]);
+
+  cancelar();
+  pushVolume(0.1);
+  assert.equal(vistos.length, 2, 'cancelar tem de parar de entregar');
+
+  // Standalone: o app roda fora do desktop e não pode ver volume zero nem lançar.
+  const win = { addEventListener: () => {} };
+  win.parent = win;
+  run(win, '/');
+  assert.equal(win.vssh.audio.gain(), 1);
+  assert.equal(win.vssh.audio.muted(), false);
+  assert.equal(typeof win.vssh.audio.onChange(() => {}), 'function');
+});
+
+test('o gain fora de faixa é clampeado, não propagado', () => {
+  const A = fakeAudio();
+  const el = A.midia();
+  const { pushVolume } = comAudio([el]);
+  el.volume = 1;
+  for (const [bruto, esperado] of [[5, 1], [-2, 0], ['x', 0], [null, 0]]) {
+    pushVolume(bruto);
+    assert.equal(el._realVol, esperado, `gain ${bruto}`);
+  }
 });
