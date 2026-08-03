@@ -211,11 +211,19 @@ medidas, todas com o log do usuário como testemunha:
 - **Os `setInterval` do Xpra não armam.** O ping de 5 s vive dentro do handler de `hello`; o de info
   de 1 s só é alcançável pelo host xpra. **Exatamente um** timer recorrente fica vivo num desktop
   ocioso, e ele não é do Xpra: é o heartbeat do `/ws/events`, que sustenta o lease da sessão.
-- **O laço de `requestAnimationFrame` que mede fps não roda para sempre.** Ele se rearma enquanto
-  `vrefresh < 0`, e `index.html:691-693` fecha isso no `init_client()`: se os primeiros quadros
-  deram **≥ 30 fps**, `vrefresh` recebe o valor medido e o laço para. Sobra o caso honesto: numa
-  máquina (ou aba oculta) onde os primeiros quadros ficaram abaixo de 30, ele **não** para — e o
-  único destino do número é um campo do `hello` do Xpra.
+- **O laço de `requestAnimationFrame` que mede fps não rodava para sempre** — e a correção dessa
+  refutação virou bug, o que a torna a mais instrutiva das três. Ele se rearma enquanto
+  `vrefresh < 0`, e quem fechava isso era o `init_client()`: se os primeiros quadros deram ≥ 30 fps,
+  `vrefresh` recebia o valor medido e o laço parava. **Mas o conserto do desperdício tornou o
+  `init_client()` exclusivo do Xpra** — e com ele foi embora quem fechava o laço. Resultado
+  observado no console do usuário, no primeiro teste depois da mudança: `animation_cb` a cada
+  quadro, `vrefresh -1`, sem fim. Hoje o laço **não é armado** no perfil sem Xpra, que é a resposta
+  certa: o único destino do número é um campo do `hello` do protocolo.
+
+  **A lição é sobre a forma da correção, não sobre o fps:** pôr uma guarda de perfil não só evita
+  trabalho — ela também deixa de rodar coisas que outra parte do código esperava que tivessem
+  rodado. Toda guarda nova pede a pergunta "o que este bloco fechava?". Nenhum teste estático pega
+  isso; quem pegou foi abrir o desktop e ler o console.
 
 #### Dois efeitos que não são desperdício, são bug
 
