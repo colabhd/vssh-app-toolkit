@@ -376,23 +376,33 @@ do tick, uma vez por minuto, para sempre.
 
 ### Achado de passagem: o `unload` do shell não roda mais
 
-Não é do relógio, mas mora no mesmo arquivo e aparece no console de quem abre o desktop hoje:
+Não é do relógio, mas mora no mesmo arquivo e aparecia no console de quem abre o desktop:
 
 ```
 [Violation] Permissions policy violation: unload is not allowed in this document.
 ```
 
-`index.html:1495` registra `addEventListener("unload", () => client.close())`. O Chrome **desativou
+`index.html` registrava `addEventListener("unload", () => client.close())`. O Chrome **desativou
 `unload`** por Permissions Policy — o listener existe e nunca dispara. O que ele faria era fechar o
 transporte Xpra na saída da aba; sem ele, quem encerra a sessão é o timeout do lado do servidor, e o
 `beforeunload` logo abaixo (que continua valendo) só serve para avisar de transferência de arquivo
 em andamento.
 
-**Não é urgente e não é do perfil sem Xpra** — ali `client.close()` não teria o que fechar. É dívida
-do tipo "handler que existe e não roda", que é exatamente o modo de falha que a Onda 0c passou a
-caçar. O conserto, quando alguém encostar no boot: `pagehide` (ou `visibilitychange` com
-`document.visibilityState === 'hidden'`), que é o par vivo do `unload` e o único que o navegador
-promete entregar em mobile.
+**Uma frase deste parágrafo estava errada, e o erro é instrutivo.** Estava escrito que "não é do
+perfil sem Xpra — ali `client.close()` não teria o que fechar". A primeira metade é falsa: a
+violação aparecia **justamente** no perfil sem Xpra, e a segunda metade é o motivo. A guarda existia,
+mas estava **dentro** do handler (`if (!client) return`), e quem viola a política é o **registro**,
+não a execução. O perfil sem Xpra pagava um aviso do navegador a cada boot para inscrever um handler
+que ele já sabia que não faria nada.
+
+✅ **Resolvido:** os dois registros (`unload` e `beforeunload`) passaram para dentro de
+`if (client)`. Guardar o corpo não é guardar o efeito — é a mesma lição do rAF que continuava
+armado, e vale para todo listener cujo custo está em existir.
+
+**Continua em aberto, e só no perfil Xpra:** trocar `unload` por `pagehide` (ou `visibilitychange`
+com `document.visibilityState === 'hidden'`), que é o par vivo e o único que o navegador promete
+entregar em mobile. Fica para quando alguém puder **abrir uma sessão Xpra e conferir** — é handler
+de saída, o tipo que não denuncia estar quebrado.
 
 ---
 

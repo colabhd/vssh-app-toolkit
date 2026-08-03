@@ -281,6 +281,39 @@ marcado), e `vssh-host.js` lia `VsshHostXpra` como nome nu em vez de `window.Vss
 **Fica de fora:** as folhas de CSS não são marcadas. A única exclusiva do Xpra é `slick.css`, com
 1.554 B — menos que o custo de manter o marcador em dois lugares.
 
+#### Tag removida não é trabalho removido
+
+O console do perfil sem Xpra, depois de tudo isso, ainda abria assim:
+
+```
+network got default settings: Object
+[Violation] Permissions policy violation: unload is not allowed in this document.
+using blocked-hosts = xpra.org,www.xpra.org  from default settings
+modo standalone: conexão Xpra desabilitada
+```
+
+O `data-xpra` alcança o que está **em tag** — e o boot não está em tag nenhuma: são ~1.400 linhas de
+`<script>` inline no próprio `index.html`, que rodam iguais nos dois perfis. Medir 40,4% de JS a
+menos escondeu isso, porque a medida era de **bytes baixados**, não de **trabalho feito**. Dois casos
+saíram do mesmo log:
+
+1. **O `unload`** — ver [2.2](02-apis-de-shell.md#achado-de-passagem-o-unload-do-shell-não-roda-mais).
+   A guarda estava dentro do handler; quem viola a política é o registro.
+2. **O boot inteiro esperava um arquivo de configuração do Xpra.** `load_default_settings()` faz um
+   XHR de `./default-settings.txt` e só chama `init_page()` no callback — os três, `onload`,
+   `onerror` e `onabort`. O arquivo se apresenta como `# Xpra HTML5 default settings` e traz
+   `blocked-hosts`, `min-quality` e `min-speed`. Contados os leitores: **52** chamadas de
+   `get*param` nesta página, **50 dentro de `init_client()`**, que o perfil sem Xpra não chama. Das
+   duas restantes, `touchaction` não está no arquivo e `blocked-hosts` só é lido no ramo `else if`
+   que exige `client`. Ou seja: **o shell sem Xpra bloqueava o próprio boot numa ida à rede cujo
+   único valor efetivamente lido alimentava um caminho que não pode executar.** Agora
+   `VsshHost.xpraDisabled()` chama `init_page()` direto. Parâmetro de URL continua valendo nos dois
+   perfis — quem os lê é `Utilities.getparam`, que não depende do arquivo.
+
+**A regra que fica:** *depois de cortar o que se baixa, medir o que se executa.* São perguntas
+diferentes, e a segunda não tem atalho — abre-se o console do perfil e lê-se o boot inteiro, linha
+por linha, perguntando de cada uma "isto serve a quem está sem Xpra?".
+
 ### ⚠ O que NÃO é dívida, e por que está escrito aqui
 
 **"No perfil sem Xpra os proxies de janela poderiam ser desligados."** Foi investigado e **não
