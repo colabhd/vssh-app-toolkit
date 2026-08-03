@@ -262,7 +262,7 @@ Dos dois testes novos que saíram disso, o segundo é o mais importante:
    shell: nenhuma janela pseudonativa abria. A varredura achou mais nove referências mortas, quase
    todas anteriores à onda — incluindo um `init_clock()` do upstream, **ligado por default**, que
    rearmava um `setTimeout` de 1 s para sempre escrevendo em elementos que este fork nunca teve (ver
-   [2.2](02-apis-de-shell.md#o-relógio--porque-o-ambiente-não-tem-um)).
+   [2.2](02-apis-de-shell.md#o-relógio)).
 
 **A regra que fica:** *remoção grande se apaga por SÍMBOLO, não por intervalo* — e o que prova que
 ela terminou não é o diff, é abrir. Onde não dá para abrir automaticamente, o teste tem de medir a

@@ -240,9 +240,13 @@ cheia lê "Sair da tela cheia" em vez de adivinhar um ícone.
 
 Dois, e os dois são para não pagar o mesmo custo três vezes nas subondas 2.2, 2.4 e 2.5:
 
-- **Helper `anchorPanel(el, anchorEl)`** — existem hoje **6** implementações de "ancorar painel no
-  botão da taskbar", e duas delas admitem a cópia por escrito no comentário. Sem o helper, 2.2, 2.4
-  e 2.5 escrevem a 7ª, 8ª e 9ª. Ver [diagnostico](diagnostico.md#14b-ui-do-shell--duplicações-medidas).
+- ~~**Helper `anchorPanel(el, anchorEl)`**~~ — ✅ **feito**, como `js/AnchorPanel.js`, com
+  `geometry()` puro e 11 testes. Eram 6 implementações, e a mais recente — o overflow da bandeja,
+  escrito na 2.1 — **não tinha clamp nenhum**: com a barra à direita e o botão perto do rodapé, o
+  painel abria metade fora da tela. O hambúrguer tinha clamp só nas duas posições verticais.
+  Adotado nesses dois primeiro, de propósito: são os que estavam errados. Os outros quatro
+  (StartMenu, TilingPanel, VsshWindow, Client) também alternam classes de animação, então migram
+  quando alguém encostar neles — o que o helper garante é que a **7ª cópia não nasce**.
 - ~~**Extrair o `/ws/events` do `Client.js`**~~ — ✅ **feito**, como `js/EventsChannel.js`. Eram ~55
   linhas nossas dentro de arquivo upstream MPL, e o custo real acabou sendo maior do que "mais uma
   edição lá": enquanto o canal era método do `XpraClient`, **abrir o canal exigia construir um
@@ -272,7 +276,10 @@ vira cache de leitura. Do-not-disturb é preferência de usuário → `/api/user
 [limite 1 do critério](criterios.md#31--o-navegador-já-faz-isso): em tela cheia não há barra de
 notificação do SO.
 
-### O relógio — porque o ambiente não tem um
+### O relógio
+
+✅ **Feito.** O título fica curto de propósito: a âncora `#o-relógio` é citada de outros arquivos, e
+cabeçalho que muda de texto quebra link sem quebrar nada visível.
 
 Vem junto com o sino, e não por conveniência: os dois dividem o mesmo container
 (`#taskbar-right`), o mesmo padrão de inserção como irmão, o mesmo helper de ancoragem e a mesma
@@ -300,17 +307,35 @@ de relógio, e por que a tabela abaixo insiste em quem tiquetaqueia.
 uma linha em Configurações → Sistema — que é útil de verdade, porque um host com relógio errado
 carimba log, cron e mtime errados e ninguém percebe até doer.
 
-**E o efeito colateral que justifica o item sozinho:** existem hoje **6 formatadores de data
-espalhados**, todos `pt-BR` no fuso do navegador, nenhum declarando isso — e
-`FileBrowserWindow.js:1815` e `:3083` usam formatos **diferentes entre si**. O relógio força um
-formatador único, e a data do arquivo passa a concordar com a barra. Sem isso, o sintoma clássico é
-*"a data do arquivo está errada"* quando na verdade é o relógio novo que está certo.
+**E o efeito colateral que justificava o item sozinho:** havia formatadores de data espalhados,
+todos `pt-BR` no fuso do navegador e nenhum declarando isso — dois deles no **mesmo arquivo**, com
+formatos diferentes entre si. Todos passaram para o `VsshTime`: a lista e as propriedades do
+gerenciador de arquivos, as propriedades do desktop e o histórico do navegador. Agora a data do
+arquivo concorda com a barra, inclusive no fuso escolhido. Sem isso o sintoma seria o clássico
+*"a data do arquivo está errada"* — quando é o relógio novo que está certo.
+
+**Ficou de fora, e é o par que falta:** o relógio do host como **diagnóstico** em Configurações →
+Sistema. A conta já existe (`VsshTime.skewMs()` mede a divergência contra a referência do portal);
+falta a linha na janela — e ela cabe melhor na [2.6](#26--a-janela-de-configurações-refeita), que
+reescreve aquela tela.
+
+**Como ficou:** `js/VsshTime.js` (a hora e o formato) + `js/Clock.js` (o mostrador e o painel).
+O tick é agendado para a **virada do minuto**, não de segundo em segundo: são 60 despertares por
+hora em vez de 3.600, e o mostrador é HH:MM. Na barra vertical o relógio empilha `HH` sobre `MM`,
+porque 42 px não comportam `12:30` deitado. A chave `timezone` é validada **pelo `Intl`**, nos dois
+lados — regex de fuso IANA envelhece, e um fuso inválido gravado faria o formatador lançar dentro
+do tick, uma vez por minuto, para sempre.
 
 **Armadilhas nomeadas:**
-- chave nova fora de `ALLOWED_KEYS` (`settings.ts:12-25`) é descartada com **200 e sem log** —
-  funciona a semana toda na máquina de quem desenvolveu e some na outra;
-- **aba oculta**: o navegador estrangula timers, então segundos precisam de resync em
-  `visibilitychange`, não só `setInterval` — senão voltar depois de horas mostra o minuto errado;
+- ~~chave nova fora de `ALLOWED_KEYS` é descartada com 200 e sem log~~ — evitada: `timezone` entrou
+  nas **três** listas (`ALLOWED_KEYS`, `DEFAULTS`, `SANITIZE`), e o teste que cruza as três já
+  existia desde a Onda 0c;
+- ~~**aba oculta**~~ — resolvida: `visibilitychange` redesenha **e reagenda**. Um `setTimeout` de 40 s
+  numa aba de fundo pode voltar minutos depois, e relógio errado é pior que relógio nenhum, porque
+  é crível;
+- **o default do fuso não pode ser um fuso.** O servidor não sabe onde o usuário está: `''`
+  significa "pergunte ao navegador". Chutar `America/Sao_Paulo` mostraria a hora errada com ar de
+  escolhida para quem abrisse de Lisboa;
 - ~~existe um `init_clock` morto do upstream (47 linhas) e um `#clock_text` com CSS órfão~~ — ✅
   **deletados na Onda 0c**, junto com `.clock_block`. Quando a 2.2 for escrita, ela começa do zero:
   não há nada ali para reusar, e o que havia estava errado de propósito (ver acima).

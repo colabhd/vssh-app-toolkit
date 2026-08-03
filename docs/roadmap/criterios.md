@@ -85,7 +85,7 @@ preferência e não segurança, **sincronizar no servidor é barato**.
 
 ### O fuso horário do usuário — o caso que mostra o critério funcionando
 
-O [relógio da Onda 2.2](02-apis-de-shell.md#o-relógio--porque-o-ambiente-não-tem-um) precisa saber
+O [relógio da Onda 2.2](02-apis-de-shell.md#o-relógio) precisa saber
 **em que fuso mostrar a hora**. Três respostas passam pelo critério, e só uma sobrevive:
 
 | Onde o fuso mora | Passa no 3.2? |
