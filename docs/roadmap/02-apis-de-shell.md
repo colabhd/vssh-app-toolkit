@@ -243,9 +243,12 @@ Dois, e os dois são para não pagar o mesmo custo três vezes nas subondas 2.2,
 - **Helper `anchorPanel(el, anchorEl)`** — existem hoje **6** implementações de "ancorar painel no
   botão da taskbar", e duas delas admitem a cópia por escrito no comentário. Sem o helper, 2.2, 2.4
   e 2.5 escrevem a 7ª, 8ª e 9ª. Ver [diagnostico](diagnostico.md#14b-ui-do-shell--duplicações-medidas).
-- **Extrair o `/ws/events` do `Client.js`** para um `js/host/vssh-events.js`. Ele é ~55 linhas
-  **nossas dentro de arquivo upstream MPL**, e todo item desta onda que precisar do canal custa mais
-  uma edição lá ou mais um `CustomEvent` de contorno — como a bandeja já precisou fazer.
+- ~~**Extrair o `/ws/events` do `Client.js`**~~ — ✅ **feito**, como `js/EventsChannel.js`. Eram ~55
+  linhas nossas dentro de arquivo upstream MPL, e o custo real acabou sendo maior do que "mais uma
+  edição lá": enquanto o canal era método do `XpraClient`, **abrir o canal exigia construir um
+  cliente Xpra inteiro** — o que travou a separação do bundle por perfil até esta extração. O que
+  chega vira evento de DOM (`vssh-tray`, `vssh-migrate`), e o listener de migração é registrado no
+  construtor do cliente: só existe onde o arquivo existe, isto é, só no perfil Xpra.
 
 ### O centro de notificações
 
@@ -308,8 +311,29 @@ formatador único, e a data do arquivo passa a concordar com a barra. Sem isso, 
   funciona a semana toda na máquina de quem desenvolveu e some na outra;
 - **aba oculta**: o navegador estrangula timers, então segundos precisam de resync em
   `visibilitychange`, não só `setInterval` — senão voltar depois de horas mostra o minuto errado;
-- existe um `init_clock` morto do upstream (47 linhas) e um `#clock_text` com CSS órfão
-  (`float:left; padding-left:100px`). Deletar, não reusar.
+- ~~existe um `init_clock` morto do upstream (47 linhas) e um `#clock_text` com CSS órfão~~ — ✅
+  **deletados na Onda 0c**, junto com `.clock_block`. Quando a 2.2 for escrita, ela começa do zero:
+  não há nada ali para reusar, e o que havia estava errado de propósito (ver acima).
+
+### Achado de passagem: o `unload` do shell não roda mais
+
+Não é do relógio, mas mora no mesmo arquivo e aparece no console de quem abre o desktop hoje:
+
+```
+[Violation] Permissions policy violation: unload is not allowed in this document.
+```
+
+`index.html:1495` registra `addEventListener("unload", () => client.close())`. O Chrome **desativou
+`unload`** por Permissions Policy — o listener existe e nunca dispara. O que ele faria era fechar o
+transporte Xpra na saída da aba; sem ele, quem encerra a sessão é o timeout do lado do servidor, e o
+`beforeunload` logo abaixo (que continua valendo) só serve para avisar de transferência de arquivo
+em andamento.
+
+**Não é urgente e não é do perfil sem Xpra** — ali `client.close()` não teria o que fechar. É dívida
+do tipo "handler que existe e não roda", que é exatamente o modo de falha que a Onda 0c passou a
+caçar. O conserto, quando alguém encostar no boot: `pagehide` (ou `visibilitychange` com
+`document.visibilityState === 'hidden'`), que é o par vivo do `unload` e o único que o navegador
+promete entregar em mobile.
 
 ---
 

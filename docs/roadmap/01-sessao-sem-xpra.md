@@ -91,6 +91,13 @@ gatilho era a conta Linux, e ela virou responsabilidade do `ensureSession`.
 - **Remover `_eagerStartAlwaysRunningEngines`** (`vssh-client/index.html:2103`) — condicionado a
   validar o supervisor num servidor real, que é operação, não código.
 - **Derrubar túneis no `endSession`** — reavaliar quando houver confiança no lease.
+- ~~**O perfil que esta onda criou carrega e CONSTRÓI o cliente Xpra.**~~ — ✅ **resolvido depois**,
+  na Onda 2. A onda 1 desacoplou o ciclo de vida da *sessão*; o que ficou de fora, de propósito, foi
+  o que a *página* carrega. Medido depois de um usuário estranhar o console: um
+  `new XpraClient("screen")` em `index.html:739`, 846 linhas **antes** do único
+  `if (VsshHost.xpraDisabled())` do boot. Hoje o portal serve o perfil sem X11 sem as tags marcadas
+  — 1.369.332 B, 40,4% do JS — e `client` é `null` ali. Ver
+  [diagnostico.md § Peso morto servido ao navegador](diagnostico.md#peso-morto-servido-ao-navegador).
 
 ## Verificação pendente, no servidor
 

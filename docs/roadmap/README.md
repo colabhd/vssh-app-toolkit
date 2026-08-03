@@ -55,7 +55,9 @@ UI, cada superfície nova nasce com duas para manter.
 | 2 | [Canal shell↔app sem iframe](02-apis-de-shell.md#o-transporte-o-coletor-por-servidor---feito) — coletor por servidor | vssh-sso | ✅ concluído |
 | 2 | [Tray](02-apis-de-shell.md#21--tray---concluída) — as duas fontes (janela e `engine`/`service`) | vssh-sso + toolkit | ✅ concluído |
 | 2 | [Taskbar honesta](02-apis-de-shell.md#o-item-irmão-que-apareceu-ao-testar-a-taskbar-mentia---feito): capabilities + tela cheia no hambúrguer | vssh-sso | ✅ concluído |
-| 2 | Pré-requisitos: helper `anchorPanel()` e extrair o `/ws/events` do `Client.js` | vssh-sso | ⬜ não iniciado |
+| 2 | Pré-requisito: extrair o `/ws/events` do `Client.js` (`js/EventsChannel.js`) | vssh-sso | ✅ concluído |
+| 2 | [Um index por modo](diagnostico.md#-resolvido-um-index-por-modo-sem-um-segundo-arquivo) — o perfil sem Xpra deixa de baixar 40,4% do JS | vssh-sso | ✅ concluído |
+| 2 | Pré-requisito: helper `anchorPanel()` | vssh-sso | ⬜ não iniciado |
 | 2 | Centro de notificações **+ relógio** | vssh-sso + toolkit | ⬜ não iniciado |
 | 2 | Clipboard (ponte de arquivos + imagem) | vssh-sso + toolkit | ⬜ não iniciado |
 | 2 | Tela de impressão do ambiente | vssh-sso + toolkit | ⬜ não iniciado |

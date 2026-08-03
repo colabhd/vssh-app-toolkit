@@ -157,9 +157,120 @@ Os três entram na [Onda 0c](0c-colapso-de-variantes.md), que é onde o código 
 
 ### Peso morto servido ao navegador
 
-`js/lib/aurora/{aac,flac,mp3}.js` = **401.838 B nunca referenciados**; `design-system.html` = 1854
-linhas públicas com zero referências, **já divergidas** do `design-tokens.css` real; três overlays
-órfãos do upstream, um deles se apresentando como *"Xpra HTML5 Client / Version 19"*.
+Duas réguas diferentes, e a segunda só ficou visível depois que a primeira foi aplicada.
+
+**Régua 1 — referência zero: ninguém chama.** `js/lib/aurora/{aac,flac,mp3}.js` = **401.838 B nunca
+referenciados**; `design-system.html` = 1854 linhas públicas com zero referências, **já divergidas**
+do `design-tokens.css` real; três overlays órfãos do upstream, um deles se apresentando como *"Xpra
+HTML5 Client / Version 19"*; `simple-keyboard` = 296 KB carregados em toda sessão e nunca
+instanciados ([00-limpeza-de-terreno.md](00-limpeza-de-terreno.md)). Tudo isto já foi removido ou
+está orçado.
+
+**Régua 2 — referenciado, mas só pelo ramo Xpra.** Esta a régua 1 não alcança por construção: o
+código É chamado, só que de dentro de um caminho que o perfil sem X11 nunca percorre. Foi medido
+depois de um usuário estranhar, no console do perfil **sem** Xpra, linhas como
+`audio codec MediaSource supported`, `offscreen canvas is available` e `initializing clipboard`.
+
+#### O que foi medido (números reproduzidos por um segundo par de olhos)
+
+| Medida | Valor |
+|---|---|
+| Tags `<script src>` no `index.html` | **87**, todas entre as linhas 18 e 160 — ou seja, **inteiramente dentro do `<head>`** (`</head>` na 205, `<body>` na 207) |
+| Delas com `defer`, `async` ou `type=module` | **0**. Os 11 `type="application/javascript"` são script clássico e bloqueiam igual |
+| JS avaliado antes da primeira tag do `<body>` | **3.387.562 B** (3,39 MB) |
+| Stack Xpra estrito — wire, decode, áudio, janela X11 | **1.063.226 B**, 18 das 87 tags = **31,4%** |
+| Idem, contando o que só o caminho Xpra chama (slick, detect-zoom, StreamSaver + ponyfill, Notifications, throttle-debounce) | ~1,38 MB, ~41% — a fronteira é discutível, o núcleo de 31,4% não |
+| Guarda de perfil possível nessa camada | **nenhuma.** `VsshHost.xpraDisabled()` só é consultada em `index.html:60`, quando 22 scripts já executaram — e não impede os 65 seguintes. A checagem de capability vive **abaixo** do parser HTML |
+
+O portal serve com `etag:true, no-cache` (`vssh-shell.ts:63-65`), então em reload morno são 18
+revalidações 304 de corpo ~zero: **o byte é custo de carga fria**. O custo de *parse* é por carga e
+**não foi medido** — não há navegador no ambiente de medição, e inflar isso seria repetir o erro que
+esta seção existe para evitar.
+
+#### E não é só baixar: o perfil sem Xpra **constrói** o cliente Xpra
+
+`index.html:739` faz `new XpraClient("screen")` sem guarda nenhuma — **846 linhas antes** do único
+`if (VsshHost.xpraDisabled())` do boot, que fica na `:1585` e só pula o `connect()`. Consequências
+medidas, todas com o log do usuário como testemunha:
+
+- **`new AudioContext()` no construtor** (`Client.js:279`), num perfil sem stream de áudio;
+- **16 sondagens de codec** no boot — 12 `MediaSource.isTypeSupported()` e 4 `AV.Decoder.find()` —
+  cujo resultado só é lido para montar o pacote `hello`, que nunca é enviado;
+- **um `OffscreenCanvas` 256×256** instanciado e descartado só para testar capacidade de um worker
+  de decode que este perfil nunca cria;
+- **a tabela de 40 handlers de pacote** montada para um protocolo que não abre;
+- **`init_clipboard()` roda mesmo com `clipboardServer: false`** (`index.html:1618`, depois do ramo):
+  registra listeners e acende o **prompt de permissão de clipboard do navegador** no primeiro
+  clique — para um botão que `applyHostCapabilities()` acabou de esconder. É a única linha desta
+  lista que o usuário **vê**.
+
+#### O que caiu ao ser refutado, e é a parte mais útil
+
+- **Worker não sobe.** Os 3 sítios de `new Worker` ficam atrás de `initialize_workers()`, que só
+  `connect()` chama — **0 de 3** neste perfil. A suspeita de "threads de decode ociosas" não procede.
+- **Os `setInterval` do Xpra não armam.** O ping de 5 s vive dentro do handler de `hello`; o de info
+  de 1 s só é alcançável pelo host xpra. **Exatamente um** timer recorrente fica vivo num desktop
+  ocioso, e ele não é do Xpra: é o heartbeat do `/ws/events`, que sustenta o lease da sessão.
+- **O laço de `requestAnimationFrame` que mede fps não roda para sempre.** Ele se rearma enquanto
+  `vrefresh < 0`, e `index.html:691-693` fecha isso no `init_client()`: se os primeiros quadros
+  deram **≥ 30 fps**, `vrefresh` recebe o valor medido e o laço para. Sobra o caso honesto: numa
+  máquina (ou aba oculta) onde os primeiros quadros ficaram abaixo de 30, ele **não** para — e o
+  único destino do número é um campo do `hello` do Xpra.
+
+#### Dois efeitos que não são desperdício, são bug
+
+Estes valem item, não linha de dívida — e nenhum dos dois foi refutado ainda:
+
+1. **Estado de janela é escrito e nunca lido neste perfil.** `WindowStateManager.save()` é chamado de
+   6 pontos do `VsshWindow` (abrir, mover, minimizar, maximizar, fixar, navegar), nos dois perfis;
+   `restoreAll()` tem **um único chamador**, `index.html:1558`, dentro de `client.on_connect` — que
+   sem Xpra nunca dispara. O shell grava no servidor a cada gesto e nunca reabre nada.
+2. **O deep link `?officeShare=` nunca abre o editor sem Xpra**, e o token **continua na URL e no
+   histórico** — o tratamento inteiro (inclusive o `history.replaceState` que limparia a URL) mora
+   dentro do mesmo `on_connect`.
+
+#### ✅ Resolvido: um index por modo, sem um segundo arquivo
+
+A objeção ao "bundle por perfil" era real — dois arquivos são duas coisas para manter certas, e a
+Onda 0c acabou de estabelecer que variante nova é o que se está **tirando**. O que a desarma é uma
+assimetria que já existia: **no perfil x11 quem serve a página é o processo xpra do usuário
+(`--html=`), lendo o diretório cru.** O arquivo em disco *é* o do Xpra; o portal é o único que
+transforma. Então não há dois arquivos — há um arquivo e duas renderizações:
+
+- as tags exclusivas do Xpra ganharam `data-xpra` no `index.html`;
+- `stripXpraTags()` (`src/services/vssh-shell.ts`) as remove ao servir `/proxy/vssh-desktop/`, ao
+  lado do `injectNoXpra()` que já existia. Se o marcador parar de casar, **falha alto** em vez de
+  servir o bundle inteiro em silêncio — que seria o modo caro: o desktop continua funcionando, só
+  pesado, e ninguém percebe.
+
+**Medido depois:** 23 tags e **1.369.332 B (40,4%)** saem do perfil sem Xpra; ficam 65 tags e
+2.020.159 B. Os maiores que saem: `aurora.js` (332.523), `brotli_decode.js` (206.386),
+`web-streams-ponyfill.es6.js` (194.390), `Client.js` (187.090), `jsmpeg.js` (125.282).
+
+**O que destravou isso não foi a remoção, foi a costura** — enquanto o boot construísse um
+`XpraClient`, tirar a tag do `Client.js` era `ReferenceError` garantido:
+
+1. **`vsshHost.decodeIcon` no lugar de `client.xdg_image`** nos 3 sítios de Start Menu e Launchpad.
+   O host já tinha o gêmeo agnóstico de perfil; ninguém tinha trocado.
+2. **O `/ws/events` virou `js/EventsChannel.js`** — era o último laço obrigatório, porque abrir o
+   canal exigia construir o cliente. Ver [02-apis-de-shell](02-apis-de-shell.md#pré-requisitos-que-valem-antes-de-começar).
+3. **`client` passou a ser `null` no perfil sem Xpra**, e cada bloco que fala com o transporte
+   carrega a guarda. É o que apaga, de uma vez, o `AudioContext`, as 16 sondagens de codec, o
+   `OffscreenCanvas`, a tabela de 40 handlers, os 5 `init_*` de subsistema e o prompt de permissão
+   de clipboard.
+4. **A sequência de "shell pronto" saiu de dentro do `client.on_connect`** e virou `_shellReady()`,
+   chamada pelos dois ramos — o que conserta os dois **bugs** listados acima: a restauração de
+   janelas passa a rodar no perfil sem Xpra, e o `?officeShare=` passa a abrir o editor e a limpar
+   o token da URL.
+
+**O que impede isso de virar o próximo boot quebrado** é um teste que monta o conjunto de nomes que
+existem *naquele perfil* — só os arquivos que sobrevivem — e confere o JS do shell contra ele
+(`tests/unit/client-undefined-refs.test.js`). Ele já pegou dois casos na primeira execução:
+`Utilities.js` usava `hmac` como fallback de `crypto.subtle` (por isso `hmac.js`, 7.496 B, **não** é
+marcado), e `vssh-host.js` lia `VsshHostXpra` como nome nu em vez de `window.VsshHostXpra`.
+
+**Fica de fora:** as folhas de CSS não são marcadas. A única exclusiva do Xpra é `slick.css`, com
+1.554 B — menos que o custo de manter o marcador em dois lugares.
 
 ### ⚠ O que NÃO é dívida, e por que está escrito aqui
 
