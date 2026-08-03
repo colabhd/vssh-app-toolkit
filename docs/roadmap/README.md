@@ -64,7 +64,9 @@ UI, cada superfície nova nasce com duas para manter.
 | 2 | [Centro de notificações — `actions`, `persistent`, Notification API](02-apis-de-shell.md#o-centro-de-notificações) — a notificação passa a poder ser respondida | vssh-sso | ✅ concluído |
 | 2 | [`lib/node/vssh-notify.js`](02-apis-de-shell.md#o-centro-de-notificações) — o app escreve no journal sem errar o `id` | toolkit | ✅ concluído |
 | 2 | [Clipboard](02-apis-de-shell.md#23--clipboard-integração-não-construção) — ponte de arquivos; imagem ficou **sem** ponte, e por quê | vssh-sso + toolkit | ✅ concluído |
-| 2 | Tela de impressão do ambiente | vssh-sso + toolkit | ⬜ não iniciado |
+| 2 | [Impressão — fila do servidor](02-apis-de-shell.md#-destino-3-primeiro--e-a-ordem-tem-motivo) — o arquivo não viaja para imprimir | vssh-sso | ✅ concluído |
+| 2 | [Impressão — `vssh.print()` e o destino no navegador](02-apis-de-shell.md#-e-os-outros-dois-destinos-desbloqueados) | vssh-sso + toolkit | ✅ concluído |
+| 2 | Impressão — PDF gerado no ambiente (**bloqueado**: precisa do motor `print/v1` da Onda 5) | vssh-sso | ⬜ não iniciado |
 | 2 | [Mixer de volume por aplicação](02-apis-de-shell.md#25--mixer-de-volume-por-aplicação) | vssh-sso + toolkit | ⬜ não iniciado |
 | 2 | [Configurações refeitas](02-apis-de-shell.md#26--a-janela-de-configurações-refeita) + registro interno de seção | vssh-sso | ⬜ não iniciado |
 | 3 | FSA de verdade (`LazyFile`, `slice`, OPFS) | toolkit | ⬜ não iniciado |

@@ -264,6 +264,28 @@ componentes.
 > `clipboardServer: false` em `vssh.capabilities()`. Tudo acima funciona igual nos dois
 > perfis — é DOM e é do shell.
 
+### Imprimir
+
+```js
+const path = await vssh.pickFile();
+await vssh.print(path);            // abre a tela de impressão do desktop
+```
+
+O app **não imprime**: ele pede a tela. Quem escolhe o destino e confirma é o usuário — mesmo
+padrão de `dialog` e `pick`. Resolve assim que a tela **abre**, não quando o usuário imprime;
+devolve `false` fora do desktop ou num shell sem suporte.
+
+O caminho é um arquivo **do servidor**. O destino que o desktop oferece primeiro é a fila CUPS
+do próprio servidor, e a razão vale saber ao projetar o app: **ali o arquivo não viaja**.
+Imprimir um PDF de 200 páginas pelo navegador significa baixá-lo inteiro antes de imprimir.
+
+"Imprimir no navegador" aparece como alternativa para o que o navegador sabe renderizar (PDF,
+imagem, texto, HTML). Para os demais tipos ele não aparece — abriria uma janela em branco, e o
+usuário acharia que a impressão falhou.
+
+Se o servidor não tem CUPS — o caso comum no perfil sem X11 — a tela diz isso com essas
+palavras, em vez de mostrar uma lista vazia.
+
 ### Diálogos (bloqueiam, devolvem valor)
 
 ```js

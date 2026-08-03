@@ -533,6 +533,61 @@ ponte (`vssh.print(...)`) — com três destinos:
 2. **Imprimir no cliente** → aí sim `window.print()`;
 3. **Impressoras remotas/de rede**, acrescentáveis à mesma tela.
 
+### ✅ Destino 3 primeiro — e a ordem tem motivo
+
+Dos três, o **único que funciona hoje sem construir um motor** é a fila CUPS do host. E ele é o
+que mais paga num ambiente remoto: **o arquivo não viaja**. Imprimir um PDF de 200 páginas pelo
+`window.print()` significa baixar 200 páginas para o navegador antes de imprimir 200 páginas; com
+`lp`, quem imprime já está do lado do arquivo.
+
+Entregue: `src/services/printers.ts` (o parser e as guardas), `src/routes/print.ts`
+(`GET /printers`, `POST /job`), `js/PrintDialog.js`, e **"Imprimir…" no menu de contexto do
+gerenciador de arquivos** — que é onde a pessoa está quando quer imprimir um arquivo.
+
+**A ausência é uma RESPOSTA, com nome.** Um host sem CUPS e um host com CUPS e nenhuma fila dão a
+mesma lista vazia, e mandam a pessoa a lugares diferentes: chamar quem administra, ou configurar a
+impressora. O `GET /printers` devolve **200** com `{available:false, reason:'no-cups'|'no-printers'}`
+em vez de 404 — e o perfil headless da Onda 1, que nasce pulando o stack gráfico, é o caso **comum**
+de `no-cups`. Era exatamente para ele que "menu vazio" seria a pior resposta possível.
+
+**O parser é o que se testa, e é o que dá errado em silêncio.** `lpstat` é texto de ferramenta: o
+formato muda com a versão do CUPS e com o locale do host, e um parser que não reconhece a linha não
+lança — devolve lista vazia, indistinguível de "não há impressora". Por isso o reconhecimento não
+depende das palavras de estado: `printer <nome>` no começo da linha é o que a ferramenta garante em
+qualquer idioma; `disabled`/`printing` são pistas, e a ausência delas cai em `ready` em vez de
+descartar a fila. Sumir do menu é o pior resultado — a impressora existe e funciona.
+
+**O botão de "salvar PDF" NÃO aparece desabilitado.** Ele depende do motor de impressão
+(`provides: ["print/v1"]`) da [Onda 5](04-runtime-composicao.md), e botão que não faz nada ensina o
+usuário a não clicar em botão nenhum — a mesma regra das ações de notificação.
+
+**Achado de passagem:** `print` não estava no `ContextMenu._ICON_MAP` nem no sprite. Não quebrava
+(há fallback para `'file'`), mas "Imprimir" com ícone de arquivo é o mesmo tipo de erro mudo que o
+`ico-minus` foi — e o `sprite-icons.test.js` não pega este, porque ele confere os valores do mapa,
+não os nomes que os chamadores usam. `<symbol id="ico-print">` entrou junto.
+
+### ✅ E os outros dois destinos desbloqueados
+
+- **`vssh.print(path)` pela ponte.** O app **pede a tela**, não imprime — quem escolhe destino e
+  confirma é o usuário. Resolve quando a tela **abre**, não quando o usuário imprime: esperar a
+  decisão prenderia o app numa promise de ritmo humano, e ele não tem o que fazer com a resposta.
+  Caminho arbitrário não é buraco: nada sai impresso sem alguém clicar, com o nome do arquivo na
+  tela, e o `lp` roda como o usuário. É o mesmo consentimento do seletor.
+- **"No navegador"** como segundo destino, só para o que o navegador sabe renderizar (PDF,
+  imagem, texto, HTML). Para `.docx` ele **não aparece** — abriria uma janela em branco, e o
+  usuário concluiria que a impressão falhou. E ele aparece **também** na tela de "não há
+  impressora": é onde importa mais, porque é a única saída que sobra. Fechar dizendo só "não dá"
+  esconderia a opção justamente de quem não tem outra.
+- **A ordem dos botões é a ordem dos destinos, e não é estética:** no servidor o arquivo não
+  viaja; no navegador ele viaja inteiro. O padrão é o primeiro.
+
+O template `hello-vssh-app-node` ganhou o botão que exercita o par `pickFile` → `print`, que é
+onde a regra fica visível: sem escolher um arquivo não há o que imprimir, e escolher **é** o
+consentimento.
+
+**Continua faltando só o que depende da Onda 5:** o PDF gerado no ambiente, com fidelidade ao CSS
+de impressão, quando houver um motor `provides: ["print/v1"]`.
+
 **A decisão de projeto é como o PDF é gerado.** Gerar no cliente e subir por `/api/fs/write` custa
 pouco mas diverge do CSS de impressão; um **engine de impressão** (`provides: ["print/v1"]`, chromium
 headless ou WeasyPrint) dá fidelidade e é exatamente o arquétipo B4 — vale como **primeiro consumidor

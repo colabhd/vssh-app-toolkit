@@ -53,6 +53,21 @@
   <button id="tray-off">vssh.tray.remove</button>
   <pre id="tray">—</pre>
 
+  <h2 style="margin:1rem 0 0;font-size:1.1rem">Impressão</h2>
+  <p style="margin:0">
+    O app <strong>não imprime</strong>: ele pede a tela, e quem escolhe o destino e confirma é
+    o usuário — mesmo padrão de <code>dialog</code> e <code>pick</code>. Por isso o botão abre
+    um seletor primeiro: sem um arquivo do servidor não há o que imprimir.
+  </p>
+  <p style="margin:0">
+    O destino que o desktop oferece primeiro é a fila do <strong>próprio servidor</strong>, e a
+    razão vale saber: ali o arquivo não viaja. Imprimir um PDF de 200 páginas pelo navegador
+    significa baixar 200 páginas antes de imprimir 200 páginas.
+  </p>
+
+  <button id="print">escolher arquivo e vssh.print</button>
+  <pre id="printout">—</pre>
+
   <script>
     // URLs RELATIVAS, sempre: o app é servido sob /<serverId>/proxy/app/<id>/, então uma barra no
     // começo apontaria para a raiz do portal, não para o app.
@@ -102,6 +117,22 @@
       document.getElementById('confirm').addEventListener('click', async () => {
         const ok = await vssh.dialog.confirm('Isto veio do desktop, não do navegador. Confirma?');
         br.textContent = 'confirm devolveu: ' + ok;
+      });
+
+      // ─── Impressão ──────────────────────────────────────────────────────────
+      //
+      // Duas chamadas, e a primeira é a que dá sentido à segunda: `pickFile` é onde o usuário
+      // escolhe — e escolher É o consentimento, mesmo modelo da File System Access API.
+      // `print` então pede a tela; ele resolve assim que ela ABRE, não quando o usuário
+      // imprime. O app não fica sabendo o que foi impresso, e não precisa.
+      const po = document.getElementById('printout');
+      document.getElementById('print').addEventListener('click', async () => {
+        const path = await vssh.pickFile({ title: 'Escolha um arquivo para imprimir' });
+        if (!path) { po.textContent = 'cancelado no seletor'; return; }
+        const abriu = await vssh.print(path);
+        po.textContent = abriu
+          ? `tela de impressão aberta para ${path}`
+          : 'vssh.print devolveu false — fora do desktop, ou shell sem suporte a impressão';
       });
 
       // ─── Bandeja ────────────────────────────────────────────────────────────
