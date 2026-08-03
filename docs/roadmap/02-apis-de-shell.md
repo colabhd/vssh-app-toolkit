@@ -348,11 +348,28 @@ ambiente que acabou de abrir e ainda não fez nada. É o [limite 1 do
 critério](criterios.md#31--o-navegador-já-faz-isso) na prática: um ambiente remoto não pode
 depender de uma permissão que talvez nunca seja concedida.
 
-**O que falta (conveniência, não capacidade):**
+**✅ `lib/node/vssh-notify.js` — a peça do toolkit, e por que ela não é só açúcar:**
 
-- uma peça em `lib/` do toolkit para o app não escrever a linha do journal na mão. Hoje o
-  contrato está em [`docs/api.md`](../api.md) e é uma linha de shell — suficiente para usar, não
-  para não errar o `id`, que é a chave de deduplicação de ponta a ponta.
+Escrever a linha do journal é fácil; escrever o **`id`** não é. Ele é a chave de deduplicação de
+ponta a ponta, e errar falha **em silêncio nos dois sentidos**: id que se repete entre eventos
+diferentes faz o segundo nunca aparecer; id que muda para o mesmo evento faz a mesma coisa
+avisar várias vezes. Nenhum dos dois dá erro em lugar nenhum, o que é a definição de coisa que
+não deve ficar por conta de quem escreve o app.
+
+O desenho que sai disso: **o padrão é gerar** (cada chamada é um evento novo — o caso comum), e
+`key` é o opt-in de idempotência (`key: 'disco-2026-08-03'` avisa uma vez por dia mesmo rodando
+de hora em hora). O id gerado é tempo + aleatório, e não um contador: contador reinicia com o
+processo, e aí o id de ontem volta a existir — o portal o reconheceria como já entregue e o
+aviso sumiria calado.
+
+Ela também rotaciona o journal, que a documentação antes deixava por conta do app: teto de
+bytes, corte por rename atômico — porque cortar sem atomicidade acontece exatamente no instante
+em que o poll está lendo, e o sintoma seria notificação perdida de vez em quando, sem nada no
+log. O corte guarda folga larga sobre a janela que o portal lê, senão ele apagaria o que ainda
+não foi entregue.
+
+E degrada como o `vssh-tray`: fora do VSSH devolve `null` sem lançar. Um app não pode morrer no
+`npm run dev` de quem o escreve porque não existe uma home de VSSH ali.
 
 **Onde mora o estado:** journal append-only em `~/.vssh-notifications/journal.ndjson` como **verdade**
 — o emissor está no servidor, e um `kind:"service"` pode notificar com o shell fechado. `localStorage`
@@ -476,14 +493,25 @@ O escopo encolheu depois de olhar o que já existe.
 `navigator.clipboard` no próprio iframe. E o clipboard de **arquivos** do shell (`FileOps.js:44`),
 que já independe do xpra.
 
-**O que falta são duas pontes:**
+**E encolheu de novo ao executar: das duas pontes previstas, só uma é ponte.** ✅ **Feito.**
 
-- **`vssh.clipboard.files()`** — o app lê os caminhos que estão no clipboard do shell, reage ao
-  evento `clipboard-change`, e pode **colocar** caminhos lá. É isto que faz "copiar no gerenciador,
-  colar no app" funcionar — e o inverso.
-- **Imagem** — `vssh.clipboard.readImage/writeImage` mediado pelo shell, falhando com **motivo
-  nomeado** (`no-user-activation`) em vez de erro genérico. É a diferença entre o autor do app
-  corrigir em dois minutos e abrir issue.
+- ✅ **`vssh.clipboard.files()` / `setFiles()` / `onChange()`** — esta é ponte de verdade, e é
+  a que faltava: o clipboard de arquivos vive num fechamento do `FileOps`, e nenhuma API de
+  navegador o alcança. Sem ela, "copiar no gerenciador, colar no app" simplesmente não existe.
+  `setFiles` sempre **copia** — recortar move arquivo do usuário na próxima colagem, e isso
+  continua sendo do gerenciador, onde ele vê o que está fazendo.
+- ⛔ **"Imagem mediada pelo shell" está REFUTADA, e o motivo inverte a proposta:**
+  `clipboard.write()` exige **ativação transitória** do usuário, e ativação **não atravessa
+  `postMessage`**. Mediar pelo shell quebraria exatamente o que a mediação existiria para
+  permitir. O que sobra da ideia — e que era o valor real dela — é o **motivo nomeado**, e
+  esse não precisa de ponte nenhuma: vive no shim, traduzindo o `NotAllowedError` genérico em
+  `no-user-activation` / `denied` / `unsupported` / `empty`.
+
+**O achado que destravou isso:** o iframe do vssh-app era o **único** dos três iframes do shell
+sem atributo `allow` — `OfficeEditorWindow` e `ContentRenderer` já declaravam
+`clipboard-read; clipboard-write`. Uma linha, e o `navigator.clipboard` do app passa a ser o
+caminho normal em vez do caminho impossível. A "ponte de imagem" existia, em boa medida, para
+contornar uma omissão de uma linha.
 
 **O clipboard do Linux não entra no perfil headless — e isso é escolha, não lacuna.** Sem X11 não há
 seleção X para sincronizar. Declarar isso honestamente era **acrescentar `clipboardServer: false`**

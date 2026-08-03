@@ -26,6 +26,7 @@
 #   log  → lib/node/app-log.js      log estruturado em $VSSH_APP_DATA_DIR
 #   sse  → lib/node/sse.js          Server-Sent Events que sobrevivem ao proxy e ao CDN
 #   tray → lib/node/vssh-tray.js    ícone na bandeja para app SEM janela (engine/service)
+#   notify → lib/node/vssh-notify.js  avisar o usuário a partir do backend, sem janela aberta
 #   web  → lib/web/                 shim do frontend, polyfill da FSA, shims Tauri/Electron
 #   all  → tudo (default)
 set -euo pipefail
@@ -79,6 +80,7 @@ if want spa; then mkdir -p "${TARGET}/node" && cp "${LIB_SRC}/node/static-spa.js
 if want log; then mkdir -p "${TARGET}/node" && cp "${LIB_SRC}/node/app-log.js"    "${TARGET}/node/" && copied="${copied} app-log.js"; fi
 if want sse; then mkdir -p "${TARGET}/node" && cp "${LIB_SRC}/node/sse.js"        "${TARGET}/node/" && copied="${copied} sse.js"; fi
 if want tray;then mkdir -p "${TARGET}/node" && cp "${LIB_SRC}/node/vssh-tray.js"  "${TARGET}/node/" && copied="${copied} vssh-tray.js"; fi
+if want notify; then mkdir -p "${TARGET}/node" && cp "${LIB_SRC}/node/vssh-notify.js" "${TARGET}/node/" && copied="${copied} vssh-notify.js"; fi
 if want web; then mkdir -p "${TARGET}/web"  && cp -R "${LIB_SRC}/web/." "${TARGET}/web/" && copied="${copied} web/"; fi
 
 [ -n "${copied}" ] || { echo "ERRO: nenhuma parte selecionada (--parts '${PARTS}')." >&2; exit 1; }

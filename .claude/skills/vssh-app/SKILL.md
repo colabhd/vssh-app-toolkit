@@ -191,7 +191,7 @@ alcançar registry npm num exec por SSH, e o publish empacota o que está versio
 
 ```bash
 # libs de backend ao lado do backend; libs de frontend sob a raiz que o static-spa serve
-bash /caminho/do/toolkit/scripts/vssh-app-lib-sync . --parts fs,spa,log,sse,tray --dest backend/vendor/vssh
+bash /caminho/do/toolkit/scripts/vssh-app-lib-sync . --parts fs,spa,log,sse,tray,notify --dest backend/vendor/vssh
 bash /caminho/do/toolkit/scripts/vssh-app-lib-sync . --parts web            --dest frontend/vendor/vssh
 git add backend/vendor/vssh frontend/vendor/vssh && git commit -m "sync vssh libs"
 ```
@@ -203,6 +203,7 @@ git add backend/vendor/vssh frontend/vendor/vssh && git commit -m "sync vssh lib
 | `sse.js` | Server-Sent Events com os headers que sobrevivem ao proxy e ao CDN. Sem eles os eventos chegam em lote, ou nunca — e sem erro nenhum. |
 | `vssh-app-fs/` | Filesystem **privado** do app por HTTP: confinado a uma raiz, token-gated, errno classificado. |
 | `vssh-tray.js` | Ícone na bandeja para app **sem janela** (`engine`/`service`) — escrita atômica de `tray.json`, e o clique volta como POST no seu backend. App COM janela usa `vssh.tray.*` do shim, que é síncrono. |
+| `vssh-notify.js` | Avisar o usuário **do backend**, inclusive com o desktop fechado. Cuida do `id`, que é a chave de deduplicação de ponta a ponta e falha em silêncio nos dois sentidos quando é escrito na mão. `key` para avisar uma vez só. App COM janela usa `vssh.notify()` do shim. |
 
 Comece pelo `templates/hello-vssh-app-node/`, que já nasce com tudo isso ligado.
 

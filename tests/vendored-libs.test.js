@@ -40,6 +40,7 @@ const PARTS = {
   log:  { file: 'node/app-log.js' },
   sse:  { file: 'node/sse.js' },
   tray: { file: 'node/vssh-tray.js' },
+  notify: { file: 'node/vssh-notify.js' },
   web: { dir: 'web' },
 };
 

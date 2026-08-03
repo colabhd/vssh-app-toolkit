@@ -163,7 +163,22 @@ de engolir o clique.
 `postMessage`. Um daemon que termina um backup às 3h **não tem janela** — e é exatamente ele
 que mais precisa avisar.
 
-Para esse caso, o backend acrescenta uma linha ao **journal** do usuário:
+**Use a lib do toolkit** — `vssh-app-lib-sync . --parts notify`:
+
+```js
+const { notify } = require('./vendor/vssh/node/vssh-notify.js');
+
+notify('Backup concluído: 4,2 GB em 12 min', { title: 'Backup', level: 'success' });
+
+// Avisar UMA VEZ SÓ, mesmo rodando de hora em hora:
+notify('Disco quase cheio', { key: `disco-${new Date().toISOString().slice(0, 10)}` });
+```
+
+Ela existe por causa do `id` — ver abaixo por que ele é fácil de errar e por que errar é
+silencioso. Fora do VSSH devolve `null` sem lançar, então o seu `npm run dev` não quebra.
+
+O formato cru, para quem não usa Node — o backend acrescenta uma linha ao **journal** do
+usuário:
 
 ```
 ~/.vssh-notifications/journal.ndjson
@@ -178,7 +193,7 @@ Um objeto JSON por linha, sem vírgula e sem colchete em volta (NDJSON):
 
 | Campo | |
 |---|---|
-| `id` | **Obrigatório.** É a chave de deduplicação — o portal manda uma janela do fim do arquivo, então a mesma linha pode ser lida várias vezes. Linha sem `id` é descartada. Use algo estável e único para o evento (`backup-<data>`), nunca um contador que reinicia com o processo. |
+| `id` | **Obrigatório**, e a razão de a lib existir. É a chave de deduplicação: o portal manda uma janela do fim do arquivo, então a mesma linha é lida várias vezes. Errar falha **em silêncio nos dois sentidos** — id que se repete entre eventos diferentes faz o segundo nunca aparecer; id que muda para o mesmo evento faz a mesma coisa avisar várias vezes. Nunca use um contador do processo: ele reinicia junto, e o id de ontem volta a existir. |
 | `body` | O texto. `message` também é aceito. |
 | `title`, `level`, `icon` | Opcionais; mesmos valores de `vssh.notify`. |
 | `appId` | Quem emitiu. Sem ele a notificação aparece como `sistema`. |
@@ -199,6 +214,55 @@ viu não vê de novo. A latência é de segundos, não instantânea.
 **Duas consequências de ser append-only:** escreva com `>>` (nunca `>`, que apagaria o
 histórico), e **rotacione você mesmo** se o app for tagarela — o portal só lê o fim, então um
 arquivo grande não o atrapalha, mas ocupa o disco do usuário para sempre.
+
+## Clipboard
+
+Duas metades, e elas **não** passam pelo mesmo caminho.
+
+**Texto e imagem: use `navigator.clipboard` direto.** O iframe do seu app é da mesma origem
+que o desktop e recebe `allow="clipboard-read; clipboard-write"`, então a API padrão funciona
+aqui dentro. Não há ponte para isso, e não deveria haver: `clipboard.write()` exige ativação
+transitória do usuário, e ativação **não atravessa `postMessage`** — mediar pelo shell
+quebraria justamente o que a mediação existiria para permitir.
+
+O que o shim acrescenta é o **motivo** da falha:
+
+```js
+try {
+  const img = await vssh.clipboard.readImage();     // Blob, ou null se não havia imagem
+} catch (e) {
+  if (e.reason === 'no-user-activation') { /* chame de dentro de um clique */ }
+  if (e.reason === 'denied')             { /* o usuário negou a permissão */ }
+  if (e.reason === 'unsupported')        { /* navegador sem clipboard.read */ }
+}
+
+await vssh.clipboard.writeImage(blob);
+```
+
+`NotAllowedError` genérico é a diferença entre abrir uma issue e consertar em dois minutos:
+as três causas chegam com o **mesmo** nome de erro, e só o estado do documento as distingue.
+
+**Arquivos: use a ponte.** O clipboard de arquivos é do shell — quem guarda `{action, paths}`
+é o gerenciador de arquivos, e nenhuma API de navegador o alcança. É esta metade que faz
+"copiar no gerenciador, colar no app" existir, e o inverso.
+
+```js
+const clip = await vssh.clipboard.files();          // {action:'copy'|'cut', paths:[]} | null
+
+await vssh.clipboard.setFiles(['/home/ana/relatorio.pdf']);   // agora dá para colar no gerenciador
+
+const parar = vssh.clipboard.onChange((clip) => { /* mudou, inclusive por fora do app */ });
+```
+
+`setFiles` sempre **copia**. Recortar move arquivo do usuário na próxima colagem, e isso
+continua sendo do gerenciador, onde ele vê o que está fazendo.
+
+`onChange` devolve a função que cancela — e cancelar importa se o seu app monta e desmonta
+componentes.
+
+> **Sem X11 não há clipboard do Linux para sincronizar**, e isso está declarado:
+> `clipboardServer: false` em `vssh.capabilities()`. Tudo acima funciona igual nos dois
+> perfis — é DOM e é do shell.
 
 ### Diálogos (bloqueiam, devolvem valor)
 

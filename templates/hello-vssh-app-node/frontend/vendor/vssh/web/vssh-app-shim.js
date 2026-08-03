@@ -117,6 +117,25 @@
   // `/<serverId>/proxy/app/<id>/`. Disponível de imediato, sem handshake.
   const serverSlug = location.pathname.split('/').filter(Boolean)[0] || '';
 
+  /**
+   * Traduz a recusa do navegador ao ler/escrever clipboard num motivo que se pode consertar.
+   *
+   * Existe porque as três causas chegam como o MESMO `NotAllowedError`, e a diferença entre
+   * elas é a diferença entre "mude uma linha" e "não dá para fazer isso". Distinguir por
+   * `permissions.query` não é possível de forma síncrona no momento do erro; o que sobra é
+   * olhar o estado do documento, que é justamente o que a plataforma exige.
+   */
+  function _motivoClipboard(err) {
+    if (err && err.name === 'NotAllowedError') {
+      // Sem foco no documento não há como o navegador conceder — e é o caso mais comum num
+      // desktop de janelas, onde clicar na barra de título tira o foco do iframe.
+      if (!document.hasFocus() || !navigator.userActivation?.isActive) return 'no-user-activation';
+      return 'denied';
+    }
+    if (err && err.name === 'NotFoundError') return 'empty';
+    return 'failed';
+  }
+
   const vssh = {
     inDesktop,
 
@@ -351,6 +370,95 @@
         if (!inDesktop) return Promise.resolve(false);
         return call('tray', { op: 'remove' }, { timeout: 5000 })
           .then(() => true).catch(() => false);
+      },
+    },
+
+    // ── Clipboard ──────────────────────────────────────────────────────────
+    //
+    // Duas metades, e elas não passam pelo mesmo caminho — de propósito.
+    //
+    // TEXTO E IMAGEM não atravessam a ponte. O iframe do app é da MESMA ORIGEM que o desktop
+    // e declara `allow="clipboard-read; clipboard-write"`, então `navigator.clipboard`
+    // funciona aqui dentro. Mediar pelo shell seria pior, não melhor: `write()` exige ativação
+    // transitória do usuário, e ativação NÃO atravessa `postMessage` — a ponte quebraria
+    // exatamente o que ela existiria para permitir. O que o shim acrescenta é o MOTIVO da
+    // falha; ver `readImage` abaixo.
+    //
+    // ARQUIVOS atravessam, porque o clipboard de arquivos é do shell: quem guarda
+    // `{action, paths}` é o gerenciador de arquivos, e não há API de navegador que o alcance.
+    // É esta metade que faz "copiar no gerenciador, colar no app" existir.
+    clipboard: {
+      /** O que está no clipboard de arquivos do desktop: `{action, paths}` ou `null`. */
+      files() {
+        if (!inDesktop) return Promise.resolve(null);
+        return call('clipboard', { op: 'files' }, { timeout: 5000 }).catch(() => null);
+      },
+
+      /**
+       * Põe caminhos no clipboard de arquivos, como se o usuário tivesse copiado no
+       * gerenciador. Sempre COPIAR: recortar move arquivo do usuário na próxima colagem, e
+       * isso continua sendo do gerenciador, onde ele vê o que está fazendo.
+       */
+      setFiles(paths) {
+        if (!inDesktop) return Promise.resolve(false);
+        const lista = (Array.isArray(paths) ? paths : [paths]).filter(p => typeof p === 'string' && p);
+        if (!lista.length) return Promise.resolve(false);
+        return call('clipboard', { op: 'setFiles', paths: lista }, { timeout: 5000 })
+          .then(() => true).catch(() => false);
+      },
+
+      /**
+       * Avisa quando o clipboard de arquivos muda — inclusive por fora do app, que é o caso
+       * que importa: o usuário copia no gerenciador e volta para cá. Devolve a função que
+       * cancela.
+       */
+      onChange(fn) {
+        const h = (e) => {
+          if (e.origin !== location.origin || e.source !== window.parent) return;
+          const m = e.data;
+          if (m && m.vsshApp === true && m.type === 'clipboard-change') {
+            try { fn(m.clipboard || null); } catch (err) { console.warn('[vssh] clipboard:', err); }
+          }
+        };
+        window.addEventListener('message', h);
+        return () => window.removeEventListener('message', h);
+      },
+
+      /**
+       * Lê uma imagem do clipboard do sistema. Devolve um `Blob`, ou `null` se não havia
+       * imagem — e **lança com motivo nomeado** quando o navegador recusa:
+       *
+       *   no-user-activation  chamada fora de um gesto do usuário, ou a aba não está em foco
+       *   denied              o usuário negou a permissão de leitura do clipboard
+       *   unsupported         navegador sem `navigator.clipboard.read`
+       *
+       * O motivo é o ponto. `NotAllowedError` genérico faz o autor do app abrir issue; "chame
+       * de dentro do clique" faz ele consertar em dois minutos.
+       */
+      async readImage() {
+        if (!navigator.clipboard?.read) throw Object.assign(new Error('clipboard.read indisponível'), { reason: 'unsupported' });
+        let itens;
+        try {
+          itens = await navigator.clipboard.read();
+        } catch (err) {
+          throw Object.assign(new Error(err.message), { reason: _motivoClipboard(err), cause: err });
+        }
+        for (const it of itens) {
+          const tipo = it.types.find(t => t.startsWith('image/'));
+          if (tipo) return it.getType(tipo);
+        }
+        return null;
+      },
+
+      /** Põe uma imagem (`Blob`) no clipboard do sistema. Mesmos motivos nomeados. */
+      async writeImage(blob) {
+        if (!navigator.clipboard?.write) throw Object.assign(new Error('clipboard.write indisponível'), { reason: 'unsupported' });
+        try {
+          await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+          return true;
+        } catch (err) {
+          throw Object.assign(new Error(err.message), { reason: _motivoClipboard(err), cause: err });
+        }
       },
     },
 

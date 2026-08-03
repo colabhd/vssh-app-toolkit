@@ -62,8 +62,8 @@ UI, cada superfície nova nasce com duas para manter.
 | 2 | [Centro de notificações](02-apis-de-shell.md#o-centro-de-notificações) — sino, histórico, identidade por app, "não perturbe" | vssh-sso | ✅ concluído |
 | 2 | [Centro de notificações — journal no servidor](02-apis-de-shell.md#o-centro-de-notificações) — app sem janela notifica com o shell fechado | vssh-sso + toolkit | ✅ concluído |
 | 2 | [Centro de notificações — `actions`, `persistent`, Notification API](02-apis-de-shell.md#o-centro-de-notificações) — a notificação passa a poder ser respondida | vssh-sso | ✅ concluído |
-| 2 | Peça em `lib/` para o app escrever no journal sem errar o `id` | toolkit | ⬜ não iniciado |
-| 2 | Clipboard (ponte de arquivos + imagem) | vssh-sso + toolkit | ⬜ não iniciado |
+| 2 | [`lib/node/vssh-notify.js`](02-apis-de-shell.md#o-centro-de-notificações) — o app escreve no journal sem errar o `id` | toolkit | ✅ concluído |
+| 2 | [Clipboard](02-apis-de-shell.md#23--clipboard-integração-não-construção) — ponte de arquivos; imagem ficou **sem** ponte, e por quê | vssh-sso + toolkit | ✅ concluído |
 | 2 | Tela de impressão do ambiente | vssh-sso + toolkit | ⬜ não iniciado |
 | 2 | [Mixer de volume por aplicação](02-apis-de-shell.md#25--mixer-de-volume-por-aplicação) | vssh-sso + toolkit | ⬜ não iniciado |
 | 2 | [Configurações refeitas](02-apis-de-shell.md#26--a-janela-de-configurações-refeita) + registro interno de seção | vssh-sso | ⬜ não iniciado |

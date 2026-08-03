@@ -29,20 +29,23 @@ function fakeDocument() {
   return doc;
 }
 
-function run(win, pathname, doc = null) {
+function run(win, pathname, doc = null, extras = null) {
   const warnings = [];
   const sandbox = {
     window: win,
     location: { pathname, origin: 'https://portal', search: '' },
     console: { log: () => {}, error: () => {}, info: () => {}, warn: (m) => warnings.push(String(m)) },
-    setTimeout, clearTimeout, Map, Set, btoa, atob, Promise,
+    setTimeout, clearTimeout, Map, Set, btoa, atob, Promise, Object, Error,
   };
   if (doc) { sandbox.document = doc; sandbox.MutationObserver = doc.__Observer; }
+  // `navigator`/`document` de mentira para o clipboard de texto e imagem, que NÃO passa pela
+  // ponte: ele fala com a plataforma daqui de dentro mesmo.
+  if (extras) Object.assign(sandbox, extras);
   vm.runInContext(require('node:fs').readFileSync(SRC, 'utf8'), vm.createContext(sandbox));
   return warnings;
 }
 
-function loadShim({ pathname = '/srv1/proxy/app/meu-app/', doc = null } = {}) {
+function loadShim({ pathname = '/srv1/proxy/app/meu-app/', doc = null, extras = null } = {}) {
   const sent = [];
   const listeners = [];
   const win = {
@@ -54,7 +57,7 @@ function loadShim({ pathname = '/srv1/proxy/app/meu-app/', doc = null } = {}) {
     },
     parent: { postMessage: (m) => sent.push(m) },
   };
-  const warnings = run(win, pathname, doc);
+  const warnings = run(win, pathname, doc, extras);
 
   // Entrega uma resposta do shell pelo mesmo caminho que o shim escuta.
   const reply = (requestId, value, ok = true) => {
@@ -86,8 +89,116 @@ function loadShim({ pathname = '/srv1/proxy/app/meu-app/', doc = null } = {}) {
       });
     }
   };
-  return { vssh: win.vssh, sent, warnings, reply, pushGrants, pushChange, doc };
+  // Clipboard de arquivos mudou — por fora do app, que é o caso que importa.
+  const pushClipboard = (clipboard) => {
+    for (const fn of listeners) {
+      fn({
+        origin: 'https://portal',
+        source: win.parent,
+        data: { vsshApp: true, type: 'clipboard-change', clipboard },
+      });
+    }
+  };
+  return { vssh: win.vssh, sent, warnings, reply, pushGrants, pushChange, pushClipboard, doc };
 }
+
+// ── Clipboard ─────────────────────────────────────────────────────────────
+//
+// Duas metades por caminhos diferentes, e o teste existe em boa parte para fixar POR QUE:
+// arquivos atravessam a ponte porque só o shell tem esse clipboard; texto e imagem não
+// atravessam porque a ponte os quebraria — ativação transitória não sobrevive a postMessage.
+
+test('o clipboard de ARQUIVOS atravessa a ponte, porque só o shell o tem', async () => {
+  const { vssh, sent, reply } = loadShim();
+  const p = vssh.clipboard.files();
+  assert.equal(sent[sent.length - 1].type, 'clipboard');
+  assert.equal(sent[sent.length - 1].op, 'files');
+  reply(sent[sent.length - 1].requestId, { action: 'copy', paths: ['/home/ana/a.md'] });
+  assert.deepEqual(await p, { action: 'copy', paths: ['/home/ana/a.md'] });
+});
+
+test('setFiles manda só string, e lista vazia não vira mensagem', async () => {
+  const { vssh, sent, reply } = loadShim();
+  const antes = sent.length;
+  assert.equal(await vssh.clipboard.setFiles([]), false);
+  assert.equal(await vssh.clipboard.setFiles([null, '', 42]), false);
+  assert.equal(sent.length, antes, 'nada para copiar não custa uma ida ao shell');
+
+  const p = vssh.clipboard.setFiles(['/home/ana/a.md', null, '/home/ana/b.md']);
+  assert.deepEqual(sent[sent.length - 1].paths, ['/home/ana/a.md', '/home/ana/b.md']);
+  reply(sent[sent.length - 1].requestId, 2);
+  assert.equal(await p, true);
+});
+
+test('onChange ouve o que mudou por fora, e a função devolvida cancela', () => {
+  const { vssh, pushClipboard } = loadShim();
+  const vistos = [];
+  const parar = vssh.clipboard.onChange(c => vistos.push(c));
+
+  pushClipboard({ action: 'copy', paths: ['/x'] });
+  pushClipboard(null);                              // o usuário limpou
+  assert.deepEqual(vistos, [{ action: 'copy', paths: ['/x'] }, null]);
+
+  parar();
+  pushClipboard({ action: 'cut', paths: ['/y'] });
+  assert.equal(vistos.length, 2, 'cancelar tem de cancelar de verdade');
+});
+
+test('fora do desktop o clipboard de arquivos degrada, não lança', async () => {
+  const win = { addEventListener: () => {}, removeEventListener: () => {} };
+  win.parent = win;                                  // é assim que o shim detecta standalone
+  run(win, '/');
+  assert.equal(await win.vssh.clipboard.files(), null);
+  assert.equal(await win.vssh.clipboard.setFiles(['/x']), false);
+});
+
+/** Um `navigator` de mentira que recusa do jeito que o navegador recusa. */
+function comClipboard({ erro = null, itens = [], focado = true, ativo = true } = {}) {
+  return {
+    navigator: {
+      clipboard: {
+        read: async () => { if (erro) throw erro; return itens; },
+        write: async () => { if (erro) throw erro; return true; },
+      },
+      userActivation: { isActive: ativo },
+    },
+    document: { hasFocus: () => focado, addEventListener: () => {} },
+    ClipboardItem: class { constructor(o) { Object.assign(this, o); } },
+  };
+}
+
+const naoPermitido = () => Object.assign(new Error('recusado'), { name: 'NotAllowedError' });
+
+test('imagem NÃO passa pela ponte — e a falha vem com motivo, não genérica', async () => {
+  // O motivo é o item. `NotAllowedError` genérico faz o autor do app abrir issue; "chame de
+  // dentro do clique" faz ele consertar em dois minutos.
+  const semGesto = loadShim({ extras: comClipboard({ erro: naoPermitido(), focado: false }) });
+  // Delta, não total: o shim já pede os grants ao carregar, então a linha de base não é zero.
+  const antes = semGesto.sent.length;
+  await assert.rejects(() => semGesto.vssh.clipboard.readImage(), (e) => e.reason === 'no-user-activation');
+  assert.equal(semGesto.sent.length, antes, 'a imagem não pode virar ida ao shell');
+
+  // Com foco e ativação, o mesmo NotAllowedError quer dizer outra coisa: o usuário negou.
+  const negado = loadShim({ extras: comClipboard({ erro: naoPermitido() }) });
+  await assert.rejects(() => negado.vssh.clipboard.readImage(), (e) => e.reason === 'denied');
+});
+
+test('readImage devolve a primeira imagem, e null quando só há texto', async () => {
+  const png = { tipo: 'blob' };
+  const comImagem = loadShim({ extras: comClipboard({ itens: [
+    { types: ['text/plain'], getType: async () => 'texto' },
+    { types: ['text/html', 'image/png'], getType: async (t) => (t === 'image/png' ? png : 'html') },
+  ] }) });
+  assert.equal(await comImagem.vssh.clipboard.readImage(), png);
+
+  const soTexto = loadShim({ extras: comClipboard({ itens: [{ types: ['text/plain'], getType: async () => 'x' }] }) });
+  assert.equal(await soTexto.vssh.clipboard.readImage(), null, 'sem imagem é null, não erro');
+});
+
+test('navegador sem clipboard.read diz `unsupported`, não "falhou"', async () => {
+  const { vssh } = loadShim({ extras: { navigator: {}, document: { hasFocus: () => true, addEventListener: () => {} } } });
+  await assert.rejects(() => vssh.clipboard.readImage(), (e) => e.reason === 'unsupported');
+});
 
 // ── Título, janela e menu: a superfície "semi-Electron" ────────────────────
 
