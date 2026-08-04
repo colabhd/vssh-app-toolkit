@@ -1,6 +1,6 @@
 # Roadmap do ecossistema vssh-app
 
-> **Atualizado:** 2026-08-02
+> **Atualizado:** 2026-08-04
 
 Este diretório é o plano vivo do ecossistema VSSH — portal (`vssh-sso`), shell de desktop
 (`vssh-client/`) e este toolkit. Não é um documento de uma vez só: **cada arquivo tem cabeçalho
@@ -14,8 +14,13 @@ ali todos os recursos — que **não dependem daquela máquina**. Tudo aqui é j
 Duas consequências que precisam estar ditas antes de qualquer tabela:
 
 1. **"Sem apps Linux" ≠ "sem servidor Linux".** O modelo vssh-app exige um host Linux rodando
-   backends; o que sai de cena é o **X11**, não a máquina. "Perfil headless" significa servidor sem
-   servidor gráfico. Sem essa distinção, metade das decisões abaixo parece contraditória.
+   backends; o que sai de cena é o **X11**, não a máquina. Sem essa distinção, metade das decisões
+   abaixo parece contraditória.
+   **E a formulação mudou:** falávamos em "perfil headless" e "ambiente xpraless" — as duas
+   descrevem o ambiente pelo que FALTA nele, e isso produziu dois perfis a manter e a leitura de
+   que um deles é a versão reduzida. Ele não é. A [Onda 2.7](02b-motores.md) inverte: existe **um**
+   ambiente, e o Xpra é um **motor** que ele pode ter — como o Scramjet é o motor que ele pode ter
+   para a web. O que hoje chamamos de "xpraless" passa a ser simplesmente **o ambiente**.
 2. **Toda capacidade que depende da máquina do cliente é ponte para fora, não recurso do ambiente.**
    Útil, às vezes a única opção — mas nunca a resposta para "o ambiente tem X".
 
@@ -30,6 +35,7 @@ Duas consequências que precisam estar ditas antes de qualquer tabela:
 | [0c-colapso-de-variantes.md](0c-colapso-de-variantes.md) | Onda 0c — matar o tema `neon` e o modo `dock`: uma variante de UI, não duas |
 | [01-sessao-sem-xpra.md](01-sessao-sem-xpra.md) | Onda 1 — desacoplar o ciclo de vida da sessão do Xpra |
 | [02-apis-de-shell.md](02-apis-de-shell.md) | Onda 2 — tray, notificações, relógio, clipboard, impressão, mixer, Configurações |
+| [02b-motores.md](02b-motores.md) | Onda 2.7 — um ambiente só, e o Xpra vira um motor dele |
 | [03-toolkit.md](03-toolkit.md) | Ondas 0 e 3 — higiene do toolkit e a FSA de verdade |
 | [04-runtime-composicao.md](04-runtime-composicao.md) | Ondas 4 e 5 — limites de recurso, GPU, composição entre apps |
 | [05-arquivos-de-rede.md](05-arquivos-de-rede.md) | Onda 6 — camada de arquivos de rede sem salto pelo Linux |
@@ -39,6 +45,22 @@ Duas consequências que precisam estar ditas antes de qualquer tabela:
 paralelo. Só a Onda 2 depende da 1; a Onda 3 é pré-requisito real dos arquétipos A3/A4/A5. A
 **Onda 0c é pré-requisito da 2.6** e recomendada antes da 2.2 — enquanto houver duas variantes de
 UI, cada superfície nova nasce com duas para manter.
+
+A **[2.7](02b-motores.md) é a mesma frase num eixo maior**: dois perfis são duas variantes, e cada
+superfície nova nasce com duas para especificar e verificar. Ela era "Onda 8", no fim da fila, e foi
+puxada para logo depois da 2.6 — **para que as ondas 3 a 7 já partam de um ambiente só**.
+
+E ela não é uma aposta: **a primeira metade dela já foi executada e medida.** Quando o desktop
+deixou de ser servido pelo processo Xpra, oito mecanismos de orquestração de porta — alocação,
+senha de socket, túnel `ssh -L`, dois caches, espera ativa — não ficaram menores, **ficaram sem
+assunto**, e abrir o desktop deixou de gastar canal SSH num teto de ~8 por servidor. A segunda
+metade é o Xpra como motor instalável: ele não serve cliente nenhum no ambiente novo, então os 23
+arquivos que hoje falam o protocolo dele saem de `vssh-client/` e passam a viajar com o pacote do
+motor — versionado, atualizável à parte, presente só onde o motor estiver. O que
+torna isso urgente e não apenas desejável é a [Onda 5](04-runtime-composicao.md#registro-de-capabilities):
+ela congela um contrato PÚBLICO, para gente de fora do repositório. Com dois perfis, esse contrato
+exporta *"em que perfil eu estou"*; com motores, *"que motores existem aqui"* — e contrato publicado
+não se reescreve numa tarde.
 
 ## Estado
 
@@ -70,7 +92,9 @@ UI, cada superfície nova nasce com duas para manter.
 | 2 | Impressão — PDF gerado no ambiente (**bloqueado**: precisa do motor `print/v1` da Onda 5) | vssh-sso | ⬜ não iniciado |
 | 2 | [Mixer de volume por aplicação](02-apis-de-shell.md#25--mixer-de-volume-por-aplicação---concluída) — o botão volta ao perfil sem Xpra como mixer; master, por app e por aba | vssh-sso + toolkit | ✅ concluído |
 | 2 | [Rede de classes CSS](02-apis-de-shell.md#o-que-o-critério-33-exigiu) (`client-css-classes.test.js`) — o simétrico do `client-dom-ids` que faltava | vssh-sso | ✅ concluído |
-| 2 | [Configurações refeitas](02-apis-de-shell.md#26--a-janela-de-configurações-refeita) + registro interno de seção | vssh-sso | ⬜ não iniciado |
+| 2 | [Configurações refeitas](02-apis-de-shell.md#26--a-janela-de-configurações-refeita---feito) + `SettingsRegistry`, `VsshSettings`, `RemoteDesktopEngines`; o portal saiu | vssh-sso | ✅ feito |
+| 2 | [Motores](02b-motores.md) — passo 1, o registro `RemoteDesktopEngines` | vssh-sso | ✅ concluído (na 2.6) |
+| 2 | [Motores](02b-motores.md) — o motor instalável, o transporte por SSH, a preferência, e o fim dos dois perfis | vssh-sso | ⬜ não iniciado |
 | 3 | FSA de verdade (`LazyFile`, `slice`, OPFS) | toolkit | ⬜ não iniciado |
 | 4 | Runtime: cgroups, GPU, múltiplas instâncias, segredos | vssh-sso | ⬜ não iniciado |
 | 5 | Composição: `provides`, pontos de extensão, mensageria, seção de Configurações por manifesto | vssh-sso + toolkit | ⬜ não iniciado |
