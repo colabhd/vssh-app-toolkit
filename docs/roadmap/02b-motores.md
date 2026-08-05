@@ -1128,16 +1128,35 @@ Sumir com "headless" e "xpraless" de código, testes e docs — **37 ocorrência
 > `stripXpraTags()`. As 8 menções que restam nos três repositórios são **prosa em comentário**,
 > explicando o que deixou de existir. Não há o que colapsar.
 >
-> **A coluna `profile` NÃO pode ser colapsada, e dizer que pode é o erro mais caro deste
-> documento.** Ela ainda decide **quais pacotes o provisionamento instala** — que é uma pergunta
-> legítima e que sobrevive à onda. O que morreu foi `profile` como discriminador **de desktop**,
-> e esse já caiu com o ramo `semanticService === 'desktop'` do `proxy.ts`. São duas coisas com um
-> nome só, e o passo 4 tem de separar as duas antes de apagar qualquer uma — apagar a coluna
-> deixaria servidor headless instalando pacote de X11.
+> **"profile" são DUAS coisas com o mesmo nome, e elas nunca se falam.** Esta é a distinção que o
+> passo 4 precisa fazer antes de apagar qualquer coisa:
 >
-> Sobra o que ainda ramifica por desktop: `resolve-server.ts:18,60`, `db.js:308,322` e
-> `printers.ts:95` — este último é **falso positivo**, "headless" ali é o do Chromium, palavra
-> diferente com a mesma grafia. É exatamente o tipo de coisa que um `sed` global estraga.
+> | | o que é | decide |
+> |---|---|---|
+> | `--profile x11\|headless` | argumento do script bash de provisionamento | **quais grupos de pacotes instalar** (CORE/X11/MEDIA/SEARCH/GPU). Tem fixtures e 16 asserções em `provision-packages.test.js`. Legítimo, e sobrevive à onda |
+> | coluna `profile` | campo por servidor no banco | hoje, **nada** |
+>
+> Conferido por grep: a coluna **não alimenta** o `--profile` do script. São mecanismos
+> independentes que compartilham vocabulário — e é por isso que um `sed` global estragaria os dois.
+>
+> **A coluna ficou quase morta com o passo 2.** O comentário dela (`db.js:293`) diz que *"a escolha
+> do shell é o path (`/proxy/desktop/` ou `/proxy/vssh-desktop/`)"* — e o primeiro desses dois
+> deixou de existir. Hoje ela é escrita pelo admin, tipada em `resolve-server.ts`, devolvida em
+> `/api/shell/config` — e **o cliente não a lê**. Nada ramifica nela no caminho de requisição.
+>
+> ⚠ **Correção de uma afirmação anterior deste documento**, escrita em 2026-08-05 e desfeita no dia
+> seguinte: dizia que a coluna *"ainda decide quais pacotes o provisionamento instala"*. **Não
+> decide.** Eu li "profile decide pacotes" nos testes e atribuí à coluna o que é do argumento do
+> script. O erro tornava o passo 4 mais assustador do que ele é.
+>
+> **As 30 ocorrências de "headless"/"xpraless" se dividem assim**, e só a última linha é trabalho:
+>
+> | onde | quantas | o quê |
+> |---|---:|---|
+> | `provision-packages.test.js` · `install-builder.test.js` | 19 | legítimo — é o script de pacotes |
+> | `services/printers.ts` | 2 | **falso positivo**: é o Chromium headless, palavra diferente com a mesma grafia |
+> | `db.js` · `resolve-server.ts` | 6 | a coluna quase morta |
+> | prosa, uma classe de CSS, e o resto | ~3 | mecânico |
 
 É um diff grande, mecânico e de baixo risco **quando está sozinho** — e é
 exatamente o tipo de mudança que, misturada a outra, esconde a quebra no meio dela. A
