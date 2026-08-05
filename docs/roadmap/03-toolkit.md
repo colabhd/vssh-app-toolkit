@@ -118,10 +118,15 @@ devolvia `'0.0.0'` fixo.
 
 ---
 
-## Onda 3 — A FSA de verdade
+## Onda 3 — A FSA de verdade, e o que o manifesto passa a declarar
 
 > **Estado:** ⬜ não iniciado
 > **Destrava:** A3 (visualizador científico), e é o principal bloqueio de A4/A5.
+>
+> Ganhou dois itens de contrato de manifesto — `minShellVersion` e `requiredPackages` — que não são
+> da FSA, mas atravessam a mesma fronteira: **declarações que o ecossistema verifica**, em vez de
+> descobertas em runtime. A metade que publica a versão é da
+> [Onda 2c](02c-interludio.md#o-que-vem-junto-quase-de-graça).
 
 ### T1 — `LazyFile` é um `Blob` vazio
 
@@ -159,6 +164,44 @@ dados client-side.
 As falhas estruturais do T1 estão **documentadas mas não testadas**: os testes atuais rodam o código
 de navegador num contexto `vm` com stubs manuais, que não reproduzem leituras internas da plataforma.
 `electron-shim` e `tauri-shim` não têm teste nenhum.
+
+### O shell tem versão, e o app pode exigi-la
+
+A [Onda 2c](02c-interludio.md#o-que-vem-junto-quase-de-graça) publica uma versão nominal do shell
+(`4.x.x`), servida em `/api/shell/config`. **Aqui entra a metade que consome:**
+`minShellVersion` / `targetShellVersion` no manifesto, validação no `vssh-app-publish`, e uma
+mensagem honesta quando não bate.
+
+O ganho é o de sempre com contrato declarado: hoje um app que usa `vssh.audio` num shell que ainda
+não o tem falha em runtime, com `undefined` — e o autor descobre por relato de usuário. Com a
+versão declarada, ele descobre no publish.
+
+> **Não versionar por reflexo.** Um `minShellVersion` obrigatório transformaria toda API nova em
+> quebra de compatibilidade declarada, que é a burocracia sem o benefício. O padrão é **não
+> declarar**, e quem declara está dizendo *"eu uso uma coisa que não existia antes"* — a mesma
+> regra do `engines` do npm, pelo mesmo motivo.
+
+### `requiredPackages` — o app diz de que pacote Linux ele precisa
+
+Hoje, um vssh-app que depende de um binário do sistema (`ffmpeg`, `pandoc`, `texlive`, `rclone`)
+tem dois caminhos, e os dois são ruins: pôr um `apt-get` no `installCommand` — que roda como root,
+uma vez, sem declarar nada a ninguém — ou falhar em runtime com `command not found` no `run.log`.
+
+Proposta: `requiredPackages: ["ffmpeg"]` no manifesto, com três consequências que valem mais que a
+instalação em si:
+
+1. **`vssh-app-install` verifica antes de instalar** e recusa com o nome do pacote que falta, em
+   vez de instalar um app que não vai subir;
+2. **o painel admin mostra o que falta por servidor** — é a mesma pergunta que o provisionamento já
+   responde para os grupos de pacotes, agora por app;
+3. **o `installCommand` para de ser o lugar onde dependência de sistema se esconde.** Hoje ele é um
+   script opaco que roda duas vezes (root e por usuário) e não declara nada — o que torna
+   impossível responder *"este app roda neste servidor?"* sem executá-lo.
+
+> **Atravessa a mesma fronteira que `minShellVersion`**, e por isso os dois ficam juntos: são
+> declarações do manifesto que o ecossistema **verifica**, não que ele executa. E ambas herdam a
+> pergunta que o [registro de capabilities](04-runtime-composicao.md#registro-de-capabilities)
+> também enfrenta: o que fazer quando a resposta é "não" — recusar, avisar, ou instalar.
 
 ### Ainda em aberto no polyfill
 

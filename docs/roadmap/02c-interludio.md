@@ -118,10 +118,17 @@ requisições, e B refina depois.
 
 - **Identificador de versão real nas Configurações.** O dado já existe (`/api/shell/config`); falta
   a linha na tela. É a resposta para *"que versão eu estou rodando?"*, que hoje não tem resposta.
-- **Versionamento nominal (`4.x.x`).** Secundário, e vale registrar por que: com uma versão
-  declarada, um vssh-app pode dizer `minShellVersion` / `targetShellVersion` no manifesto, e a
-  incompatibilidade vira mensagem em vez de erro de runtime. `vssh-client/build-info.json` é hoje um
-  stub (`dev-build` / `0000000`) e é o candidato natural a virar a fonte.
+- **Versionamento nominal (`4.x.x`), e ele entra nesta onda.** Com uma versão declarada, um
+  vssh-app pode dizer `minShellVersion` / `targetShellVersion` no manifesto, e a incompatibilidade
+  vira mensagem em vez de erro de runtime. `vssh-client/build-info.json` é hoje um stub
+  (`dev-build` / `0000000`) e é o candidato natural a virar a fonte.
+
+  > **O que entra aqui é só a metade que PUBLICA.** A versão passa a existir, a ser servida em
+  > `/api/shell/config` e a aparecer nas Configurações. **Quem a CONSOME é a
+  > [Onda 3](03-toolkit.md#o-shell-tem-versão-e-o-app-pode-exigi-la)** — o campo no manifesto, a
+  > validação no publish e a mensagem quando não bate. A divisão é deliberada: publicar uma versão
+  > é barato e não tem consumidor a quebrar; declarar contrato sobre ela é decisão de toolkit, e o
+  > lugar dela é junto com `requiredPackages`, que atravessa a mesma fronteira.
 
 ### A perda, declarada
 
@@ -250,6 +257,102 @@ desde que o `callback_close` deixou de redirecionar (Onda 2.7), e sem decisão d
 que a 2c existe para não deixar acontecer.**
 
 ---
+
+## 8 · As telas de erro, que são de outra era e de outro tamanho
+
+Tudo mora em **um** arquivo: `src/utils/render-error.ts`, 320 linhas, com 11 chamadas em `app.ts` e
+`proxy.ts`. São elas que aparecem quando um app quebra, quando o backend não subiu, e quando a
+sessão morre:
+
+```
+409 'App não iniciado'          ← o que aparece quando um app quebra
+409 'Usuário não provisionado'
+502  autoRetry: true            ← "Serviço Offline", com o contador de 10s
+401 'Não autorizado'            ← o mesmo 401 silencioso do item 4
+403 · 404 ×4 · 500 ×2
+```
+
+### Por que parece de outra época — porque é
+
+Ele tem **paleta e tipografia próprias**, sem nenhuma relação com o tema:
+
+```ts
+--accent:       ${color}        // calculado por status: âmbar, azul, vermelho, amarelo…
+--font-display: 'Syne'
+--font-body:    'Instrument Sans'
+--font-mono:    'DM Mono'
+```
+
+Mais o vocabulário visual que a [Onda 0c](0c-colapso-de-variantes.md) matou: malha de pontos por
+`radial-gradient`, barras em gradiente, `box-shadow: 0 0 8px var(--accent)` e um rótulo em caixa
+alta por status (`SISTEMA`, `SEGURANÇA`, `ACESSO NEGADO`). **Nenhum `--ds-*`.**
+
+E ele **puxa fonte do Google Fonts** — numa página que, por definição, só aparece quando alguma
+coisa já falhou, e possivelmente sem rede.
+
+### O defeito estrutural: é página inteira, e aparece dentro de um iframe
+
+```html
+<a href="/" class="btn btn-ghost">Voltar ao Início</a>
+<button onclick="window.location.reload()">Tentar agora</button>
+Tentando novamente em <span id="vssh-countdown">10</span>s
+```
+
+Dentro da janela de um app, `href="/"` navega **o iframe** para a raiz do portal — o resultado é a
+SPA do portal desenhada dentro de uma janelinha. E um contador de 10 s que se recarrega sozinho é
+comportamento de página, não de painel dentro de uma janela.
+
+### A saída: JSON para quem está dentro do ambiente
+
+**Decidido: o proxy passa a devolver JSON quando o erro acontece dentro do ambiente, e quem desenha
+é o shell** — com o chrome de janela que ele já tem, os tokens que ele já tem, e as ações que
+fazem sentido ali (reiniciar o app, ver o log, fechar a janela) em vez de "Voltar ao Início".
+
+O HTML **não morre**: navegação direta ao portal continua precisando de uma página. O que muda é
+que ela deixa de ser a única resposta.
+
+> **O discriminador provável é `Sec-Fetch-Dest`**, e vale dizer por que não é outro: o shell não
+> controla os cabeçalhos de uma navegação de iframe, então não dá para pedir `Accept: json` como
+> o `apiFetch` faz. O navegador, porém, manda `Sec-Fetch-Dest: iframe` para o carregamento de um
+> iframe e `document` para uma navegação de topo — que é exatamente a distinção necessária.
+> **Medir antes de construir**: confirmar o valor que chega ao proxy nos dois casos, e ter recuo
+> para HTML quando o cabeçalho não vier.
+
+### E o 401 fecha o círculo com o item 4
+
+Hoje o `401 'Não autorizado'` é uma página inteira dentro do iframe. Com o `apiFetch` tratando 401
+e a sessão renovando por `rolling`, ele deveria ser **reautenticação dentro do ambiente** — não uma
+tela. Os dois itens consertam a mesma experiência por pontas diferentes, e é bom que caiam na
+mesma onda.
+
+---
+
+## 9 · Uma tela de log que seja uma tela de log
+
+Hoje são **duas implementações da mesma coisa**, e nenhuma das duas é um visualizador:
+
+| Onde | O que faz | O problema |
+|---|---|---|
+| Configurações → Serviços (`secoes-sistema.js:154`) | `VsshDialogs.alert(texto)` | o log inteiro **como mensagem de alerta**. E `catch { texto = '' }` engole a falha: uma leitura que deu erro aparece como *"o log está vazio"* |
+| Menu de contexto da janela (`ContextMenu.js:324`) | `VsshDialogs.textInputBox(…, { init: body })` | o log dentro de um **campo de entrada de texto**. O comentário confessa o contorno: *"o log vai no campo de texto (init), não na mensagem: assim rola e dá para copiar"* |
+
+Duas consequências que não são estéticas:
+
+- **Elas mostram dados diferentes.** O menu de contexto traz o `run.log.1` (a execução ANTERIOR —
+  justamente onde está o interessante quando o app morreu e subiu de novo); a tela de Serviços,
+  não. O mesmo log, dois lugares, duas respostas.
+- **`tail=300` está fixo nos dois**, sem como pedir mais.
+
+E falta o que qualquer visualizador de log tem: acompanhar em tempo real, buscar, quebrar linha ou
+não, baixar, e distinguir uma linha de erro de uma linha comum.
+
+> **É uma janela, não um diálogo** — e essa é a decisão do item. Diálogo é para uma pergunta com
+> resposta curta; log é conteúdo que se lê, se rola, se procura e se deixa aberto ao lado do
+> trabalho. Enquanto for diálogo, ele bloqueia o ambiente para fazer algo que precisa conviver com
+> ele.
+>
+> As duas entradas passam a abrir **a mesma** janela, e o `run.log.1` aparece nas duas — a
+> divergência de hoje é o argumento mais forte contra manter dois caminhos.
 
 ## O que esta onda NÃO faz
 
