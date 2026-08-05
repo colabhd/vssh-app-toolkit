@@ -1,6 +1,6 @@
 # Onda 2c — Interlúdio: recolher o que a inversão deixou, e estabilizar a experiência
 
-> **Estado:** 🟡 em andamento — **itens 1 a 7 concluídos** · **Atualizado:** 2026-08-05 · **Repos:** `vssh-sso`, `vsshapp-xpra`, `vssh-repo` (novo, item 6)
+> **Estado:** 🟡 em andamento — **itens 1 a 8 concluídos** · **Atualizado:** 2026-08-05 · **Repos:** `vssh-sso`, `vsshapp-xpra`, `vssh-repo` (novo, item 6)
 >
 > Vem depois da [Onda 2.7 inteira](02b-motores.md), que **fechou os quatro passos**. Não é uma onda
 > de capacidade nova: é a fatura da inversão, e três defeitos que só ficaram visíveis depois dela.
@@ -604,7 +604,13 @@ versionados.
 
 ---
 
-## 8 · As telas de erro, que são de outra era e de outro tamanho
+## 8 · As telas de erro, que são de outra era e de outro tamanho — ✅ CONCLUÍDO
+
+> **Feito** em `caf9eb2`. 11 testes, **10/10 refutações** — duas delas só depois de apertar guardas
+> que passavam verde. Suíte em 530.
+>
+> O `Sec-Fetch-Dest` era a aposta certa, e a página HTML não morreu. O que mudou em relação ao
+> plano foi **onde a guarda mora** — ver "A guarda mede a junção", abaixo.
 
 Tudo mora em **um** arquivo: `src/utils/render-error.ts`, 320 linhas, com 11 chamadas em `app.ts` e
 `proxy.ts`. São elas que aparecem quando um app quebra, quando o backend não subiu, e quando a
@@ -670,6 +676,53 @@ Hoje o `401 'Não autorizado'` é uma página inteira dentro do iframe. Com o `a
 e a sessão renovando por `rolling`, ele deveria ser **reautenticação dentro do ambiente** — não uma
 tela. Os dois itens consertam a mesma experiência por pontas diferentes, e é bom que caiam na
 mesma onda.
+
+### Como ficou
+
+O portal ganhou `sendError(req, res, …)`, e os **onze** pontos de erro passaram por ele. O formato
+é escolhido pelo `Sec-Fetch-Dest`, e a decisão de recuo é a que estava prevista: **ausente, cai
+para HTML** — navegador antigo, proxy que filtre o cabeçalho ou `curl` recebem a página de sempre,
+e o pior caso é o comportamento de antes desta onda.
+
+Quem desenha é `vssh-client/js/ErroDoProxy.js`, reusando o `.ds-empty` que o shell já tinha. Três
+ações, e nenhuma delas navega: **tentar de novo** (recarrega o próprio quadro — nada da janela se
+perde), **ver o log do backend** e **fechar a janela**. Ligado no `VsshAppWindow` e no
+`VsCodeViewerWindow`.
+
+Duas decisões que vale registrar:
+
+- **O marcador `vsshProxyError` não é decoração.** O backend de um app pode legitimamente servir
+  JSON na raiz dele; sem a marca, o shell trocaria por uma tela de erro um app que estava
+  funcionando.
+- **O `200` do `_sendProxyError` fica**, agora com o motivo escrito ao lado: o status honesto seria
+  502, mas o Cloudflare intercepta 5xx e troca o corpo pela página dele. Quem lê isto dentro do
+  ambiente lê o **corpo** — o status é invisível para quem carrega um iframe.
+- **"Tentar de novo" não aparece em 401 nem 403.** Repetir um 403 é pedir para a pessoa bater na
+  mesma porta; e quem decide se faz sentido tentar é o servidor, pelo campo `autoRetry`.
+
+E o log do backend passou a ser alcançável por **um nome só** (`vsshContextMenu.verLogDoApp`),
+compartilhado com o item de menu — o item 9 troca o que há por trás sem mexer em quem chama.
+
+### A guarda mede a junção, e isso é a lição do `/ping`
+
+O plano previa testar o discriminador. O que ele **não** previa é onde o defeito desta forma de
+integração costuma nascer: no meio.
+
+A colisão do `/ping` (item 4) passou por dois testes verdes porque **os dois lados estavam certos
+isoladamente** — o do service worker media o service worker, o do batimento media o batimento, e o
+defeito só existia na junção, que não tinha dono. Aqui a junção é o **formato**: o servidor escreve
+um JSON, o cliente lê aquele JSON. Um lado renomear um campo é exatamente o que passa por dois
+testes verdes e quebra em produção.
+
+Então `erro-do-proxy.test.js` mede os dois lados **contra o mesmo objeto**, e o teste que importa é
+este: *todo campo que o servidor escreve é lido pelo cliente*. Acrescentar um campo sem leitor
+falha — ou o cliente regrediu, ou o campo nasceu morto.
+
+> **E duas guardas só ficaram boas depois de tentarem me enganar.** Uma aceitava a **prosa do
+> comentário** como se fosse código (o cabeçalho do módulo explica o marcador, então "o arquivo
+> menciona `vsshProxyError`" passava verde num cliente que tinha parado de exigi-lo). A outra
+> perguntava *"tem `var(--ds-)`?"* — e um bloco com um hex fixo ao lado de um token responde que
+> sim. Virou a pergunta negativa: **nenhuma cor fixa no painel**.
 
 ---
 
