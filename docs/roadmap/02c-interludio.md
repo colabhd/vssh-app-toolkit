@@ -1,6 +1,6 @@
 # Onda 2c — Interlúdio: recolher o que a inversão deixou, e estabilizar a experiência
 
-> **Estado:** ⬜ não iniciada · **Atualizado:** 2026-08-06 · **Repos:** `vssh-sso` (+ um novo)
+> **Estado:** 🟡 em andamento — **item 1 concluído** · **Atualizado:** 2026-08-05 · **Repos:** `vssh-sso`, `vsshapp-xpra` (+ um novo)
 >
 > Vem depois da [Onda 2.7 inteira](02b-motores.md), que **fechou os quatro passos**. Não é uma onda
 > de capacidade nova: é a fatura da inversão, e três defeitos que só ficaram visíveis depois dela.
@@ -32,7 +32,13 @@ tipos de resíduo, e nenhum deles se recolhe sozinho:
 
 ---
 
-## 1 · Os deploys que perderam o assunto
+## 1 · Os deploys que perderam o assunto — ✅ CONCLUÍDO
+
+> **Feito** em `4eb687b` (as excisões) e `481fcfb` (a poda no shell + a guarda), mais `baae789` no
+> `vsshapp-xpra`. **89 arquivos, −6460 linhas.** lint, tsc e 465 testes verdes.
+>
+> ⚠ **Ordem de deploy:** publicar `vsshapp-xpra` **antes** de deployar o portal — os daemons
+> migraram para o pacote, e um servidor reprovisionado no meio ficaria sem eles.
 
 O cliente HTML5 já foi instalado **no servidor do usuário**, em `/usr/share/xpra/vssh-client-www*`,
 por um script no host, com dois canais e uma lista de usuários beta no fonte TypeScript. Nada disso
@@ -46,6 +52,59 @@ alcança o navegador hoje — o portal serve o shell direto.
 | A extensão do Chrome (MV2) | `vssh-client/chrome-extension/` | 19 arquivos, 157 KB |
 | Handler no worker do repositório | `repo-worker/src/handlers/customclient.js` | — |
 | **A maquinaria de canal** | coluna `xpra_client_channel`, `updateClient()` (`infra-update.ts:54`, que ainda executa `sudo vssh-update-client` no host), `PUT /servers/:id/client/channel` e `POST …/client` (`admin.ts:284-300`), e a aba **Repositório → Cliente** do painel | a que mais se esconde |
+
+### O que a medição achou além da tabela — e o que ela mudou no plano
+
+A tabela acima estava certa e **incompleta**. Três superfícies não listadas, todas vivas:
+
+| Não previsto | O que era |
+|---|---|
+| **O atualizador no host** | `infra/server/vssh-update-client.sh` (81 linhas), sua entrada em `binaries.json`, e um **`vssh-client-update.timer` systemd rodando de hora em hora em todo servidor provisionado** |
+| **Cinco daemons X11** | o tarball do cliente também instalava `vssh-psdialog(d)`, `vssh-browser`, `vssh-fileserver` e `vssh-vscode` em `/usr/local/bin`. **Apagar a esteira sem olhar teria levado os cinco** |
+| **O rastro no shell** | `ExtensionAdapter` e ~30 pontos de chamada — maior que o artefato, e ainda executando |
+
+**Os daemons foram auditados um a um**, e a divisão não foi a esperada: três estão **vivos** (o
+`entrypoint.sh` do motor inicia o `vssh-psdialogd`; o `.desktop` do `vssh-browser` é handler padrão
+de ~30 MIMEs) e foram para o **pacote `vsshapp-xpra`**, onde está o `Client.js` que despacha os
+esquemas que eles emitem — a mesma migração que a 2.7 fez com os defaults de MIME. Os outros dois
+não tinham consumidor: `vssh-fileserver` **não tinha iniciador em repositório nenhum**, e nada
+registra `inode/directory` para o `vssh-vscode`. A fase root do `install.sh` do motor **remove os
+dois** de servidores que já os tinham.
+
+O `provision-base.sh` ganhou o par honesto da remoção: reprovisionar **desliga e apaga** o timer.
+Sem isso, a maquinaria sobreviveria à própria exclusão do repositório — falhando em silêncio, de
+hora em hora, para sempre.
+
+### Três defeitos que a poda revelou, e nenhum deles dava erro
+
+Não estavam previstos porque nada os denunciava — é o argumento da onda, encontrado por acaso
+dentro dela:
+
+1. **4 segundos a mais na restauração de sessão.** `WindowStateManager` esperava
+   `vsshExtensionReady` quando não havia motor, com timeout de segurança de 4 s. O evento não é
+   emitido por ninguém desde a 2.6, então o ramo **caía sempre no timeout**.
+2. **`BrowserWindow.openInTab` fazia o oposto do nome.** Filtrava por `w._hasExtension`, sempre
+   falso: nunca abria em aba, sempre criava janela nova.
+3. **`_onFrameTitle` sem chamador nos dois repositórios**, e sua última linha chamava
+   `ExtensionAdapter.addHistory` — que já era **no-op silencioso**. Quem grava histórico de verdade
+   é o `fetch` de `_onTabLoad`.
+
+Mais três variáveis de ambiente **sem leitor em código** (`XPRA_CUSTOM_HTML_PATH`,
+`XPRA_BLEEDINGEDGE_HTML_PATH`, `XPRA_FILE_SERVER_PORT`) — existiam só no `.env.example`, no
+`types/` e na doc, que afirmava que `office.ts` lia a terceira. Não lia.
+
+> **`ExtensionAdapter` virou `BrowserApi`.** Metade da classe era ponte para a extensão e virou
+> no-op permanente; a outra metade sempre foi REST puro (`/api/user/browser/history*`) e é o que
+> sobrou. Manter o nome antigo seria deixar o vocabulário mentindo — a lição que o passo 4 da 2.7
+> cobrou caro.
+>
+> **Ficou uma ponta:** as rotas `GET/POST /api/user/browser/proxy-config` do servidor perderam o
+> único cliente (o popup da extensão). Não foram removidas — é decisão à parte, e o gate
+> `proxy_max_level` que elas leem segue muito vivo no `pac-proxy`.
+
+**A guarda:** `tests/unit/deploys-sem-assunto.test.js`, cinco testes no molde do
+`motor-x11-poda.test.js` — inclusive o `semComentarios()`, pela mesma razão de lá. Cada uma foi
+**provada por refutação**, reintroduzindo o que proíbe: 6/6 capturadas.
 
 **A extensão sai de vez** — não vira repositório próprio. E a decisão é barata porque **a 2.6 já
 tinha feito o desmonte funcional**: a sentinela `'extension'` deixou de ser um motor de navegação,
@@ -239,7 +298,10 @@ morando dentro do repositório do portal. **Acoplamento medido: zero** (nenhum i
 `src/`).
 
 Sai **depois** do item 1, e não antes: assim ele nasce no repositório novo já sem
-`handlers/customclient.js`, em vez de carregá-lo para depois apagar.
+`handlers/customclient.js`, em vez de carregá-lo para depois apagar. ✅ **O item 1 já fez essa
+parte** — o handler, a rota `POST /v1/publish/customclient` e o escopo `kind:customclient` saíram
+em `4eb687b`, então a extração começa de um worker que já não conhece o cliente. As 990 linhas
+medidas caem para ~936.
 
 > ⚠ **`handlers/browser-extensions.js` FICA, e não é o que o nome sugere a quem chega de fora.**
 > Ele não tem nada a ver com a extensão MV2 do Chrome do item 1: serve as **extensões do navegador
@@ -408,8 +470,11 @@ um app instalado que nunca sobe, e o operador descobre pelo usuário.
 
 - **O contador que prova o item 2:** zero requisições condicionais para asset do shell numa segunda
   carga — hoje são 106. Mede-se na aba de rede, e vale como asserção no smoke.
-- **O guard textual do item 1**, no molde do `motor-x11-poda.test.js`: `xpra_client_channel`,
-  `updateClient`, `vssh-update-client` e `chrome-extension` não existem mais no fonte.
+- ✅ **O guard textual do item 1**, no molde do `motor-x11-poda.test.js`:
+  `tests/unit/deploys-sem-assunto.test.js` — `xpra_client_channel`, `updateClient`,
+  `vssh-update-client`, `chrome-extension`, `ExtensionAdapter`, `vsshBrowserExtension` e
+  `customclient` não existem mais em **código** (comentário pode explicá-los, e deve). Cinco
+  testes, todos provados por refutação.
 - **O item 4 por refutação:** um teste que expira a sessão no store e confirma que o `ping` a
   renova; e outro que confirma que o `apiFetch` **decide pelo status antes de parsear** — o bug que
   o portal já teve.
