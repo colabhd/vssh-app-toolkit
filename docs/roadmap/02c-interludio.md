@@ -1,6 +1,9 @@
 # Onda 2c — Interlúdio: recolher o que a inversão deixou, e estabilizar a experiência
 
-> **Estado:** 🟡 em andamento — **itens 1 a 9 concluídos** · **Atualizado:** 2026-08-05 · **Repos:** `vssh-sso`, `vsshapp-xpra`, `vssh-repo` (novo, item 6)
+> **Estado:** 🟢 fechada — **itens 1 a 9 concluídos**; o 10 **medido por leitura**, com a metade que
+> exige servidor limpo virando um checklist de quatro linhas para o próximo provisionamento (e o
+> porquê está escrito lá) · **Atualizado:** 2026-08-05 · **Repos:** `vssh-sso`, `vsshapp-xpra`,
+> `vssh-repo` (novo, item 6)
 >
 > Vem depois da [Onda 2.7 inteira](02b-motores.md), que **fechou os quatro passos**. Não é uma onda
 > de capacidade nova: é a fatura da inversão, e três defeitos que só ficaram visíveis depois dela.
@@ -811,35 +814,85 @@ seria pior que nenhum.
 > até encontrar a **definição** do método lá embaixo. Ela passava verde com a chamada removida. É
 > a mesma família do que o item 8 achou duas vezes: uma guarda que aceita evidência de perto.
 
-## 10 · Os dois riscos que a 2.7 deixou por medir
+## 10 · Os dois riscos que a 2.7 deixou por medir — 🟡 MEDIDO POR LEITURA
+
+> **Metade feito** em `8b08aeb`: o R6 tinha uma resposta que não precisava de servidor nenhum, e
+> ela era ruim. 4 testes, **7/7 refutações**; suíte em 552.
+>
+> A outra metade **não vale uma tarde com VM limpa**, e o porquê está escrito abaixo. Virou um
+> checklist de quatro linhas para o próximo provisionamento que acontecer por outro motivo.
 
 Ela fechou os quatro passos com R1, R2, R4, R5, R7, R8 e R9 conferidos — vários contra servidor
 real. **R3 e R6 nunca foram medidos**, e os dois são sobre o mesmo momento: o motor sendo instalado
-e subindo pela primeira vez num servidor que ninguém preparou à mão. É o momento em que a 2.7 é
-verdade ou não é.
+e subindo pela primeira vez num servidor que ninguém preparou à mão.
 
 **Os dois mudaram de premissa desde que foram escritos, e o texto da 2.7 ficou para trás:**
 
-| | O que a 2.7 supunha | O que o pacote faz hoje |
+| | O que a 2.7 supunha | O que é hoje |
 |---|---|---|
-| **R3** | *"o pacote passa `--html=off`, e é esse `GET /` que precisa ser medido"* | ele passa **`--html="${AQUI}/frontend"`** (`entrypoint.sh:189`) — aponta para dentro do pacote. Então `GET /` **não fica calado**: devolve o `index.html` do motor |
-| **R6** | *"num servidor sem repositório de pacote configurado (`VSSH_XPRA_REPO`) isso falha"* | `install.sh` faz `apt-get install -y xpra xvfb`, com recuo para `dnf` — **não há `VSSH_XPRA_REPO`**. A falha real é outra: distro cujo repositório não tem o pacote `xpra` |
+| **R3** | *"o pacote passa `--html=off`, e é esse `GET /` que precisa ser medido"* | ele passa **`--html="${AQUI}/frontend"`** (`entrypoint.sh:186`) — aponta para dentro do pacote, então `GET /` devolve o `index.html` do motor |
+| **R3** | *"o poll do portal aceita qualquer coisa que não seja `000`"* | **não aceita mais**: `vssh-apps.ts:571` exige `!== '000' && !startsWith('5')`. A frase da 2.7 descrevia um poll que já mudou |
+| **R6** | *"num servidor sem `VSSH_XPRA_REPO` isso falha"* | `install.sh` faz `apt-get install -y xpra xvfb`, com recuo para `dnf` — **não há `VSSH_XPRA_REPO`**. A falha real é outra: distro cujo repositório não tem o pacote |
 
-**R3 — o healthcheck aceita o que o motor responde?** São dois caminhos de código, e a 2.7 já
-mandava conferir os dois: o poll do portal aceita qualquer coisa que não seja `000`, e o
-`healthcheckPath: "/"` do manifesto é outro. Com `--html` apontando para o pacote, a resposta
-provável é um `200` com HTML — mas *provável* não é medido, e o custo de errar é uma janela que
-abre em branco com o backend de pé.
+### R6 — a resposta estava no código, e o erro morria na última linha
 
-**R6 — o erro de instalação chega a quem instala?** `install.sh` já falha no lugar certo (na
-instalação, não no primeiro uso — e o comentário dele diz isso). O que falta medir é se a mensagem
-**sobe até a aba admin** ou morre no `run.log`. Um `vssh-app-install` que falha em silêncio produz
-um app instalado que nunca sobe, e o operador descobre pelo usuário.
+O caminho do erro está **inteiro** do lado do servidor: `install.sh` sai 1 → `vssh-app-install`
+escreve em stderr e sai 1 (e nada é copiado para `/opt/vssh-apps`) → `installAppFromRepo` devolve
+`code` → a rota responde **500 com o `stdout`/`stderr` junto**.
 
-> **Por que aqui e não numa onda de capacidade:** os dois são medições, não construções. Cabem numa
-> tarde, dependem de um servidor limpo, e são exatamente o tipo de coisa que fica para sempre "para
-> a próxima" se não tiver um lugar. A 2c é o lugar — o critério dela é *falha que deixou de ser
-> silenciosa*, e ambos são falhas silenciosas em potencial.
+E o painel fazia isto:
+
+```js
+} catch { showToast('Erro ao instalar app.', 'error'); }   // admin-repository.js:154
+```
+
+Um `catch` **sem parâmetro** — a forma sintática de dizer *"não me interessa o motivo"*. O
+`showLogs` só rodava no caminho de sucesso. Quem opera lia cinco palavras genéricas e ia de SSH
+atrás de uma informação que já estava na resposta HTTP, na própria máquina dele. **É o mesmo
+defeito do item 9**, em outra tela e escrito por outra mão.
+
+Agora falha e sucesso abrem o **mesmo** painel de log — e o fracasso é justamente quando ele
+importa. As três rotas de comando remoto ganharam um `error` com a última linha do `stderr`,
+porque `api.js` usa `data?.error` como mensagem e caía em *"Erro interno do servidor."* quando ele
+não vinha. A varredura achou **um quarto caso** do mesmo (remover atribuição, em `admin.js`).
+
+> **A guarda é negativa, para valer para a próxima tela:** nenhum `catch` de um módulo que fala com
+> a API pode avisar por toast **sem olhar para o erro**. E a pergunta não é *"tem parâmetro?"* — a
+> refutação mostrou que `catch (err)` ignorando o `err` passava verde, e é o mesmo defeito com
+> sintaxe melhor. O `catch` do clipboard em `utils.js` fica de fora **com o motivo escrito**: ali
+> não existe corpo de resposta para ler, a falha é do navegador.
+
+### R3 — o que sobrou não justifica uma VM
+
+O poll já rejeita 5xx, e **um healthcheck que estoura não impede a janela de abrir**: ele avisa e
+segue (foi decidido assim de propósito — o backend pode subir logo depois). O motor, além disso, é
+`kind:"service"`: sobe junto com a sessão, não na abertura de uma janela. Então o pior caso não é
+*"janela em branco com backend de pé"*, como a 2.7 supunha — é **15 s de espera e um toast que
+mente**.
+
+Sobra uma coisa que a leitura não responde, e ela é pequena: **`ready` hoje significa "alguém
+respondeu"**. O `curl` do poll não manda o `X-Vssh-App-Token`, então um app que fecha a porta por
+token devolve `403` — que não é 5xx e conta como pronto. O motor não faz isso (o `--html` serve
+estático), mas o próximo app que fizer vai passar no healthcheck sem estar servindo nada.
+
+### O que ficou pendente, e quando fazer
+
+**Não é uma tarde agendada.** É um checklist de quatro linhas para rodar **no próximo
+provisionamento que você fizer por outro motivo**:
+
+1. instalar o motor pela aba admin numa distro sem `xpra` no repositório → a mensagem na tela tem
+   de ser a do `install.sh`, não *"Erro ao instalar app."*;
+2. conferir que `/opt/vssh-apps/xpra` **não** foi criado — o instalador promete isso, e promessa
+   não medida é premissa;
+3. `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:$PORT/` com o motor de pé → esperado
+   `200`;
+4. o mesmo pelo `healthcheckPath` do manifesto, que é outro trecho de código.
+
+> **Por que não vale mais que isso:** o R6 virou pergunta sobre *distro*, não sobre o nosso código —
+> e o nosso código agora conta o que aconteceu. O R3 custa, no pior caso, 15 s e um aviso errado.
+> Provisionar uma VM limpa só para carimbar os dois é ritual, e ritual barato é o que enche uma
+> roadmap de itens que ninguém faz. Fica nomeado, com o critério de aceitação escrito, e é
+> respondido no dia em que houver um servidor novo de qualquer jeito.
 
 ## O que esta onda NÃO faz
 
