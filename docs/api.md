@@ -626,6 +626,32 @@ existe ali. Use isto para esconder o que não faz sentido, nunca para degradar o
 
 ---
 
+## Com o que você pode contar quando a rede pisca
+
+O desktop **não se desmonta** porque o portal ficou fora do ar. Ele é JS rodando no navegador: uma
+queda do portal é uma requisição que falha, não uma desconexão. As janelas continuam abertas, e a
+sua entre elas.
+
+Isso muda o que você deve escrever no seu app:
+
+- **não feche a sua janela porque um `fetch` falhou.** Mostre o estado e ofereça "tentar de novo" —
+  o ambiente ao redor continua vivo, e fechar é a única coisa que o usuário não consegue desfazer;
+- **não apague o que já está na tela num `catch`.** Uma lista que o servidor já entregou é dado
+  bom; substituí-la por vazio porque a atualização falhou faz o conteúdo piscar e sumir sem
+  explicação;
+- **não recarregue a página.** `location.reload()` de dentro de um app derruba o desktop inteiro,
+  não só o seu app.
+
+O desktop já avisa por você: quando o portal não responde, aparece um aviso na bandeja dizendo que
+o que está aberto continua ali e que ele avisa quando voltar. Você não precisa construir esse aviso
+— precisa não contradizê-lo.
+
+**A garantia é estreita, e vale saber onde ela acaba:** uma escrita que falhou continua perdida, e
+nada disso vale para o **seu backend**. Se o processo do seu app cair, o seu app cai — o que
+sobrevive é o desktop em volta dele. Não é offline mode.
+
+---
+
 ## O que **não** existe
 
 Ser honesto aqui vale mais que a lista de cima, porque é o que decide se o seu port é viável.

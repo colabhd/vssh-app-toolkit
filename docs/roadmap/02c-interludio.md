@@ -1,6 +1,6 @@
 # Onda 2c — Interlúdio: recolher o que a inversão deixou, e estabilizar a experiência
 
-> **Estado:** 🟡 em andamento — **itens 1 a 4 concluídos** · **Atualizado:** 2026-08-05 · **Repos:** `vssh-sso`, `vsshapp-xpra` (+ um novo)
+> **Estado:** 🟡 em andamento — **itens 1 a 5 concluídos** · **Atualizado:** 2026-08-05 · **Repos:** `vssh-sso`, `vsshapp-xpra` (+ um novo)
 >
 > Vem depois da [Onda 2.7 inteira](02b-motores.md), que **fechou os quatro passos**. Não é uma onda
 > de capacidade nova: é a fatura da inversão, e três defeitos que só ficaram visíveis depois dela.
@@ -398,7 +398,12 @@ quem está trabalhando é pior que não avisar**.
 
 ---
 
-## 5 · O micro offline mode, nomeado
+## 5 · O micro offline mode, nomeado — ✅ CONCLUÍDO
+
+> **Feito** em `c714002` (vssh-sso) e no `docs/api.md` deste toolkit. 5 testes, **8/8 refutações**.
+>
+> **Antes de escrever a garantia, medir se ela era verdadeira.** Era — quase. Três vazamentos,
+> todos mudos, e um deles degradava a sessão inteira. Ver "O que a auditoria achou", abaixo.
 
 Quando o desktop era servido pelo Xpra, uma queda do servidor **desconectava o usuário**. Hoje não:
 o shell é JS rodando no navegador, e uma piscada do portal é uma requisição que falha — o ambiente
@@ -415,6 +420,36 @@ Escrever importa por dois motivos opostos:
 
 O heartbeat do item 4 é o que torna isso legível: *"o portal está fora, o que você tem continua
 aqui, e eu aviso quando voltar"* — em vez de um erro genérico por operação.
+
+### O que a auditoria achou
+
+A garantia se perde **uma linha por vez**, e cada perda é silenciosa por natureza: um `catch` que
+esvazia uma lista não escreve nada em lugar nenhum, e o sintoma é *"a barra lateral piscou"*.
+
+O que estava certo: o canal de eventos reconecta sozinho, indefinidamente; `connection_lost()` só
+registra; e o único `location.href` do shell é o "Desconectar" do menu iniciar — ação do usuário.
+O que não estava:
+
+| Vazamento | O que acontecia |
+|---|---|
+| `FileBrowserWindow._loadMounts` fazia `catch { this._mounts = []; }` **e renderizava** | uma piscada do portal **apagava a lista de volumes** da barra lateral de uma janela aberta. Sumiam e voltavam sozinhos, sem nada que ligasse isso a nada |
+| `_loadMimeCache` gravava `{}` ao falhar — e `null` é a única coisa que dispara nova tentativa | um erro de rede **no boot** degradava o "Abrir com" e os ícones por tipo pelo **resto da sessão**. A falha virava permanente |
+| `_loadAppRegistry` zerava o cache de apps | o submenu "Abrir com" esvaziava até a próxima carga dar certo |
+| `OfficeEditorWindow.createNew` fechava a janela **calado** | clicar em "Nova planilha" fazia uma janela piscar e sumir; o registro ia só para o console. Fechar está certo — a janela não tem documento dentro; **calar** não |
+
+O idioma correto já existia no repositório, no `Desktop._fetch`: falhou, **não mexe**.
+
+### Onde a garantia ficou escrita
+
+Em três lugares, porque são três públicos: `CLAUDE.md` do `vssh-sso` (com as três regras que ela
+impõe a código novo), `docs/client/desktop-shell.md`, e o [`docs/api.md`](../api.md) deste toolkit —
+este último porque quem escreve um vssh-app precisa saber que pode contar com ela, **e precisa não
+contradizê-la**: não fechar a própria janela por um `fetch` que falhou, não apagar o que já está na
+tela num `catch`, e nunca chamar `location.reload()`, que de dentro de um app derruba o desktop
+inteiro.
+
+E sempre com o limite junto, que é a metade que importa. A rede que impede o apodrecimento é
+`tests/unit/ambiente-sobrevive.test.js`.
 
 ---
 
