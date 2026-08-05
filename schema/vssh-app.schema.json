@@ -32,6 +32,18 @@
       "type": "boolean",
       "description": "LEGADO — equivale a kind:'service'. Mantido só por compat com manifestos já instalados."
     },
+    "engine": {
+      "type": "object",
+      "description": "Só para type:'engine'. Um motor pode trazer o PRÓPRIO lado-cliente, em vez de o ambiente carregar um arquivo que conhece o motor pelo nome.",
+      "additionalProperties": false,
+      "properties": {
+        "loader": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9/._-]*\\.js$",
+          "description": "Caminho, relativo à raiz servida pelo backend, de um script que o ambiente carrega depois de o backend responder. É ele que registra o motor (ex.: em RemoteDesktopEngines). Sem este campo o ambiente não carrega script nenhum do app — que é o caso de um motor cujo lado-cliente já mora no ambiente."
+        }
+      }
+    },
     "icon": { "type": "string", "description": "Caminho relativo à raiz do pacote (.svg/.png/.jpg)." },
     "category": { "type": "string", "description": "Informativo; a UI agrupa tudo em 'Apps Integrados'." },
     "description": { "type": "string" },
