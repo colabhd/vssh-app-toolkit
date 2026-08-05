@@ -1,6 +1,6 @@
 # Onda 2c — Interlúdio: recolher o que a inversão deixou, e estabilizar a experiência
 
-> **Estado:** 🟡 em andamento — **itens 1 e 2 concluídos** · **Atualizado:** 2026-08-05 · **Repos:** `vssh-sso`, `vsshapp-xpra` (+ um novo)
+> **Estado:** 🟡 em andamento — **itens 1, 2 e 3 concluídos** · **Atualizado:** 2026-08-05 · **Repos:** `vssh-sso`, `vsshapp-xpra` (+ um novo)
 >
 > Vem depois da [Onda 2.7 inteira](02b-motores.md), que **fechou os quatro passos**. Não é uma onda
 > de capacidade nova: é a fatura da inversão, e três defeitos que só ficaram visíveis depois dela.
@@ -254,7 +254,13 @@ mantém precisa saber que ela foi escolhida, não esquecida.
 
 ---
 
-## 3 · O service worker que não faz mais nada
+## 3 · O service worker que não faz mais nada — ✅ CONCLUÍDO
+
+> **Feito** em `28b2731`. `sw.js` 244 → 168 linhas; `index.html` −33; `sw-cache.test.js` deu lugar
+> a `sw-streamsaver.test.js`. **11 testes, 8/8 refutações** capturadas.
+>
+> A poda achou um **cliente em outro repositório** que a tabela não previa, e um **defeito vivo**
+> que não tinha nada a ver com service worker. Ver "O que a medição achou", abaixo.
 
 Está **dormente**, e o próprio código diz:
 
@@ -281,7 +287,20 @@ de duas builds na mesma página. Com fingerprint nos caminhos, o SW não tem o q
 > **A precondição que o arquivo pedia chegou — e ela fecha a pergunta em vez de abri-la.** O
 > comentário do `sw.js` dizia *"ANTES DE RELIGAR: versionar a URL dos assets"*. O item 2 fez isso, e
 > o navegador já guarda cada asset como imutável por um ano, sem revalidar. O que resta decidir não
-> é mais a precondição, e sim se sobra trabalho para este cache depois dela.
+> é mais a precondição, e sim se sobra trabalho para este cache depois dela. **Não sobra.**
+
+### O que a medição achou
+
+| Achado | Consequência |
+|---|---|
+| **O único cliente do passthrough está em OUTRO repositório.** O `Client.js` do `vsshapp-xpra` faz `streamSaver.mitm = "./mitm.html"` ao receber um `xpra send-file` — e aquele `./` resolve contra a **página**, ou seja, contra o `mitm.html` deste bundle, que registra este `sw.js` | Três arquivos, dois repos, **nenhuma referência estática** ligando as pontas: nada no `vssh-sso` menciona `streamSaver` desde que a lib saiu com o cliente Xpra na 2.7. Uma limpeza futura concluiria, com razão aparente, que ninguém usa nenhum dos dois. É a corda que `sw-streamsaver.test.js` amarra |
+| **A maquinaria de "deploy transparente" também estava morta**, e ela tinha UI: overlay de tela cheia, timer de 2 min e `location.reload()`. O gatilho era a mensagem `vssh-update-ready`, que o `activate` só postava **quando havia cache antigo a limpar** | Sem cache criado, nunca houve mensagem. Saiu junto. O gancho para ressuscitá-la é o **heartbeat do item 4**, comparando `window.__VSSH_SHELL_BUILD__` com `/api/shell/config` — não um segundo relógio no `index.html` |
+| ⚠ **Um defeito vivo, e ele não era do service worker.** O `window.load` que sobe os apps `kind:"service"` e preaquece o motor de navegação estava **dentro** de um `if ('serviceWorker' in navigator)` | Numa **janela privativa do Firefox**, onde a API não existe, nenhum serviço subia e o motor nunca era preaquecido. Sem erro, sem log: só o ambiente chegando pela metade |
+| O `sw.js` deixou de ser registrado no boot | Uma página **controlada** por um SW manda toda requisição de mesma origem passar por ele. Este não tem nada a dizer sobre 107 assets que o navegador já resolve pelo carimbo — então passa a existir quando há um download, que é quando ele serve para alguma coisa |
+
+E o par honesto da remoção, a mesma lição do `provision-base.sh` no item 1: o `activate` que ficou
+**apaga os `vssh-assets-*`** que a versão anterior criou em máquina de gente de verdade. Sem isso
+eles ocupariam cota para sempre, sem ninguém para lê-los.
 
 ---
 
