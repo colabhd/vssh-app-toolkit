@@ -126,7 +126,7 @@ devolvia `'0.0.0'` fixo.
 > Ganhou dois itens de contrato de manifesto — `minShellVersion` e `requiredPackages` — que não são
 > da FSA, mas atravessam a mesma fronteira: **declarações que o ecossistema verifica**, em vez de
 > descobertas em runtime. A metade que publica a versão é da
-> [Onda 2c](02c-interludio.md#o-que-vem-junto-quase-de-graça).
+> [Onda 2c](02c-interludio.md#o-que-veio-junto-e-são-duas-identidades).
 
 ### T1 — `LazyFile` é um `Blob` vazio
 
@@ -167,7 +167,7 @@ de navegador num contexto `vm` com stubs manuais, que não reproduzem leituras i
 
 ### O shell tem versão, e o app pode exigi-la
 
-A [Onda 2c](02c-interludio.md#o-que-vem-junto-quase-de-graça) publica uma versão nominal do shell
+A [Onda 2c](02c-interludio.md#o-que-veio-junto-e-são-duas-identidades) publica uma versão nominal do shell
 (`4.x.x`), servida em `/api/shell/config`. **Aqui entra a metade que consome:**
 `minShellVersion` / `targetShellVersion` no manifesto, validação no `vssh-app-publish`, e uma
 mensagem honesta quando não bate.

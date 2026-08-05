@@ -1,6 +1,6 @@
 # Onda 2c — Interlúdio: recolher o que a inversão deixou, e estabilizar a experiência
 
-> **Estado:** 🟡 em andamento — **item 1 concluído** · **Atualizado:** 2026-08-05 · **Repos:** `vssh-sso`, `vsshapp-xpra` (+ um novo)
+> **Estado:** 🟡 em andamento — **itens 1 e 2 concluídos** · **Atualizado:** 2026-08-05 · **Repos:** `vssh-sso`, `vsshapp-xpra` (+ um novo)
 >
 > Vem depois da [Onda 2.7 inteira](02b-motores.md), que **fechou os quatro passos**. Não é uma onda
 > de capacidade nova: é a fatura da inversão, e três defeitos que só ficaram visíveis depois dela.
@@ -121,7 +121,13 @@ O que sobrou é o artefato e a esteira que o produz.
 
 ---
 
-## 2 · O cliente com fingerprint — o item maior
+## 2 · O cliente com fingerprint — ✅ CONCLUÍDO
+
+> **Feito** em `a3167ca`. **11 arquivos, +618/−71.** lint, tsc e **481 testes** verdes; **8/8
+> refutações** capturadas.
+>
+> **107 referências locais no `index.html` servido, 107 carimbadas, 0 cruas.** (A tabela previa
+> 106; a 107ª é o `favicon.svg`, que também revalidava a cada carga.)
 
 ### O diagnóstico, e ele muda o enquadramento
 
@@ -167,26 +173,69 @@ injetado** na página como `window.__VSSH_SHELL_BUILD__` e **já é exposto** em
 | **A — prefixo por build** | `/b/<buildId>/js/Client.js`, como o portal já faz | quase zero: uma linha de rota e a reescrita do prefixo no `index.html` | **tudo junto** — um byte muda e os 3,8 MB revalidam |
 | **B — hash por arquivo** | `js/Client-[sha8].js` | etapa de build no deploy, que reescreve as 106 referências | **cirúrgica** — só o arquivo que mudou |
 
-**A escolha é B**, e a razão é o tamanho: com 3,8 MB e 86 arquivos JS, invalidar tudo a cada deploy
-desperdiça a maior parte do cache que o fingerprinting existe para criar. **Mas A é um degrau
-legítimo** — se a etapa de build atrasar, A já entrega a correção do `Shift+F5` e as 106
-requisições, e B refina depois.
+**A escolha foi B — e o custo da coluna do meio não se pagou.** A tabela supunha que "hash por
+arquivo" implicava "etapa de build no deploy". Não implica: **quem carimba é quem serve**, em
+memória, no boot, com um manifesto `{caminho → sha8}` que sai da MESMA varredura que já calculava o
+build id. O arquivo em disco continua com o nome simples — e é isso que mantém `vssh-client/`
+editável e mantém valendo as redes que leem o fonte (`client-assets`, `client-css-classes`,
+`client-dom-ids`, `client-undefined-refs`).
 
-> ⚠ **A armadilha de B, dita antes de custar um deploy:** o `index.html` do shell não é o único que
-> referencia asset. Os **workers** e o `importScripts` resolvem contra a URL do próprio worker, e o
-> `sw.js` tem uma lista de precache. Uma reescrita que só varra tags `<script src>` e `<link href>`
-> deixa esses de fora — e o modo de falha é o pior: carrega, roda, e o worker é de outra build.
-> A [Onda 2.7](02b-motores.md) já pagou essa lição uma vez, com o `data-xpra` que não enxergava o
-> grafo de workers.
+A razão de o portal usar A e o shell usar B não é gosto, e ficou escrita nos dois lados: o portal
+tem grafo de import ES, e **só um prefixo de path é herdado** por um `import './modules/api.js'`. O
+shell **não tem um único módulo ES** — são 77 `<script>` clássicos listados no `index.html`. A
+restrição que obriga A lá simplesmente não existe aqui. E a medição de tamanho confirmou o resto:
+dos 3,6 MB, **844 KB são jQuery + jQuery UI**, que não mudam há anos. Sob prefixo único, todo deploy
+do portal os rebaixaria de novo.
 
-### O que vem junto, quase de graça
+> ⚠ **A armadilha de B era real, mas não era a que a tabela descrevia.** A medição não achou
+> **nenhum** `new Worker`/`SharedWorker` no shell, e o `importScripts` que existe (`scram-sw.js`)
+> busca o Scramjet de fora, não asset local. O grafo de workers não existe.
+>
+> **A armadilha verdadeira é o oposto, e é pior:** a URL de um service worker **é o escopo dele**.
+> Carimbar `sw.js` daria a ele um escopo novo a cada deploy, e o registro anterior continuaria vivo
+> controlando a mesma página — dois SW disputando o mesmo cliente, sem erro em lugar nenhum. Por
+> isso `sw.js` e `scram-sw.js` são explicitamente **proibidos** de receber carimbo, e há teste que
+> cai se alguém "consertar" a string de registro.
+>
+> A segunda: uma query (`?v=`) **não propaga para dentro de um `url()` de CSS** — e é ali que moram
+> os 703 KB de ícones e as fontes. As folhas servidas têm os `url()` reescritos junto; as folhas em
+> disco, não.
 
-- **Identificador de versão real nas Configurações.** O dado já existe (`/api/shell/config`); falta
-  a linha na tela. É a resposta para *"que versão eu estou rodando?"*, que hoje não tem resposta.
-- **Versionamento nominal (`4.x.x`), e ele entra nesta onda.** Com uma versão declarada, um
-  vssh-app pode dizer `minShellVersion` / `targetShellVersion` no manifesto, e a incompatibilidade
-  vira mensagem em vez de erro de runtime. `vssh-client/build-info.json` é hoje um stub
-  (`dev-build` / `0000000`) e é o candidato natural a virar a fonte.
+### O que a medição achou além da tabela
+
+| Achado | Consequência |
+|---|---|
+| **O aviso de "ambiente atualizado" nunca apareceu — em nenhuma versão.** `checkBuildId()` buscava `build-info.json` e comparava `info.buildId` com o do carregamento anterior; o arquivo é versionado e o valor dentro dele era o literal `"dev-build"`, imóvel. A comparação era do stub com ele mesmo | O ramo era inalcançável, e a busca era **uma requisição por carga para não decidir nada**. Agora compara a identidade injetada, que muda a cada deploy — e a requisição sumiu |
+| Uma referência a mais do que a tabela contava: o `favicon.svg` | 107, não 106 |
+| `computeBuildId` e o manifesto por arquivo são **a mesma leitura de disco** respondendo duas perguntas | O walk passou a morar num lugar só (`asset-fingerprint.ts`). Duplicá-lo seria criar duas noções de "mudou" livres para divergir |
+
+### A política, em quatro linhas
+
+| | forma | política |
+|---|---|---|
+| `index.html` | sem carimbo | `no-cache` — é ele que carrega os carimbos novos |
+| assets | `js/Client.<sha8>.js` | `immutable`, 1 ano |
+| carimbo de uma build **anterior** | idem | servido com o arquivo de hoje, **revalidando** — uma aba aberta durante um deploy rolling não pode receber 404, mas também não pode ficar presa |
+| `sw.js` / `scram-sw.js` | **nunca** carimbados | `no-cache` |
+
+E uma falha que deixou de ser silenciosa: um arquivo que nasça chamado `algo.deadbeef.js` tornaria
+o descarimbo ambíguo — o middleware leria "`algo.js` da build deadbeef" e devolveria 404 para um
+asset que está em disco. **O boot morre**, dizendo o nome do arquivo.
+
+### O que veio junto, e são duas identidades
+
+- ✅ **Identificador de versão real nas Configurações.** Em **Sobre → Ambiente**, primeira linha da
+  tabela de identidade, e a única que não espera rede: a versão vem injetada na página. É a resposta
+  para *"que versão eu estou rodando?"*, que não existia em lugar nenhum da interface.
+- ✅ **Versionamento nominal (`4.0.0`).** `vssh-client/build-info.json` era um stub
+  (`dev-build` / `0000000`) e passou a ser a **declaração** — e só ela: o `buildId` e o `shortSha`
+  saíram de lá, porque uma cópia que envelhece dentro de um arquivo versionado é sempre a versão
+  errada de uma medição.
+
+  > **Elas respondem perguntas diferentes, e por isso as duas são publicadas.** `shellVersion` é
+  > **declarada** e só muda quando alguém decide que mudou — é a que a Onda 3 vai deixar um app
+  > exigir. `portalShellBuildId` é **medida** do conteúdo e muda a cada deploy — é a que diz se dois
+  > ambientes rodam os mesmos bytes. Publicar só uma obrigaria alguém a usá-la para as duas coisas.
 
   > **O que entra aqui é só a metade que PUBLICA.** A versão passa a existir, a ser servida em
   > `/api/shell/config` e a aparecer nas Configurações. **Quem a CONSOME é a
@@ -228,6 +277,11 @@ E há uma razão de desenho para o cache do SW **não** voltar, escrita em `vssh
 SW que cacheia por build cria duas camadas com políticas contrárias, e vence a que está na frente —
 o sintoma medido foi *"F5 mostra o cliente velho e só a carga seguinte mostra o novo"*, com assets
 de duas builds na mesma página. Com fingerprint nos caminhos, o SW não tem o que resolver.
+
+> **A precondição que o arquivo pedia chegou — e ela fecha a pergunta em vez de abri-la.** O
+> comentário do `sw.js` dizia *"ANTES DE RELIGAR: versionar a URL dos assets"*. O item 2 fez isso, e
+> o navegador já guarda cada asset como imutável por um ano, sem revalidar. O que resta decidir não
+> é mais a precondição, e sim se sobra trabalho para este cache depois dela.
 
 ---
 
@@ -468,8 +522,11 @@ um app instalado que nunca sobe, e o operador descobre pelo usuário.
 
 **Automática:**
 
-- **O contador que prova o item 2:** zero requisições condicionais para asset do shell numa segunda
-  carga — hoje são 106. Mede-se na aba de rede, e vale como asserção no smoke.
+- ✅ **O contador que prova o item 2:** eram **107** referências locais revalidando a cada carga;
+  são **107 carimbadas e 0 cruas**. A asserção não ficou no smoke: `shell-fingerprint.test.js` sobe
+  o middleware de verdade e mede o `Cache-Control` por HTTP — porque o cabeçalho **é** o mecanismo,
+  e verificar a intenção sem verificar o cabeçalho deixaria passar um `express.static` mal
+  configurado, que é a forma mais provável de errar isso. 16 testes, **8/8** refutações capturadas.
 - ✅ **O guard textual do item 1**, no molde do `motor-x11-poda.test.js`:
   `tests/unit/deploys-sem-assunto.test.js` — `xpra_client_channel`, `updateClient`,
   `vssh-update-client`, `chrome-extension`, `ExtensionAdapter`, `vsshBrowserExtension` e
