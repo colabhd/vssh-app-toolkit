@@ -1,9 +1,15 @@
 # Onda 2c — Interlúdio: recolher o que a inversão deixou, e estabilizar a experiência
 
-> **Estado:** ⬜ não iniciada · **Atualizado:** 2026-08-06 · **Repos:** `vssh-sso` (+ dois novos)
+> **Estado:** ⬜ não iniciada · **Atualizado:** 2026-08-06 · **Repos:** `vssh-sso` (+ um novo)
 >
-> Vem depois da [2.7 passos 1–3](02b-motores.md) e **antes** do passo 4 dela. Não é uma onda de
-> capacidade nova: é a fatura da inversão, e três defeitos que só ficaram visíveis depois dela.
+> Vem depois da [Onda 2.7 inteira](02b-motores.md), que **fechou os quatro passos**. Não é uma onda
+> de capacidade nova: é a fatura da inversão, e três defeitos que só ficaram visíveis depois dela.
+>
+> **O passo 4 foi executado antes desta onda**, invertendo a ordem que este documento previa — e
+> foi a decisão certa: ele achou um `TypeError` vivo em produção (`VsshHost.xpraDisabled()` chamado
+> atrás de um `typeof VsshHost` que não protege de método ausente) e uma coluna de banco sem
+> consumidor nenhum. Vocabulário morto estava escondendo mecanismo morto, e adiar teria feito a 2c
+> construir por cima dos dois.
 
 ## A tese
 
@@ -39,7 +45,7 @@ alcança o navegador hoje — o portal serve o shell direto.
 | CI e script de publicação | `.github/workflows/{chrome-extension,publish-customclient,release-customclient}.yml` + `.github/scripts/publish-customclient.sh` | 168 linhas |
 | A extensão do Chrome (MV2) | `vssh-client/chrome-extension/` | 19 arquivos, 157 KB |
 | Handler no worker do repositório | `repo-worker/src/handlers/customclient.js` | — |
-| **A maquinaria de canal** | coluna `xpra_client_channel`, `updateClient()` (`infra-update.ts:54`), `PUT /servers/:id/client/channel` e `POST …/client` (`admin.ts:284-300`), a aba **Repositório → Cliente** do painel, e o `vssh-update-client` no host | a que mais se esconde |
+| **A maquinaria de canal** | coluna `xpra_client_channel`, `updateClient()` (`infra-update.ts:54`, que ainda executa `sudo vssh-update-client` no host), `PUT /servers/:id/client/channel` e `POST …/client` (`admin.ts:284-300`), e a aba **Repositório → Cliente** do painel | a que mais se esconde |
 
 **A extensão sai de vez** — não vira repositório próprio. E a decisão é barata porque **a 2.6 já
 tinha feito o desmonte funcional**: a sentinela `'extension'` deixou de ser um motor de navegação,
@@ -70,7 +76,7 @@ src/app.ts:173   app.use('/b/:buildId', express.static(PUBLIC_DIR, { maxAge: '1y
 O shell é servido por outro caminho, e o próprio arquivo declara a lacuna:
 
 ```js
-// src/services/vssh-shell.ts:110
+// src/services/vssh-shell.ts:108
 // Os assets não são versionados por path aqui (o cliente referencia `js/…` relativo),
 // então revalidação é o único jeito honesto de não servir arquivo velho depois de um deploy.
 etag: true, maxAge: 0, setHeaders: res => res.setHeader('Cache-Control', 'no-cache')
@@ -91,7 +97,7 @@ sintoma que incomoda; as 106 são o custo que ninguém está vendo.
 
 ### Metade do trabalho já existe
 
-`SHELL_BUILD_ID = computeBuildId(SHELL_DIR)` **já é calculado** (`vssh-shell.ts:38`), **já é
+`SHELL_BUILD_ID = computeBuildId(SHELL_DIR)` **já é calculado** (`vssh-shell.ts:31`), **já é
 injetado** na página como `window.__VSSH_SHELL_BUILD__` e **já é exposto** em
 `GET /api/shell/config`. O que falta é usá-lo **nos caminhos**.
 
@@ -159,7 +165,7 @@ passthrough de download do StreamSaver — esse fica.
 > **Não confundir com `scram-sw.js`.** É outro arquivo, do motor de navegação, e não tem nada a ver
 > com esta limpeza.
 
-E há uma razão de desenho para o cache do SW **não** voltar, escrita em `vssh-shell.ts:86-100`: um
+E há uma razão de desenho para o cache do SW **não** voltar, escrita em `vssh-shell.ts:79-99`: um
 SW que cacheia por build cria duas camadas com políticas contrárias, e vence a que está na frente —
 o sintoma medido foi *"F5 mostra o cliente velho e só a carga seguinte mostra o novo"*, com assets
 de duas builds na mesma página. Com fingerprint nos caminhos, o SW não tem o que resolver.
@@ -354,10 +360,42 @@ não, baixar, e distinguir uma linha de erro de uma linha comum.
 > As duas entradas passam a abrir **a mesma** janela, e o `run.log.1` aparece nas duas — a
 > divergência de hoje é o argumento mais forte contra manter dois caminhos.
 
+## 10 · Os dois riscos que a 2.7 deixou por medir
+
+Ela fechou os quatro passos com R1, R2, R4, R5, R7, R8 e R9 conferidos — vários contra servidor
+real. **R3 e R6 nunca foram medidos**, e os dois são sobre o mesmo momento: o motor sendo instalado
+e subindo pela primeira vez num servidor que ninguém preparou à mão. É o momento em que a 2.7 é
+verdade ou não é.
+
+**Os dois mudaram de premissa desde que foram escritos, e o texto da 2.7 ficou para trás:**
+
+| | O que a 2.7 supunha | O que o pacote faz hoje |
+|---|---|---|
+| **R3** | *"o pacote passa `--html=off`, e é esse `GET /` que precisa ser medido"* | ele passa **`--html="${AQUI}/frontend"`** (`entrypoint.sh:189`) — aponta para dentro do pacote. Então `GET /` **não fica calado**: devolve o `index.html` do motor |
+| **R6** | *"num servidor sem repositório de pacote configurado (`VSSH_XPRA_REPO`) isso falha"* | `install.sh` faz `apt-get install -y xpra xvfb`, com recuo para `dnf` — **não há `VSSH_XPRA_REPO`**. A falha real é outra: distro cujo repositório não tem o pacote `xpra` |
+
+**R3 — o healthcheck aceita o que o motor responde?** São dois caminhos de código, e a 2.7 já
+mandava conferir os dois: o poll do portal aceita qualquer coisa que não seja `000`, e o
+`healthcheckPath: "/"` do manifesto é outro. Com `--html` apontando para o pacote, a resposta
+provável é um `200` com HTML — mas *provável* não é medido, e o custo de errar é uma janela que
+abre em branco com o backend de pé.
+
+**R6 — o erro de instalação chega a quem instala?** `install.sh` já falha no lugar certo (na
+instalação, não no primeiro uso — e o comentário dele diz isso). O que falta medir é se a mensagem
+**sobe até a aba admin** ou morre no `run.log`. Um `vssh-app-install` que falha em silêncio produz
+um app instalado que nunca sobe, e o operador descobre pelo usuário.
+
+> **Por que aqui e não numa onda de capacidade:** os dois são medições, não construções. Cabem numa
+> tarde, dependem de um servidor limpo, e são exatamente o tipo de coisa que fica para sempre "para
+> a próxima" se não tiver um lugar. A 2c é o lugar — o critério dela é *falha que deixou de ser
+> silenciosa*, e ambos são falhas silenciosas em potencial.
+
 ## O que esta onda NÃO faz
 
-- **Não faz o passo 4 da 2.7.** O vocabulário (`headless`/`xpraless`) é diff mecânico e a roadmap
-  pede ele **sozinho no commit** — misturá-lo com sete itens é como se esconde a quebra.
+- **Não faz o passo 4 da 2.7** — ele já foi feito, e ANTES desta onda. A ordem inverteu de
+  propósito: vocabulário morto estava escondendo mecanismo morto (uma coluna de banco sem
+  consumidor, um flag injetado e lido por ninguém, um `TypeError` vivo no pacote do motor), e a 2c
+  teria construído por cima dos três.
 - **Não faz o healthcheck assíncrono.** O poll síncrono de 15×1 s (`vssh-apps.ts:569`) continua, e é
   da [Onda 4](04-runtime-composicao.md) — mexe no lifecycle, não na entrega do cliente.
 - **Não ressuscita o cache do service worker.** Ver o item 3: com fingerprint nos caminhos ele não
