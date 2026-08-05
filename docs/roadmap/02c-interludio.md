@@ -1,6 +1,6 @@
 # Onda 2c — Interlúdio: recolher o que a inversão deixou, e estabilizar a experiência
 
-> **Estado:** 🟡 em andamento — **itens 1 a 5 concluídos** · **Atualizado:** 2026-08-05 · **Repos:** `vssh-sso`, `vsshapp-xpra` (+ um novo)
+> **Estado:** 🟡 em andamento — **itens 1 a 6 concluídos** · **Atualizado:** 2026-08-05 · **Repos:** `vssh-sso`, `vsshapp-xpra`, `vssh-repo` (novo, item 6)
 >
 > Vem depois da [Onda 2.7 inteira](02b-motores.md), que **fechou os quatro passos**. Não é uma onda
 > de capacidade nova: é a fatura da inversão, e três defeitos que só ficaram visíveis depois dela.
@@ -453,7 +453,13 @@ E sempre com o limite junto, que é a metade que importa. A rede que impede o ap
 
 ---
 
-## 6 · O `repo-worker` sai do monorepo
+## 6 · O `repo-worker` sai do monorepo — ✅ CONCLUÍDO
+
+> **Feito** em `af7b6ef` (a saída, **−2623 linhas** no portal) e em `693f71c`/`65c1346` no
+> repositório novo, **`vssh-repo`**, criado localmente ao lado dos outros.
+>
+> ⚠ **Falta criar o remoto e empurrar** — o repositório existe em disco, com a história
+> preservada, mas ainda não tem `origin`. Ver "O que falta fazer à mão", abaixo.
 
 990 linhas (JS + a migração D1 + o `wrangler.toml`) em 18 arquivos — um Cloudflare Worker inteiro
 morando dentro do repositório do portal. **Acoplamento medido: zero** (nenhum import atravessa para
@@ -475,6 +481,46 @@ medidas caem para ~936.
 
 O contrato com o portal é HTTP e já está isolado em `src/services/repo-client.ts`, com `VSSH_REPO_API`
 apontando para `https://vssh-repo.colabh.org`. Nada no portal precisa mudar.
+
+### Como saiu
+
+**Com a história**, via `git subtree split --prefix=repo-worker` — cinco commits, do
+*"sistema de repositórios v2"* até a poda do item 1. Um `cp -r` teria custado o mesmo trabalho e
+jogado fora a única coisa que não dá para recriar depois.
+
+A saída confirmou o que a medição prometia: além do `zero import`, **o deploy nunca esteve no CI
+deste repositório** — é `wrangler deploy`, à mão, e sempre foi. Não houve workflow a mover.
+
+Do lado do portal sobraram três referências, todas de texto: uma linha do `CLAUDE.md`, duas da
+`docs/client/distribution.md`, e a guarda de teste.
+
+> **A guarda viajou junto com o código, e é o detalhe que quase passou.** O teste 4 de
+> `deploys-sem-assunto.test.js` media o Worker: que o `handlers/customclient.js` não voltasse, e
+> que os quatro arquivos que despacham por `kind` não voltassem a conhecer a string. Deixada onde
+> estava, ela passaria a apontar para arquivos que o `vssh-sso` não tem mais — ou seja, **passaria
+> para sempre, inclusive num Worker que tivesse ressuscitado o tipo**. Uma guarda que não pode
+> falhar é pior que nenhuma, porque ocupa o lugar de uma que poderia.
+>
+> Ela está em `test/sem-customclient.test.js` no repositório novo (`node --test`, sem dependência
+> nenhuma), e ganhou o **par positivo** que não tinha: os cinco `kind` que existem continuam
+> roteados. Proibir uma string é fácil de satisfazer apagando demais.
+
+O que ficou no `vssh-sso` é o que é de lá: o diretório não volta, e o portal não volta a conhecer
+o tipo.
+
+### O que falta fazer à mão
+
+O repositório está em `../vssh-repo`, com dois commits novos por cima dos cinco herdados e árvore
+limpa. **Falta o remoto**, que é decisão de quem tem a conta:
+
+```bash
+cd ../vssh-repo
+gh repo create colabhd/vssh-repo --private --source=. --remote=origin
+git push -u origin main
+```
+
+E, depois, `VSSH_REPO_ADMIN_TOKEN`/`PUBLISH_TOKEN` continuam onde estavam: **nada de segredo mudou
+de lugar**, porque o Worker publicado é o mesmo — a extração é do fonte, não do deploy.
 
 ---
 
