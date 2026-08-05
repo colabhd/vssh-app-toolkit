@@ -1,8 +1,11 @@
 # Onda 2.7 — Motores: um ambiente só, e o Xpra é um motor dele
 
-> **Estado:** 🟡 passo 1 concluído (na 2.6) · **verificação fechada: R1/R2/R8 confirmados contra
-> sessão real, R4 e R9 conferidos em servidor** · emenda de base e correção de teardown aplicadas ·
-> **o pacote está destravado** · **Atualizado:** 2026-08-04 · **Repo:** `vssh-sso`
+> **Estado:** 🟢 **passos 1, 2 e 3 concluídos** · falta o **passo 4** (vocabulário) · verificação
+> fechada: R1/R2/R8 contra sessão real, R4 e R9 em servidor, **R7 medido e virado teste** ·
+> abertos: **R3** e **R6** · **Atualizado:** 2026-08-05 · **Repos:** `vssh-sso` + `vsshapp-xpra`
+>
+> **O número que a onda prometia:** `provisioning/xpra.ts` **619 → 103 linhas**, mais 300 de
+> `utils/recoll-dbs.js`. `/proxy/desktop/` deixou de ser um endereço.
 >
 > Pré-requisito real: [Onda 1](01-sessao-sem-xpra.md) (feita). Vem logo depois da
 > [2.6](02-apis-de-shell.md#26--a-janela-de-configurações-refeita---feito), que já entregou o
@@ -930,7 +933,65 @@ janela nova leria `client` direto — reintroduzindo o acoplamento que a
 inverter. O ganho secundário se confirmou: a asserção *"este arquivo não cita `client`"* cobre a
 janela de Configurações **desde o primeiro commit dela**.
 
-### Passo 2 · O motor instalável — **2.7, e é o maior** · 🟡 em curso
+### Passo 2 · O motor instalável — ✅ **concluído (2026-08-05)**
+
+> #### O corte, e o que ele custou de verdade
+>
+> A poda foi **um** commit (`vssh-sso a4a2761`), como esta seção pedia — o que garante que os dois
+> motores nunca coexistam é não haver instante entre desligar um e ligar o outro.
+>
+> | | antes | depois |
+> |---|---:|---:|
+> | `provisioning/xpra.ts` | 619 | **103** |
+> | `utils/recoll-dbs.js` | 300 | **0** — apagado |
+> | serviços do proxy semântico | 5 | **4** (`desktop` saiu) |
+>
+> O que sobrou no `xpra.ts` são as duas leituras do `xpra.conf`: preferência de usuário num
+> arquivo na home dele, que por isso precisa de SSH. **Não é ciclo de vida; é leitura de arquivo
+> remoto** — e é a linha divisória que o R5 previa.
+>
+> **Três conferências mudaram o corte, e sem elas ele teria quebrado coisa:**
+>
+> 1. **`_ensureXpraMimeDefaults` não era plumbing, era capacidade.** Ela faz o `xdg-open` de
+>    dentro da sessão X11 resolver para o `vssh-browser`, e era chamada **de dentro do
+>    `startXpra`**. Apagá-la junto quebraria o clique em link numa aplicação nativa, calado.
+>    Migrou para o entrypoint do pacote — e encolheu de ~60 linhas de TypeScript com nove
+>    comandos remotos por `sudo -u` para um `cat >`, porque o motor **já é** o usuário e **já
+>    está** na máquina. É a tese da onda no menor exemplo que ela tem.
+> 2. **`RECOLL_EXTRA_DBS` não muda de casa — foi substituído.** O entrypoint prometia que
+>    mudaria; estava errado. A seleção de índices virou preferência de usuário
+>    (`routes/recoll.ts`), e a constante de 300 linhas tinha um consumidor só.
+> 3. **`ensureSession` já é chamado pelo start de app** (`apps.ts:158`), então a conta Linux e o
+>    `XDG_RUNTIME_DIR` nunca dependeram do `startXpra`. Foi o que permitiu apagá-lo inteiro em
+>    vez de reimplantar metade.
+>
+> E o achado que mais economizou trabalho: **`startXpra`, `stopXpra` e `checkXpraStatus` tinham
+> ZERO chamadores vivos** quando o corte começou — só a reexportação em `key-provisioner`. As
+> rotas `/xpra/*` já tinham sido neutralizadas antes. O corte grande era, no fim, código morto
+> esperando alguém confirmar que estava morto.
+>
+> **A trava da transição inverteu de sinal** (`vsshapp-xpra bfd3af1`). Ela recusava subir se
+> achasse algo em `20000 + uid`; agora que o portal não cria mais aquela porta, o que restar ali
+> é sessão órfã — e recusar deixaria o usuário sem desktop nenhum, refém de um processo que
+> ninguém alcança. Virou aviso com o comando de recolher, e a CI ganhou o par: exige
+> `PORTA_LEGADA` **e proíbe** `RECUSANDO SUBIR`.
+>
+> #### ⚠ Uma correção a esta seção: `getXpraEnv`/`setXpraEnv` **não** vão para o motor
+>
+> O texto abaixo mandava "mover `getXpraEnv`/`setXpraEnv` para endpoints do motor". Não dá, e não
+> deve: o backend do pacote **é o `xpra start`** — não há servidor HTTP nosso onde pendurar um
+> endpoint, e criar um sidecar só para isto seria inventar transporte para o que já tem um. Elas
+> leem e escrevem um arquivo na home do usuário; o portal já fala SSH autenticado com aquela
+> máquina. Ficam, e é por isso que o `xpra.ts` para em 103 linhas em vez de zero.
+>
+> #### O que a poda **não** fez, e continua aberto
+>
+> `vssh-client/connect.html` (73 KB, o diálogo do upstream) segue no shell, sem decisão. Ele não é
+> alcançável desde que o `callback_close` deixou de redirecionar — mas peso morto que ninguém
+> nomeia é o que a onda inteira existe para não deixar acontecer.
+
+<details>
+<summary>O registro de como o passo 2 foi construído — mantido porque as medições valem</summary>
 
 **Feito:** o esqueleto do pacote (`vsshapp-xpra/`) — manifest `type:"engine"`/`kind:"service"`,
 entrypoint em primeiro plano, `installCommand` em duas fases, e o **carregador**, que é onde moram
@@ -957,7 +1018,7 @@ Ou seja, o pacote é autossuficiente, e não funciona por estar ao lado do shell
 | `init_remote_desktop_engine` | 26 | ✅ portado, e **completado**: o meu registro inicial tinha esquecido `iniciarMedicao`/`pararMedicao`/`latenciaMs`/`desdeMs`. Ganhou `fase` e `erro`, que com a conexão em segundo plano deixam de ser a mesma coisa |
 | `connection_progress` | 25 | ✅ **morre** — é o overlay de tela cheia que a regra 3 proíbe |
 | `init_clipboard` | 3 | ✅ portado (chamava só o método do cliente) |
-| `load_default_settings` | 55 | ⬜ **falta** — busca o `default-settings.txt` do xpra. Por ora o carregador só declara o `default_settings` vazio |
+| `load_default_settings` | 55 | ✅ **portado**, e melhorou de status: no shell ele GATEAVA o `init_page()` — o boot do desktop inteiro esperava uma ida à rede por um arquivo do xpra. No carregador não gateia nada, e falhar não é erro: o arquivo é opcional |
 | `init_keyboard` + o seletor de layout | ~140 | ✅ **saiu do shell**. O menu da barra (35 layouts, busca, botão fixo nos dois perfis) morreu; sobrou uma linha em Configurações, que acha o motor **por capacidade** (`layouts` + `definirLayout`) e não por `id`. A lista vem do motor |
 
 Cada subsistema roda dentro de um `try/catch` próprio, por causa da regra 3: um que estoure vira
@@ -1014,7 +1075,7 @@ Fora esses: o `publish.yml` inlinhava o que o `_publish-app-reusable.yml` do too
 validava o manifesto duas vezes e exigia configurar uma `VSSH_REPO_API` que os outros dois apps
 resolvem com um default. Alinhado, com as verificações próprias num job `verificar` antes.
 
-**O que fica:** tirar as 26 tags, apagar `stripXpraTags()` e `xpraDisabled()`, podar o
+**O que ficava** — feito em `a4a2761`, e eram **24** tags, não 26: duas das que contei eram prosa em comentário, achadas pela asserção de tamanho do próprio corte. Tirar as tags, apagar `stripXpraTags()` e `xpraDisabled()`, podar o
 `provisioning/xpra.ts`, mover `getXpraEnv`/`setXpraEnv` para endpoints do motor e apontar o
 `XPRA_CLIENT_BASE` para `/proxy/app/xpra/`. Isso é **um** commit e não vários: é a troca atômica
 que garante que os dois motores nunca coexistam.
@@ -1029,6 +1090,8 @@ a rebasear. O lado-cliente está liberado, e agora tem tamanho conhecido em vez 
 A ordem que sobra, e ela importa: **R4 antes de escrever o pacote.** É ela que decide o formato — um
 xpra que forka e destaca não é supervisionável por `run.pid`, e isso muda o entrypoint, não um
 detalhe dele.
+
+</details>
 
 ### Passo 3 · A preferência — ✅ **concluído**
 
@@ -1057,8 +1120,26 @@ ids coincidem por convenção, mas depender disso seria construir sobre um acide
 
 ### Passo 4 · A inversão de vocabulário — **2.7, e sozinha no commit**
 
-Sumir com "headless" e "xpraless" de código, testes e docs; colapsar `VsshHost.xpraDisabled()` e a
-coluna `profile`. É um diff grande, mecânico e de baixo risco **quando está sozinho** — e é
+Sumir com "headless" e "xpraless" de código, testes e docs — **37 ocorrências**, em 12 arquivos.
+
+> #### ⚠ Duas correções a este passo, achadas ao conferir o estado real (2026-08-05)
+>
+> **`VsshHost.xpraDisabled()` já morreu.** Foi no passo 2, junto com as tags `data-xpra` e o
+> `stripXpraTags()`. As 8 menções que restam nos três repositórios são **prosa em comentário**,
+> explicando o que deixou de existir. Não há o que colapsar.
+>
+> **A coluna `profile` NÃO pode ser colapsada, e dizer que pode é o erro mais caro deste
+> documento.** Ela ainda decide **quais pacotes o provisionamento instala** — que é uma pergunta
+> legítima e que sobrevive à onda. O que morreu foi `profile` como discriminador **de desktop**,
+> e esse já caiu com o ramo `semanticService === 'desktop'` do `proxy.ts`. São duas coisas com um
+> nome só, e o passo 4 tem de separar as duas antes de apagar qualquer uma — apagar a coluna
+> deixaria servidor headless instalando pacote de X11.
+>
+> Sobra o que ainda ramifica por desktop: `resolve-server.ts:18,60`, `db.js:308,322` e
+> `printers.ts:95` — este último é **falso positivo**, "headless" ali é o do Chromium, palavra
+> diferente com a mesma grafia. É exatamente o tipo de coisa que um `sed` global estraga.
+
+É um diff grande, mecânico e de baixo risco **quando está sozinho** — e é
 exatamente o tipo de mudança que, misturada a outra, esconde a quebra no meio dela. A
 [Onda 0c](0c-colapso-de-variantes.md) já ensinou isso do jeito caro: subiu com `tsc`, `eslint` e 247
 testes verdes, e o desktop **não abria**.
@@ -1105,4 +1186,4 @@ falhar; cada uma tem como ser checada antes de custar uma semana.
 | R9 | ❌ **Conferido, e REFUTA.** O xpra reapa os auxiliares dele mas **não** os filhos de `--start=`; o diretório de sessão não é removido e o `sh.pid` velho vaza para o reinício seguinte. Ver ["R9 conferido"](#-r9-conferido-e-refuta-o-xpra-não-encerra-os-filhos-de---start), acima | o que falta agora é escolher entre as três saídas e **refutar a escolhida**: com grupo de processos, o `kill -TERM -PGID` mata mesmo tudo? Com entrypoint que trata SIGTERM, quem mata o entrypoint se ele travar? |
 | R5 | ✅ **Conferido: cabe, e sobra pouco.** Das 619 linhas, **~29 ficam no portal** — provisionar a conta Linux, o túnel e o `ensureSession`. Ver ["R5 conferido"](#-r5-conferido-o-que-fica-no-portal-são-29-das-619-linhas), adiante | a classificação é por leitura; ela erra se alguma linha "de servidor" depender de root que o `vssh-app-run` (rodando como o usuário) não tem. Conferir uma a uma no `installCommand`: `mkdir` em `/home/$USER` sim, `sudo pkill` não |
 | R6 | O `installCommand` dá conta das deps de sistema do Xpra | ele roda como root uma vez, mas num servidor sem repositório de pacote configurado (`VSSH_XPRA_REPO`) isso falha — e falha **na instalação**, que é o lugar certo para falhar. Confirmar que o erro chega à aba admin, e não só ao `run.log` |
-| R7 | Os nove mecanismos da primeira tabela realmente somem, e não migram de lugar | ao fim da onda, `wc -l` em `provisioning/xpra.ts` (hoje 619, das quais ~220 são estes nove), contagem de chamadas a `ensureSshTunnelAsync`, e **zero `sudo` no caminho de parar**. Se os números não caírem, a inversão não aconteceu — foi só reorganização de código, que é exatamente o que esta onda afirma **não** ser |
+| R7 | ✅ **Medido, e passa — e virou teste em vez de número num documento.** `provisioning/xpra.ts` **619 → 103**; zero chamadas a `ensureSshTunnelAsync`; **não há mais caminho de parar**, logo zero `sudo` nele; e `utils/recoll-dbs.js` (300 linhas) foi junto. `tests/unit/motor-x11-poda.test.js` cobra cada um dos nove por nome, com o que ele era escrito na mensagem de falha | nada a conferir depois — mas vale registrar o tropeço: a primeira corrida do teste **reprovou pela própria prosa** que explica o corte (o cabeçalho novo cita "`20000 + uid`" para dizer que morreu). Uma guarda que proíbe uma palavra proíbe explicá-la, e o conserto barato seria apagar a explicação. A guarda passou a desnudar comentários e medir só código |

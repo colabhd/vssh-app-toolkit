@@ -94,7 +94,8 @@ não se reescreve numa tarde.
 | 2 | [Rede de classes CSS](02-apis-de-shell.md#o-que-o-critério-33-exigiu) (`client-css-classes.test.js`) — o simétrico do `client-dom-ids` que faltava | vssh-sso | ✅ concluído |
 | 2 | [Configurações refeitas](02-apis-de-shell.md#26--a-janela-de-configurações-refeita---feito) + `SettingsRegistry`, `VsshSettings`, `RemoteDesktopEngines`; o portal saiu | vssh-sso | ✅ feito |
 | 2 | [Motores](02b-motores.md) — passo 1, o registro `RemoteDesktopEngines` | vssh-sso | ✅ concluído (na 2.6) |
-| 2 | [Motores](02b-motores.md) — o motor instalável, o transporte por SSH, a preferência, e o fim dos dois perfis | vssh-sso | ⬜ não iniciado |
+| 2 | [Motores](02b-motores.md) — passos 2 e 3: o motor instalável (`vsshapp-xpra`), o transporte por SSH e a preferência `x11Engine` | vssh-sso + vsshapp-xpra | ✅ concluído · `xpra.ts` 619→103, `/proxy/desktop/` morreu |
+| 2 | [Motores](02b-motores.md#passo-4--a-inversão-de-vocabulário--27-e-sozinha-no-commit) — passo 4: sumir com "headless"/"xpraless" (37 ocorrências) | vssh-sso | ⬜ não iniciado — **sozinho no commit** |
 | 3 | FSA de verdade (`LazyFile`, `slice`, OPFS) | toolkit | ⬜ não iniciado |
 | 4 | Runtime: cgroups, GPU, múltiplas instâncias, segredos | vssh-sso | ⬜ não iniciado |
 | 5 | Composição: `provides`, pontos de extensão, mensageria, seção de Configurações por manifesto | vssh-sso + toolkit | ⬜ não iniciado |
