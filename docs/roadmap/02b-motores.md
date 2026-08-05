@@ -1,8 +1,9 @@
 # Onda 2.7 — Motores: um ambiente só, e o Xpra é um motor dele
 
-> **Estado:** 🟢 **passos 1, 2 e 3 concluídos** · falta o **passo 4** (vocabulário) · verificação
-> fechada: R1/R2/R8 contra sessão real, R4 e R9 em servidor, **R7 medido e virado teste** ·
-> abertos: **R3** e **R6** · **Atualizado:** 2026-08-05 · **Repos:** `vssh-sso` + `vsshapp-xpra`
+> **Estado:** ✅ **CONCLUÍDA — os quatro passos** · verificação fechada: R1/R2/R8 contra sessão
+> real, R4 e R9 em servidor, **R7 medido e virado teste** · abertos, e agora da
+> [2c](02c-interludio.md): **R3** e **R6** · **Atualizado:** 2026-08-06 · **Repos:** `vssh-sso` +
+> `vsshapp-xpra`
 >
 > **O número que a onda prometia:** `provisioning/xpra.ts` **619 → 103 linhas**, mais 300 de
 > `utils/recoll-dbs.js`. `/proxy/desktop/` deixou de ser um endereço.
@@ -1118,9 +1119,46 @@ A chave guarda o **id do app**, e não o do motor: é ele que o lifecycle entend
 poder oferecer um motor que está desligado — que, por estar desligado, não se registrou. Os dois
 ids coincidem por convenção, mas depender disso seria construir sobre um acidente.
 
-### Passo 4 · A inversão de vocabulário — **2.7, e sozinha no commit**
+### Passo 4 · A inversão de vocabulário — ✅ **concluído (2026-08-06)**
 
-Sumir com "headless" e "xpraless" de código, testes e docs — **37 ocorrências**, em 12 arquivos.
+> #### O que ele achou, e que não era vocabulário
+>
+> O passo foi executado sozinho no commit, como esta seção pedia. O diff é o previsto — **36
+> trocas de prosa, uma a uma, nenhuma por regex global** — mas o valor não estava nelas.
+>
+> **1 · A coluna `profile` morreu, e a razão certa não era a que este documento deu.** Ela não
+> tinha consumidor: escrita pelo admin, normalizada em `resolve-server`, devolvida em
+> `/api/shell/config` e lida por **ninguém** — o cliente nunca a leu. Depois que
+> `/proxy/desktop/` deixou de existir, nem o proxy ramificava nela. A pergunta que ela tentava
+> responder ("este servidor oferece X11?") passou a ser **observável**: o motor é um vssh-app,
+> então basta olhar se está instalado. `servers` é SCHEMALESS, então não houve migração.
+>
+> **2 · `window.VSSH_NO_XPRA` era injetado em toda página e lido por ninguém**, desde que
+> `xpraDisabled()` deixou de existir. Saiu junto, e `injectNoXpra` virou `injectShellBuild` — o
+> nome dizia o que a linha não faz mais. Sobra `__VSSH_SHELL_BUILD__`, que a
+> [2c](02c-interludio.md) vai ler.
+>
+> **3 · Um bug que já estava em produção.** O pacote do motor chamava `VsshHost.xpraDisabled()`
+> em `_do_migrate`, guardado por `typeof VsshHost !== 'undefined'` — que **não protege disso**: o
+> objeto continua existindo, quem sumiu foi o método. A condição passava e a chamada estourava,
+> no primeiro drain de pod. **Guarda que confere o objeto e chama o método é meia guarda.**
+>
+> **4 · Um teste que media o vazio.** `volume-mixer` conferia que a tag do mixer não tinha
+> `data-xpra`. O atributo aparece zero vezes no `index.html` e não há mais removedor, então a
+> asserção passaria para sempre. Asserção que não pode falhar ocupa a vaga de uma que poderia.
+>
+> #### A distinção que a rede existe para manter viva
+>
+> `tests/unit/um-ambiente.test.js` guarda os **dois** lados, e o terceiro teste dele é o que mais
+> importa: ele cobra que a varredura **não levou o mecanismo vivo junto**. Uma limpeza que
+> apagasse os dois passaria nas outras duas guardas e deixaria servidor sem stack gráfico
+> instalando o grupo X11 — o modo de falha caro, e o que a leitura apressada desta onda quase
+> produziu.
+>
+> A lista de exceções é de **afirmações**, não de conveniências: se uma delas deixar de valer, o
+> certo é apagar a linha e ver o teste cobrar o arquivo.
+
+Era: sumir com "headless" e "xpraless" de código, testes e docs.
 
 > #### ⚠ Duas correções a este passo, achadas ao conferir o estado real (2026-08-05)
 >
