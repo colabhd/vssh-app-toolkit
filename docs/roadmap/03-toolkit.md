@@ -125,7 +125,7 @@ devolvia `'0.0.0'` fixo.
 
 ### T1 — `LazyFile` é um `Blob` vazio
 
-`lib/web/fsa-polyfill.js:52-64` constrói `LazyFile extends Blob` com `super([])`. A sequência interna
+`lib/web/fsa-polyfill.js:65` constrói `LazyFile extends Blob` com `super([])`. A sequência interna
 de bytes fica vazia, e **tudo que lê o `Blob` pelo caminho da plataforma devolve 0 bytes, em
 silêncio**:
 

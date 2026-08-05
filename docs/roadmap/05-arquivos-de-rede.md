@@ -32,8 +32,15 @@ Extrair de `src/routes/system.ts` um contrato de provider — `list`, `stat`, `r
 | `s3` / `webdav` / `http-index` | datasets de rede | **não** |
 
 As montagens são declaradas por servidor/usuário e alimentadas pelo catálogo que o
-`dataset-management` já publica (`indices.json` em `bases.colabh.org`) — hoje consumido só pelo
-Recoll (`src/routes/recoll.ts`).
+`dataset-management` já publica (`indices.json` em `bases.colabh.org`), hoje consumido pelo Recoll.
+
+> **O consumo do catálogo mudou de forma, e o novo é o molde certo para as montagens.** Ele já foi
+> injetado como `--start-env=RECOLL_EXTRA_DBS` — uma constante de 300 linhas
+> (`utils/recoll-dbs.js`) despejada no ambiente da sessão X11, igual para todo mundo. Isso morreu
+> com o caminho antigo do desktop na [Onda 2.7](02b-motores.md). Hoje a seleção é **preferência de
+> usuário**, guardada em `recoll_user_active` e servida por `routes/recoll.ts`, com a distinção que
+> importa preservada: `null` = *"nunca escolhi"* (liga tudo) é diferente de `[]` = *"desliguei
+> tudo"*. Montagem por servidor/usuário tem exatamente a mesma forma, e o mesmo par de estados.
 
 ## As duas otimizações que são o ganho real
 

@@ -20,6 +20,19 @@ que o grant protegeria. Não há invariante de segurança a preservar na migraç
 - o `fsa-polyfill` passa a reidratar de estado do servidor, com o `IndexedDB` como **cache**;
 - os dois migram **juntos** — um handle sem grant é handle morto, e um grant sem handle é órfão.
 
+> **O destino ficou pronto no caminho.** Quando isto foi escrito, `/api/user/settings` era um store
+> frouxo — quatro chaves gravavam e o servidor as descartava em silêncio por não estarem em
+> `ALLOWED_KEYS`. A [Onda 2.6](02-apis-de-shell.md#26--a-janela-de-configurações-refeita---feito)
+> fechou isso: toda chave passa por `ALLOWED_KEYS` + `SANITIZE`, e `VsshSettings` dá `get`/`set`/
+> `subscribe`/`hydrate` com semeadura do `localStorage`. Duas coisas que esta migração precisa e
+> agora não precisa desenhar:
+>
+> - **`plainObject` como tipo de chave já existe** (`fileHandlers` o usa) — é a forma de um mapa
+>   aberto `caminho → grant` sem inventar coluna;
+> - **`set('a.b', v)` manda o campo de topo INTEIRO**, de propósito, porque o merge do `PUT` é raso
+>   e gravar uma folha apagava as irmãs. Um mapa de grants gravado folha a folha cairia exatamente
+>   nesse buraco — e ele já está tapado.
+
 **Não migra:** permissão da FSA **nativa**, que é do navegador e per-máquina por natureza. São dois
 regimes na mesma API, e a documentação precisa nomear qual é qual.
 
