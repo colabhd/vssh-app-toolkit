@@ -1,6 +1,6 @@
 # Onda 2c — Interlúdio: recolher o que a inversão deixou, e estabilizar a experiência
 
-> **Estado:** 🟡 em andamento — **itens 1 a 8 concluídos** · **Atualizado:** 2026-08-05 · **Repos:** `vssh-sso`, `vsshapp-xpra`, `vssh-repo` (novo, item 6)
+> **Estado:** 🟡 em andamento — **itens 1 a 9 concluídos** · **Atualizado:** 2026-08-05 · **Repos:** `vssh-sso`, `vsshapp-xpra`, `vssh-repo` (novo, item 6)
 >
 > Vem depois da [Onda 2.7 inteira](02b-motores.md), que **fechou os quatro passos**. Não é uma onda
 > de capacidade nova: é a fatura da inversão, e três defeitos que só ficaram visíveis depois dela.
@@ -726,24 +726,30 @@ falha — ou o cliente regrediu, ou o campo nasceu morto.
 
 ---
 
-## 9 · Uma tela de log que seja uma tela de log
+## 9 · Uma tela de log que seja uma tela de log — ✅ CONCLUÍDO
 
-Hoje são **duas implementações da mesma coisa**, e nenhuma das duas é um visualizador:
+> **Feito** em `22fc6e5`. 18 testes, **16/16 refutações** — uma delas só depois de apertar uma
+> guarda que passava verde. Suíte em 548.
+>
+> O item era "trocar o diálogo por uma janela". O que a medição achou foi que **o lado servidor
+> também mentia** — ver "Três vazios, e a tela antiga chamava os três de o mesmo", abaixo.
+
+Eram **duas implementações da mesma coisa**, e nenhuma das duas era um visualizador:
 
 | Onde | O que faz | O problema |
 |---|---|---|
 | Configurações → Serviços (`secoes-sistema.js:154`) | `VsshDialogs.alert(texto)` | o log inteiro **como mensagem de alerta**. E `catch { texto = '' }` engole a falha: uma leitura que deu erro aparece como *"o log está vazio"* |
 | Menu de contexto da janela (`ContextMenu.js:324`) | `VsshDialogs.textInputBox(…, { init: body })` | o log dentro de um **campo de entrada de texto**. O comentário confessa o contorno: *"o log vai no campo de texto (init), não na mensagem: assim rola e dá para copiar"* |
 
-Duas consequências que não são estéticas:
+Duas consequências que não eram estéticas:
 
 - **Elas mostram dados diferentes.** O menu de contexto traz o `run.log.1` (a execução ANTERIOR —
   justamente onde está o interessante quando o app morreu e subiu de novo); a tela de Serviços,
   não. O mesmo log, dois lugares, duas respostas.
-- **`tail=300` está fixo nos dois**, sem como pedir mais.
+- **`tail=300` estava fixo nos dois**, sem como pedir mais.
 
-E falta o que qualquer visualizador de log tem: acompanhar em tempo real, buscar, quebrar linha ou
-não, baixar, e distinguir uma linha de erro de uma linha comum.
+E faltava o que qualquer visualizador de log tem: acompanhar em tempo real, buscar, quebrar linha
+ou não, baixar, e distinguir uma linha de erro de uma linha comum.
 
 > **É uma janela, não um diálogo** — e essa é a decisão do item. Diálogo é para uma pergunta com
 > resposta curta; log é conteúdo que se lê, se rola, se procura e se deixa aberto ao lado do
@@ -752,6 +758,58 @@ não, baixar, e distinguir uma linha de erro de uma linha comum.
 >
 > As duas entradas passam a abrir **a mesma** janela, e o `run.log.1` aparece nas duas — a
 > divergência de hoje é o argumento mais forte contra manter dois caminhos.
+
+### Três vazios, e a tela antiga chamava os três de o mesmo
+
+O plano era de interface. A medição achou que o problema começava antes dela: `getAppLog`
+**devolvia `{ log: '', previous: '' }` quando a leitura falhava**. Um `sudo` recusado, um usuário
+que não existe, um shell que morreu — tudo isso chegava ao cliente como texto vazio, e a tela
+dizia *"o log está vazio"*. O `catch { texto = '' }` de Configurações era a **segunda** camada da
+mesma mentira, não a única.
+
+São três coisas distintas, e agora cada uma tem sua resposta:
+
+| O que aconteceu | O que a tela diz |
+|---|---|
+| o backend subiu e não escreveu nada | *"O log está vazio"* |
+| não há `~/.vssh-apps/<id>` neste servidor | *"Este app ainda não foi executado"* — o log nasce no primeiro start |
+| a leitura falhou | o motivo, em vermelho, **sem apagar o que já estava na tela** |
+
+O último é a garantia do item 5 aplicada aqui: uma atualização que falha não pode levar embora o
+stack trace que a pessoa está lendo.
+
+### O que veio junto
+
+- **`src/utils/app-log.ts`** — o comando remoto e o parser da resposta saíram de dentro do
+  `getAppLog`. Enquanto estavam colados no `ssh.execCommand`, a única forma de exercitá-los era
+  ter um servidor; agora são função pura, e é contra o objeto que ela devolve que a guarda mede os
+  dois lados.
+- **O marcador em banda ficou namespaced, e a busca do segundo é do fim para o começo.** Uma ida
+  só ao servidor traz as duas execuções, separadas por um marcador no `stdout` — e o log pode
+  conter o marcador. No pior caso agora estraga a execução *anterior*; nunca a atual, que é a que
+  está sendo lida.
+- **O teto do `tail` passou a morar num lugar só.** Eram `300` fixo nas duas telas e um clamp
+  próprio na rota. Agora é `limitarLinhas`, e a janela deixa escolher 200/500/1000/5000.
+- **`--ds-warn`.** O âmbar de aviso estava escrito à mão em **cinco** lugares, três deles com um
+  comentário dizendo *"o mesmo de"* outro — que é a descrição exata de um token que faltava.
+
+### Acompanhar é polling, e nasce desligado
+
+Cada atualização é um `tail` remoto por SSH, não um socket que fica aberto de graça. Um `tail -f`
+de verdade exigiria rota de streaming e um processo remoto vivo por espectador — **superfície
+nova numa onda cujo critério é o oposto disso**. Então: intervalo fixo, ligado por quem quer,
+pausado enquanto a janela está minimizada ou a aba escondida, e morto no `close()`. Uma janela
+esquecida aberta não fica batendo no servidor para sempre.
+
+E o resto do que um visualizador tem: filtrar linhas (com realce e contagem), quebrar linha ou
+não, baixar o arquivo, e tingir erro e aviso — **tingir, e não filtrar**: a classificação é por
+padrão de texto, então ela erra às vezes, e um teste que escondesse linhas com base num palpite
+seria pior que nenhum.
+
+> **A guarda que quase não pegou.** *"Fechar a janela mata o intervalo"* estava escrita como
+> `/_onClose\(\)[\s\S]*?_pararDeSeguir\(\)/` — e um `[\s\S]*?` solto atravessa o arquivo inteiro
+> até encontrar a **definição** do método lá embaixo. Ela passava verde com a chamada removida. É
+> a mesma família do que o item 8 achou duas vezes: uma guarda que aceita evidência de perto.
 
 ## 10 · Os dois riscos que a 2.7 deixou por medir
 
@@ -814,6 +872,11 @@ um app instalado que nunca sobe, e o operador descobre pelo usuário.
   `session-heartbeat.test.js` (15) carrega o `VsshApi` e o `SessionMonitor` num escopo de página
   falso. **12/12 refutações capturadas**, incluindo as duas que mais importam: o observador que
   troca a resposta e o que engole a rejeição.
+- ✅ **A junção do item 9**, pela mesma razão do item 8: `log-window.test.js` (18) mede o parser do
+  servidor e a janela do cliente **contra o mesmo objeto** — e a asserção exige `dado.<campo>`, a
+  leitura, não a menção ao nome. O cliente guarda um objeto com as mesmas chaves, então procurar
+  pelo nome passaria verde num cliente que tivesse parado de ler o que o servidor manda.
+  **16/16 refutações capturadas.**
 - `lint`, `tsc` e a suíte inteira, como sempre.
 
 **Manual, e é o gate:**

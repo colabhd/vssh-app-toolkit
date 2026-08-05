@@ -331,8 +331,10 @@ então a página carrega e você desenvolve o resto normalmente.
 6. Se algo falhar: você tem **dois** logs, e eles se complementam.
    - **`~/.vssh-apps/<id>/run.log`** — stdout/stderr do backend, gravado pelo lifecycle. Legível
      sem SSH: clique direito no cabeçalho da janela do app → **Ver log do backend** (ou
-     `GET /api/apps/<id>/log?tail=300`). É rotacionado para `run.log.1` a cada start, então o
-     registro da execução que morreu não se perde.
+     `GET /api/apps/<id>/log?tail=<n>`, com teto de 5000 linhas). É rotacionado para `run.log.1` a
+     cada start, então o registro da execução que morreu não se perde — e é a **execução anterior**
+     que responde quando o app caiu e subiu de novo, então a janela de log mostra as duas, com
+     filtro, acompanhamento ao vivo e download. Configurações → Serviços abre a mesma janela.
    - **`$VSSH_APP_DATA_DIR/app.log`** — o seu log, estruturado, sobrevivendo a reinício. Use
      `lib/node/app-log.js` do toolkit: são vinte linhas e uma linha por falha com operação,
      caminho e código. Frame minificado no console sustenta hipótese; isto aqui dá a resposta.
