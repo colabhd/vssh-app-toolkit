@@ -1,6 +1,6 @@
 # Onda 2c — Interlúdio: recolher o que a inversão deixou, e estabilizar a experiência
 
-> **Estado:** 🟡 em andamento — **itens 1 a 6 concluídos** · **Atualizado:** 2026-08-05 · **Repos:** `vssh-sso`, `vsshapp-xpra`, `vssh-repo` (novo, item 6)
+> **Estado:** 🟡 em andamento — **itens 1 a 7 concluídos** · **Atualizado:** 2026-08-05 · **Repos:** `vssh-sso`, `vsshapp-xpra`, `vssh-repo` (novo, item 6)
 >
 > Vem depois da [Onda 2.7 inteira](02b-motores.md), que **fechou os quatro passos**. Não é uma onda
 > de capacidade nova: é a fatura da inversão, e três defeitos que só ficaram visíveis depois dela.
@@ -524,13 +524,45 @@ de lugar**, porque o Worker publicado é o mesmo — a extração é do fonte, n
 
 ---
 
-## 7 · `connect.html`
+## 7 · `connect.html` — ✅ CONCLUÍDO
+
+> **Feito** em `c9356b7`. **−2177 linhas**, 15 arquivos. 4 testes, **5/5 refutações**.
+>
+> Era para ser o menor item da onda. Foi o que mais cresceu ao ser medido — e cresceu de um jeito
+> específico, que é o achado: **as coisas mortas apontavam umas para as outras.**
 
 73 KB do diálogo de conexão do **upstream** do xpra-html5, ainda em `vssh-client/`. Inalcançável
 desde que o `callback_close` deixou de redirecionar (Onda 2.7), e sem decisão desde então.
 
 É o menor item da onda e o mais alinhado com o tema: **peso morto que ninguém nomeia é exatamente o
 que a 2c existe para não deixar acontecer.**
+
+### O que a medição achou
+
+**Ele não estava só inalcançável: estava quebrado.** Nove das suas dezesseis referências apontavam
+para arquivos que saíram com o pacote do motor na 2.7 (`VideoDecoder.js`, `RgbHelpers.js`,
+`Utilities.js`, `MediaSourceUtil.js`, `OffscreenDecodeWorkerHelper.js`, os quatro do `lib/aurora/`).
+Abrir aquela página teria mostrado nove 404 no console, não um diálogo de conexão.
+
+E cada peça morta sustentava a próxima:
+
+| Também saiu | Por quê |
+|---|---|
+| **`player.html`** (9,6 KB) | sem chamador em repositório nenhum — e carregava o `video.js` de um **CDN**, contra a mesma disciplina que trouxe a fonte do ambiente para dentro do repo na Onda 2.2 |
+| **Dez ícones** | as decorações de janela do upstream (`close`, `maximize`, `minimize`, `fullscreen`, `unfullscreen`) já estavam órfãs; `eye`, `eye-slash`, `noicon` e `xpra-logo` só o `connect.html` pedia; e o `authentication.png` só o CSS abaixo |
+| **138 linhas de CSS**, em **dois** blocos | o diálogo de login do upstream (`#login-overlay`, `#login-box`, `#password-box`, `.login-button`…) e um segundo bloco, *"CPPS Branding Overrides"*, repintando **os mesmos seletores** com os tokens do tema. Nenhum arquivo monta aquele DOM — nem aqui, nem no `vsshapp-xpra` |
+
+### A rede que faltava, e por que ela não era redundante
+
+> ⚠ **O CSS morto passou por baixo do `client-css-classes.test.js`, e a razão é estrutural.**
+> Aquela rede pergunta *"toda classe USADA está estilizada ou consultada?"* — a direção que pega o
+> erro de digitação, e que ela existe para pegar. A direção contrária, *"toda regra tem markup?"*,
+> ela não faz. Por isso 138 linhas ficaram ali sem ninguém notar.
+
+O mesmo eixo, para asset, virou `tests/unit/peso-morto-do-upstream.test.js`: **todo arquivo de
+`icons/` e `fonts/` é pedido por alguém.** É a pergunta que o `client-assets.test.js` — *"todo
+asset pedido existe?"* — não faz, e sem ela dez ícones ficaram em disco por três ondas, servidos e
+versionados.
 
 ---
 
