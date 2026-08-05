@@ -1030,13 +1030,30 @@ A ordem que sobra, e ela importa: **R4 antes de escrever o pacote.** É ela que 
 xpra que forka e destaca não é supervisionável por `run.pid`, e isso muda o entrypoint, não um
 detalhe dele.
 
-### Passo 3 · A preferência — **2.7**
+### Passo 3 · A preferência — ✅ **concluído**
 
-A chave `x11Engine` no schema, com sanitizador. Tem uma decisão de produto pendente que o registro
-não tem: **hoje "tem Xpra" é fato do servidor, não escolha do usuário**, e virar preferência exige
-resolver o que acontece quando as duas discordam. Enquanto isso não estiver decidido, a linha
-"Motor X11" mostra o fato e não aceita escolha — é honesto e não é um botão morto, que é o estado
-atual (`planejado: true`, sem `chave`).
+`x11Engine` entrou no schema, com sanitizador, e a linha "Motor X11" deixou de ser `planejado`.
+
+**A decisão de produto que travava a linha evaporou**, e vale registrar por quê. Ela era: *o que
+acontece quando alguém pede Xpra num servidor sem X11 provisionado?* Depois do passo 2 não há como
+pedir — a lista do seletor sai de `/api/apps` e só contém motores **instalados**. Um motor que não
+está no servidor não é uma opção que exista.
+
+**O padrão é Desabilitado**, e isso é decisão, não omissão. O ambiente é completo sem X11; ligar o
+motor para todo mundo faria quem nunca abre uma aplicação gráfica pagar um Xvfb, um pulseaudio e
+1,42 MB de cliente — e faria o ambiente sem X11 parecer o caso degradado, que é a leitura que esta
+onda inteira desfez. O eager-start passou a consultar a chave: um motor não escolhido não é
+iniciado, não é baixado e não custa nada.
+
+**E a troca vale na hora.** O texto anterior desta seção previa um "vale a partir da próxima
+sessão", e era resquício de quando havia amarra. Não há: o motor tem o lifecycle de app — sobe,
+para e reinicia sob demanda — e o lado-cliente conecta e desconecta sozinho. `MotoresX11.aplicar()`
+desliga derrubando a sessão e parando o backend, e liga subindo o backend, carregando o
+lado-cliente se ele ainda não veio nesta página, e conectando.
+
+A chave guarda o **id do app**, e não o do motor: é ele que o lifecycle entende, e a linha precisa
+poder oferecer um motor que está desligado — que, por estar desligado, não se registrou. Os dois
+ids coincidem por convenção, mas depender disso seria construir sobre um acidente.
 
 ### Passo 4 · A inversão de vocabulário — **2.7, e sozinha no commit**
 
