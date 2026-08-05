@@ -308,6 +308,13 @@ eles ocupariam cota para sempre, sem ninguém para lê-los.
 
 > **Feito** em `670ce3d`. **18 testes novos, 12/12 refutações** capturadas; suíte em 508.
 >
+> ⚠ **E não funcionava** — corrigido em `cffa724`, depois de ser notado em uso. O `sw.js` casava
+> `/ping` por **sufixo**, então o batimento novo (`/:serverId/api/session/ping`) era respondido
+> pelo próprio service worker com `text/plain` "pong". O portal nunca via a requisição — a sessão
+> não renovava — e o shell, esperando JSON, lia aquilo como erro de parse, que o `SessionMonitor`
+> traduz para *"o portal está fora"*. **O sintoma era o oposto do diagnóstico**, e nenhum teste
+> pegava: os dois lados estavam certos isoladamente. Ver "A colisão do `/ping`", abaixo.
+>
 > Os quatro passos saíram na ordem prevista. O que mudou foi o **tamanho do passo 2**: as 98
 > chamadas não foram migradas, e não por falta de fôlego — ver "A decisão sobre as 98", abaixo.
 
@@ -395,6 +402,37 @@ do botão de volume morto da Onda 2.1. Três estados, e cada um só existe enqua
 A última fecha o laço que o item 3 deixou aberto. A maquinaria antiga recarregava a página por
 conta própria, com overlay e timer; ela nunca rodou, e não volta assim — **agir pelas costas de
 quem está trabalhando é pior que não avisar**.
+
+### A colisão do `/ping` — o item não funcionava, e o sintoma mentia
+
+Notado **em uso**, não em teste, e é o achado mais desconfortável da onda: `"o pong tá cacheando"`.
+
+O `mitm.html` do StreamSaver pede **um** endereço — a raiz do escopo mais `/ping` — e o `sw.js`
+casava por **sufixo**: `url.href.endsWith('/ping')`. Enquanto aquele foi o único ping do ambiente,
+a diferença entre "esta URL" e "qualquer URL terminada assim" não custou nada.
+
+O item 4 criou `/:serverId/api/session/ping`. A partir dali, para todo mundo cuja página estivesse
+sob controle do service worker:
+
+- **o portal nunca via a requisição** — ou seja, a sessão parava de renovar, que é a coisa inteira
+  que o batimento faz. O item 4 estava desligado sem que nada dissesse isso;
+- o shell recebia `text/plain` "pong" onde esperava JSON → o `VsshApi` classifica como erro de
+  **parse** → o `SessionMonitor` lê qualquer falha não-401 como **"o portal está fora"** → a
+  bandeja mostrava um aviso permanente. **O sintoma era o oposto do diagnóstico**: parecia portal
+  caído, era o próprio cliente respondendo a si mesmo.
+
+**Nenhum teste pegava, e não por descuido: os dois lados estavam certos isoladamente.** O do SW
+media que o ping do StreamSaver é atendido; o do heartbeat media que o monitor reage a 200/401/rede
+— com um `fetch` de mentira, que não passa por service worker nenhum. O defeito só existe na
+junção, e a junção não tinha dono.
+
+A comparação passou a ser com a **URL exata**, e a guarda nova é a que faltava: *o SW não sequestra
+outras rotas terminadas em `/ping`*. E o `/api/session/ping` ganhou `Cache-Control: no-store` pelo
+mesmo motivo de fundo — **o efeito colateral É o ponto da rota**, e uma resposta servida de
+qualquer cache chegaria igual com o portal fora do ar.
+
+> **A lição, e ela vale para o resto da roadmap:** um service worker que casa por sufixo responde
+> por rotas que ainda não existem. Interceptação no cliente é acoplamento a nomes futuros.
 
 ---
 
