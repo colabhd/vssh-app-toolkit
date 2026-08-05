@@ -50,7 +50,7 @@ npm acessível num exec não-interativo por SSH, e o `vssh-app-publish` empacota
 | Peça | Para quê |
 |---|---|
 | `lib/web/vssh-app-shim.js` | **A ponte com o desktop**: `vssh.dialog`, `vssh.notify`, `vssh.pickFile`, `vssh.fs`, `vssh.window`, `vssh.contextMenu`, `vssh.tabs`, `vssh.capabilities`. Fora do desktop cada função **degrada** para o equivalente do navegador em vez de lançar. |
-| `lib/web/fsa-polyfill.js` | File System Access API (`showDirectoryPicker()` e cia.) sobre o `/api/fs/*` do portal — um web app que já usa FSA roda **sem fork**. Requer o shim carregado antes. ⚠ Tem limites estruturais conhecidos: veja [`docs/roadmap/03-toolkit.md`](docs/roadmap/03-toolkit.md#onda-3--a-fsa-de-verdade) antes de depender dele. |
+| `lib/web/fsa-polyfill.js` | File System Access API (`showDirectoryPicker()` e cia.) sobre o `/api/fs/*` do portal — um web app que já usa FSA roda **sem fork**. Requer o shim carregado antes. ⚠ Tem limites estruturais conhecidos: veja [`docs/roadmap/03-toolkit.md`](docs/roadmap/03-toolkit.md#t1--lazyfile-é-um-blob-vazio) antes de depender dele. |
 | `lib/web/electron-shim.js` | Superfície padrão do Electron (`dialog`, `shell`, `clipboard`, `Notification`, controles de janela) mapeada para o shim. Para portar um app Electron sem reescrever as chamadas. |
 | `lib/web/tauri-shim.js` | Idem para a superfície padrão do Tauri (`fs`, `dialog`, `shell`, `notification`, `path`). |
 

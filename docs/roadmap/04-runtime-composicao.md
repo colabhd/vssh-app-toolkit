@@ -1,6 +1,13 @@
 # Ondas 4 e 5 — Runtime de apps e composição do ecossistema
 
-> **Estado:** não iniciado · **Atualizado:** 2026-08-02 · **Repos:** `vssh-sso` + toolkit
+> **Estado:** não iniciado · **Atualizado:** 2026-08-05 · **Repos:** `vssh-sso` + toolkit
+>
+> Revisado contra o código em 2026-08-05, junto com a [Onda 3](03-toolkit.md). O que mudou: a
+> **Onda 4 começa pelo healthcheck**, que absorveu o que a
+> [2c](02c-interludio.md#r3--o-que-sobrou-não-justifica-uma-vm) mediu (**`ready` hoje
+> significa "alguém respondeu"**); `kind:"service"` **com janela** e a metade que verifica o
+> `requiredPackages` ganharam dono aqui; e a Onda 5 passou a ter um item de **contrato do
+> manifesto**, que absorveu o `minShellVersion` da Onda 3.
 
 ---
 
@@ -8,54 +15,67 @@
 
 O que falta para um app ser um cidadão de primeira classe do ambiente, e não um processo solto.
 
-### Limites de recurso
-
-Não há cgroup nem `systemd-run` por app. **Um treino desgovernado derruba a sessão inteira do
-usuário** — inclusive o shell, o gerenciador de arquivos e os outros apps.
-
-Caminho: `systemd-run --scope --user` com `MemoryMax`/`CPUQuota`, ou cgroup v2 direto no
-`vssh-app-run`. Declarável no manifest, com default generoso.
-
-> **Um pré-requisito silencioso já foi pago.** Conter recurso exige um **grupo de processos** —
-> senão o limite alcança o processo declarado e não os filhos que ele gera, que é justamente onde
-> um treino desgoverna. A [Onda 2.7](02b-motores.md) deu um a todo vssh-app ao consertar outra
-> coisa: `nohup setsid vssh-app-run` no spawn e `_killAppTree` na parada, feitos porque o Xpra
-> deixava órfãos os filhos de `--start=`. Com `setsid`, **PGID == PID == `run.pid`** — que é
-> exatamente o identificador que um `systemd-run --scope` ou um cgroup v2 precisa receber.
-
-> A opção de usar unidades systemd para o **lifecycle** já foi avaliada e rejeitada em
-> `vssh-sso/docs/refactor-backlog.md`. Isto aqui é diferente: usar systemd só para **conter**
-> recursos, mantendo o lifecycle onde está.
-
-### GPU como conceito de runtime
-
-Hoje GPU existe só no provisionamento (`vssh-provision.sh --gpu`, que passa o passthrough ao host e
-delega a config de Xorg ao `provision-base.sh --gpu` dentro do guest). Não há API de runtime, nem
-agendamento, nem pedido por app, nem visibilidade no portal.
-
-Mínimo viável: `gpu: true` no manifest, `CUDA_VISIBLE_DEVICES` injetado no processo, e o estado
-visível em Configurações. Sem isso, o arquétipo B3 (inferência) não tem como conviver com outros
-consumidores da mesma placa.
-
-### Múltiplas instâncias e múltiplas janelas
-
-Uma instância por `(usuário, app)`, uma janela por app. Isso bloqueia A1 diretamente — um pesquisador
-quer dois notebooks abertos lado a lado, não abas dentro de uma janela.
-
-Interage com `Window Management (getScreenDetails)` do [critério do navegador](criterios.md#31--o-navegador-já-faz-isso)
-para o caso multi-monitor.
+> **A ordem daqui não é a ordem de tamanho — é a de razão.** O healthcheck vem primeiro: ele
+> destrava A2 (que o [`casos-de-uso.md`](casos-de-uso.md) já chama de *"quase pronto"*), fecha o
+> suspeito B de *"atualizei o app e nada mudou"*, e o canal por onde a resposta chega **já existe**
+> desde a Onda 1. Depois vêm as duas coisas que decidem se A1 precisa de mecanismo novo ou de um
+> teste. Limites de recurso, GPU e cofre de segredos são maiores, e nenhum deles desbloqueia um
+> arquétipo sozinho.
 
 ### Healthcheck assíncrono
 
 `POST /api/apps/:id/start` faz poll do healthcheck até 15×1 s **de forma síncrona, bloqueando o
-clique do usuário**. Streamlit, Panel e RStudio demoram a subir — o resultado é uma janela que parece
-travada.
+clique do usuário** (`vssh-apps.ts:570`). Streamlit, Panel e RStudio demoram a subir — o resultado é
+uma janela que parece travada.
 
 Caminho: devolver imediatamente com estado `starting`, e a janela mostrar "carregando" até o
 **`/ws/events`** avisar que subiu — o canal já é por sessão e existe **no ambiente**, com ou sem
 motor X11, desde a [Onda 1](01-sessao-sem-xpra.md); não há segundo socket a criar (ver
 [Onda 2.0](02-apis-de-shell.md#canal-shellnavegador-usar-o-wsevents-não-criar-um-segundo)). É o
 atrito que separa A2 de "quase pronto" para "pronto".
+
+> **Antes de tornar o sinal assíncrono, torná-lo verdadeiro.** A revisão do item 10 da
+> [Onda 2c](02c-interludio.md#r3--o-que-sobrou-não-justifica-uma-vm) mediu duas coisas que este
+> parágrafo não sabia:
+>
+> - **`ready` significa hoje "alguém respondeu", não "o app está servindo".** O `curl` do poll não
+>   manda o `X-Vssh-App-Token`, então um app que feche a porta por token devolve `403` — que não é
+>   5xx, e conta como pronto. O motor Xpra não faz isso (serve estático), mas o próximo app que
+>   fizer passa no healthcheck sem servir nada.
+> - **5xx já não conta como pronto** (`lastCode !== '000' && !startsWith('5')`), e a resposta já
+>   reporta `ready`/`lastCode` (`routes/apps.ts:167`). A frase da 2.7 que dizia *"o poll aceita
+>   qualquer coisa que não seja `000`"* descreve um poll que mudou.
+>
+> Propagar por WebSocket um `ready` que quer dizer "alguém respondeu" só faz o sinal fraco chegar
+> mais rápido — e num canal onde a janela vai confiar nele para sair do "carregando".
+
+### `kind:"service"` **com** janela — o caso que ninguém mediu
+
+`routes/apps.ts:75-81` diz que `kind` (lifecycle) é **ortogonal** a `type` (janela / sem janela), e
+o launcher só filtra `type === 'engine'`. Ou seja, um app supervisionado **com** janela é
+declarável hoje e aparece no menu.
+
+O [`casos-de-uso.md`](casos-de-uso.md) chamava isso de *"combinação não suportada"* e dizia que o
+*"kernel morre com a janela"* — **os dois estavam errados**, e a revisão de 2026-08-05 conferiu:
+fechar a janela não para backend nenhum (`VsshAppWindow._onClose` só solta listeners do cliente; o
+único `/stop` do ambiente é o botão de Configurações → Serviços).
+
+O que sobra é uma medição de meia hora, e ela pertence a esta onda porque é sobre lifecycle:
+
+1. o supervisor relança um serviço que caiu **enquanto a janela dele está aberta**?
+2. a janela reata ao processo novo, ou fica apontando para uma porta morta?
+
+É o que separa A1 de "precisa de mecanismo novo" para "precisa de um teste".
+
+### Múltiplas instâncias e múltiplas janelas
+
+Uma instância por `(usuário, app)`, uma janela por app — **conferido**: `AppLauncher.findWindow`
+devolve a janela existente em vez de abrir a segunda. Isso bloqueia A1 diretamente — um pesquisador
+quer dois notebooks abertos lado a lado, não abas dentro de uma janela. É o **único** bloqueio de A1
+que continua de pé depois da revisão (ver a seção acima).
+
+Interage com `Window Management (getScreenDetails)` do [critério do navegador](criterios.md#31--o-navegador-já-faz-isso)
+para o caso multi-monitor.
 
 ### ~~"Atualizei o app e nada mudou" — o par de suspeitos~~ · ✅ **o suspeito A caiu; sobrou o B**
 
@@ -89,6 +109,53 @@ reinício. **O conserto é o healthcheck assíncrono acima** — o poll síncron
 passou a reportar `ready`/`lastCode` (`routes/apps.ts:166`), então o cliente **avisa** em vez de
 mostrar um iframe branco. É mitigação do sintoma, não a saída do bloqueio.
 
+### `requiredPackages` — a metade que verifica
+
+O campo no manifesto e a validação no publish são da
+[Onda 3](03-toolkit.md#requiredpackages--o-app-declara-de-que-pacote-linux-ele-precisa). **A
+verificação é daqui**, porque quem sabe o que existe num servidor é o portal:
+
+1. **`vssh-app-install` recusa antes de instalar**, com o nome do pacote que falta — em vez de
+   instalar um app que nunca vai subir. O instalador já falha alto por outros motivos e o motivo
+   já chega à aba admin desde a [Onda 2c](02c-interludio.md#r6--a-resposta-estava-no-código-e-o-erro-morria-na-última-linha),
+   então isto entra num caminho que já funciona;
+2. **o painel admin mostra o que falta por servidor** — é a mesma pergunta que o provisionamento já
+   responde para os grupos de pacotes (`provision-base.sh --print-packages`, com fixture em
+   `tests/unit/provision-packages.test.js`), agora por app.
+
+> **Herda a pergunta do [registro de capabilities](#registro-de-capabilities), e a resposta é uma
+> só para os dois:** o que fazer quando falta — recusar, avisar, ou instalar. Decidir isso duas
+> vezes é como se acaba com dois comportamentos para a mesma frustração.
+
+### Limites de recurso
+
+Não há cgroup nem `systemd-run` por app. **Um treino desgovernado derruba a sessão inteira do
+usuário** — inclusive o shell, o gerenciador de arquivos e os outros apps.
+
+Caminho: `systemd-run --scope --user` com `MemoryMax`/`CPUQuota`, ou cgroup v2 direto no
+`vssh-app-run`. Declarável no manifest, com default generoso.
+
+> **Um pré-requisito silencioso já foi pago.** Conter recurso exige um **grupo de processos** —
+> senão o limite alcança o processo declarado e não os filhos que ele gera, que é justamente onde
+> um treino desgoverna. A [Onda 2.7](02b-motores.md) deu um a todo vssh-app ao consertar outra
+> coisa: `nohup setsid vssh-app-run` no spawn e `_killAppTree` na parada, feitos porque o Xpra
+> deixava órfãos os filhos de `--start=`. Com `setsid`, **PGID == PID == `run.pid`** — que é
+> exatamente o identificador que um `systemd-run --scope` ou um cgroup v2 precisa receber.
+
+> A opção de usar unidades systemd para o **lifecycle** já foi avaliada e rejeitada em
+> `vssh-sso/docs/refactor-backlog.md`. Isto aqui é diferente: usar systemd só para **conter**
+> recursos, mantendo o lifecycle onde está.
+
+### GPU como conceito de runtime
+
+Hoje GPU existe só no provisionamento (`vssh-provision.sh --gpu`, que passa o passthrough ao host e
+delega a config de Xorg ao `provision-base.sh --gpu` dentro do guest). Não há API de runtime, nem
+agendamento, nem pedido por app, nem visibilidade no portal.
+
+Mínimo viável: `gpu: true` no manifest, `CUDA_VISIBLE_DEVICES` injetado no processo, e o estado
+visível em Configurações. Sem isso, o arquétipo B3 (inferência) não tem como conviver com outros
+consumidores da mesma placa.
+
 ### Cofre de segredos
 
 Um app que fala com banco, com S3 ou com uma API externa não tem onde guardar credencial. Cada app
@@ -99,6 +166,39 @@ inventa o seu — normalmente um arquivo em texto plano no `VSSH_APP_DATA_DIR`.
 ## Onda 5 — Composição do ecossistema
 
 Hoje o ecossistema **não compõe**: cada consumidor de motor fica acoplado a um produtor específico.
+
+### O contrato do manifesto: um schema, uma validação, uma guarda
+
+Vem primeiro porque **três ondas escrevem no mesmo arquivo** e nenhuma era dona dele:
+
+| Onda | Campos |
+|---|---|
+| [3](03-toolkit.md) | `requiredPackages` |
+| [4](#requiredpackages--a-metade-que-verifica) | limites de recurso, `gpu: true` |
+| 5 (aqui) | `provides: [...]`, `minShellVersion` / `targetShellVersion`, a seção de Configurações |
+
+Todos precisam das mesmas três coisas: entrada no `schema/vssh-app.schema.json`, validação no
+`vssh-app-publish`, e um consumidor no portal. Feito uma vez, paga pelas três; feito três vezes,
+são três noções do mesmo contrato livres para divergir.
+
+**E o schema hoje não segura nada:** ele é `"additionalProperties": true` na raiz — campo novo não
+quebra nada, e **campo com erro de digitação também não**. O `engine.loader`, que a
+[2.7](02b-motores.md) pôs em produção, só está declarado porque alguém lembrou de declarar. A
+guarda que falta é a mesma que a Onda 2c usou nos itens 8 e 9, na direção que importa aqui: **todo
+campo que o portal lê está no schema.** Um campo que o portal lê e o schema não conhece é um
+contrato que existe só na cabeça de quem escreveu os dois lados.
+
+O `minShellVersion` entra aqui, e não na Onda 3, por esse motivo — ele e o `provides` são o mesmo
+trabalho com nomes diferentes. A metade que **publica** a versão já existe
+([Onda 2c](02c-interludio.md#o-que-veio-junto-e-são-duas-identidades)); o que falta é o campo, a
+validação no publish e a mensagem quando não bate.
+
+> **Não versionar por reflexo.** Um `minShellVersion` obrigatório transformaria toda API nova em
+> quebra de compatibilidade declarada, que é a burocracia sem o benefício. O padrão é **não
+> declarar**, e quem declara está dizendo *"eu uso uma coisa que não existia antes"* — a mesma
+> regra do `engines` do npm, pelo mesmo motivo. E ele **não substitui** o `vssh.capabilities()`:
+> um é gate de publish, o outro é decisão de runtime — o quadro está na
+> [Onda 3, no T7](03-toolkit.md#t6-e-t7--as-duas-dívidas-que-não-tinham-onda).
 
 ### Registro de capabilities
 

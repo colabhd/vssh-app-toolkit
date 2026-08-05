@@ -242,10 +242,11 @@ asset que está em disco. **O boot morre**, dizendo o nome do arquivo.
 
   > **O que entra aqui é só a metade que PUBLICA.** A versão passa a existir, a ser servida em
   > `/api/shell/config` e a aparecer nas Configurações. **Quem a CONSOME é a
-  > [Onda 3](03-toolkit.md#o-shell-tem-versão-e-o-app-pode-exigi-la)** — o campo no manifesto, a
-  > validação no publish e a mensagem quando não bate. A divisão é deliberada: publicar uma versão
-  > é barato e não tem consumidor a quebrar; declarar contrato sobre ela é decisão de toolkit, e o
-  > lugar dela é junto com `requiredPackages`, que atravessa a mesma fronteira.
+  > [Onda 5](04-runtime-composicao.md#o-contrato-do-manifesto-um-schema-uma-validação-uma-guarda)**
+  > — o campo no manifesto, a validação no publish e a mensagem quando não bate. A divisão é
+  > deliberada: publicar uma versão é barato e não tem consumidor a quebrar; declarar contrato
+  > sobre ela exige schema, validação e guarda de junção, que é o mesmo trabalho do `provides` —
+  > e por isso os dois ficaram juntos, na revisão de 2026-08-05.
 
 ### A perda, declarada
 

@@ -1,6 +1,7 @@
 # Casos de uso — 20 arquétipos e o que bloqueia cada um
 
-> **Estado:** vigente · **Atualizado:** 2026-08-01
+> **Estado:** vigente · **Atualizado:** 2026-08-05 (revisão contra o código: A1, A4 e A5 tinham
+> bloqueios que já não existem — ver as notas ⁽¹⁾ e ⁽²⁾)
 
 O que faz sentido rodar num ambiente remoto voltado a pesquisa, e o que falta em cada caso. As
 referências apontam para [diagnostico.md](diagnostico.md) e para as ondas.
@@ -9,14 +10,28 @@ referências apontam para [diagnostico.md](diagnostico.md) e para as ondas.
 
 | # | Arquétipo | Exemplos | Bloqueio hoje |
 |---|---|---|---|
-| A1 | Notebook / IDE científico | JupyterLab, RStudio, Marimo, Positron | Kernel morre com a janela — precisa de `kind:"service"` **com** janela, combinação não suportada; uma janela por app; sem aviso de célula longa |
+| A1 | Notebook / IDE científico | JupyterLab, RStudio, Marimo, Positron | Uma janela por app ([Onda 4](04-runtime-composicao.md)); `kind:"service"` **com** janela ninguém mediu — ver a nota ⁽¹⁾; sem aviso de célula longa |
 | A2 | Dashboard de dados | Streamlit, Panel, Dash, Voilà, Shiny | **Quase pronto.** Atrito: o healthcheck síncrono de 15 s bloqueia o clique e esses frameworks demoram a subir; sem warm-start ([Onda 4](04-runtime-composicao.md)) |
 | A3 | Visualizador científico | Parquet, HDF5, Zarr, NetCDF, FITS, DICOM, OME-TIFF | **T1 e T2** ([Onda 3](03-toolkit.md)); e `SharedArrayBuffer` para os que usam WASM multi-thread |
-| A4 | Editor / gestão de conhecimento | Logseq (portado), Obsidian, Zotero, Joplin, LaTeX | **T5**; uma janela por app; colar imagem depende da API de clipboard ([Onda 2](02-apis-de-shell.md)) |
-| A5 | Anotação / rotulagem | CVAT, Label Studio, anotação de áudio/vídeo | Sem ponte com o clipboard de arquivos do shell; sem drag-and-drop do gerenciador para o app; disputa de teclado só resolvida **com o motor X11 ligado** |
+| A4 | Editor / gestão de conhecimento | Logseq (portado), Obsidian, Zotero, Joplin, LaTeX | **T6** (a ponte `fs` sem `exists`/`rename`/`copy`); uma janela por app ([Onda 4](04-runtime-composicao.md)) — ver a nota ⁽²⁾ |
+| A5 | Anotação / rotulagem | CVAT, Label Studio, anotação de áudio/vídeo | Sem drag-and-drop do gerenciador para o app; disputa de teclado só resolvida **com o motor X11 ligado** — ver a nota ⁽²⁾ |
 | A6 | Terminal | — | Questão em aberto ([diagnostico](diagnostico.md#15-questões-em-aberto)) |
 | A7 | Navegador | Scramjet engine (+ extensão MV2) | Questão em aberto |
 | A8 | Banco / consulta | DuckDB UI, pgAdmin, SQLite browser, Trino | Sem cofre de segredos ([Onda 4](04-runtime-composicao.md)); sem descoberta entre apps ([Onda 5](04-runtime-composicao.md)) |
+
+> ⁽¹⁾ **Três bloqueios de A1 caíram na revisão de 2026-08-05, e o texto anterior os afirmava.**
+> *"Kernel morre com a janela"* — **não morre**: `VsshAppWindow._onClose` só solta listeners do
+> cliente, nada no shell chama `/stop`, e o backend sobe com `nohup setsid`. O único `/stop` do
+> ambiente é o botão de Configurações → Serviços, que é ação explícita. E `kind:"service"` **com**
+> janela não é *"combinação não suportada"*: `routes/apps.ts:75-81` diz que `kind` (lifecycle) é
+> **ortogonal** a `type` (janela/sem janela), e o launcher só filtra `type === 'engine'`. O que
+> ninguém mediu é o resto — o supervisor relançando um serviço com janela aberta, e a janela
+> reatando ao processo novo. **Nenhuma onda é dona dessa medição**, e ela é barata.
+>
+> ⁽²⁾ **O clipboard saiu da lista.** A ponte de arquivos existe (`vssh.clipboard.files()`, e imagem
+> por `vssh.clipboard.readImage()`, [`docs/api.md`](../api.md)) desde a Onda 2. A4 citava **T5**,
+> que foi corrigido na Onda 0 — o que sobra dali é o **T6**. Sobra também o drag-and-drop do
+> gerenciador para dentro do app, que não está em onda nenhuma.
 
 ## Categoria B — Motores (`type: "engine"`)
 
