@@ -1,6 +1,6 @@
 # Onda 2c — Interlúdio: recolher o que a inversão deixou, e estabilizar a experiência
 
-> **Estado:** 🟡 em andamento — **itens 1, 2 e 3 concluídos** · **Atualizado:** 2026-08-05 · **Repos:** `vssh-sso`, `vsshapp-xpra` (+ um novo)
+> **Estado:** 🟡 em andamento — **itens 1 a 4 concluídos** · **Atualizado:** 2026-08-05 · **Repos:** `vssh-sso`, `vsshapp-xpra` (+ um novo)
 >
 > Vem depois da [Onda 2.7 inteira](02b-motores.md), que **fechou os quatro passos**. Não é uma onda
 > de capacidade nova: é a fatura da inversão, e três defeitos que só ficaram visíveis depois dela.
@@ -304,7 +304,12 @@ eles ocupariam cota para sempre, sem ninguém para lê-los.
 
 ---
 
-## 4 · A sessão que expira em uso, e o heartbeat
+## 4 · A sessão que expira em uso, e o heartbeat — ✅ CONCLUÍDO
+
+> **Feito** em `670ce3d`. **18 testes novos, 12/12 refutações** capturadas; suíte em 508.
+>
+> Os quatro passos saíram na ordem prevista. O que mudou foi o **tamanho do passo 2**: as 98
+> chamadas não foram migradas, e não por falta de fôlego — ver "A decisão sobre as 98", abaixo.
 
 ### A causa é uma linha
 
@@ -335,12 +340,61 @@ HTML de 502/504 do proxy, a página padrão de 413/431), e um `res.json()` prema
 
 ### A ordem, e ela importa
 
-1. **`rolling: true`** — sem isso, todo o resto é cosmético. Verificar a interação com
-   `resave: false` e `saveUninitialized: false` com teste, não por leitura da documentação.
-2. **`apiFetch` no shell**, com o contrato do portal. É pré-requisito de 3 e 4.
-3. **`/api/session/ping`** — barato, autenticado, e é ele que renova.
-4. **O indicador na bandeja** — `TrayArea` já aceita `{ icon, tooltip, badge, menu, onClick }` com
-   badge de ponto/contador/texto, então o item nasce sem UI nova.
+1. ✅ **`rolling: true`** — sem isso, todo o resto é cosmético.
+2. ✅ **`VsshApi` no shell**, com o contrato do portal.
+3. ✅ **`/api/session/ping`** — barato, autenticado, e é ele que renova.
+4. ✅ **O indicador na bandeja** — nasceu sem UI nova, como previsto.
+
+### O que a medição achou
+
+**A interação com `resave: false` não se resolve lendo documentação, e a medição mostrou por quê:**
+`rolling` só reemite o **cookie**. Quem estende o TTL no Redis é o `store.touch()`, que o
+express-session chama exatamente no caso *"sessão existente e não modificada"* — o caso de toda
+requisição de heartbeat, e que depende de `resave: false` continuar como está. **Os dois têm de
+acontecer**, e se só um acontecesse a correção *pareceria* feita: cookie renovado sobre uma chave
+já expirada desloga igual, só que mais tarde e sem explicação. `tests/unit/session-rolling.test.js`
+mede os dois, com o middleware de verdade e um store no contrato do connect-redis — e o quarto
+teste é a **refutação embutida**: sem `rolling`, o `touch` até acontece, mas o navegador continua
+com a validade do login.
+
+### A decisão sobre as 98 chamadas
+
+Migrar as 98 para um helper de JSON seria trocar um problema real por uma migração grande com
+regressão em cada tela — **e elas não são a mesma coisa**: muitas pedem blob, stream ou HEAD, e não
+têm JSON para parsear; outras falam com o backend de um app pelo proxy, não com o portal. Pior: ao
+fim da migração o 401 continuaria sendo notado em 98 lugares.
+
+O que entrou no lugar é **um observador sobre o `window.fetch`**, instalado uma vez, que não altera
+nada: chama o fetch original, devolve a **mesma** `Response` e só anota que passou um 401 de mesma
+origem. Um lugar, sem mudança de comportamento, cobrindo inclusive o código que ainda não existe. A
+regra que o mantém seguro é negativa — não trocar a resposta, não engolir rejeição — e é a primeira
+coisa medida no teste, porque um observador que engole erro some com o diagnóstico de 98 telas.
+
+> **Ele SUSPEITA, não conclui.** Um 401 de mesma origem quase sempre é a sessão do portal, mas
+> "quase" não serve para um aviso na cara do usuário. O observador emite `vssh-api-401`; quem
+> decide é o ping, que é a autoridade. Falso positivo custa um GET barato; falso negativo não
+> existe, porque o ping roda de qualquer jeito.
+
+**O 401 do shell não redireciona**, e é a única diferença deliberada em relação ao `fetchJson` do
+portal. Lá, mandar para `/auth/login` é o certo: a página é um formulário. Aqui é um ambiente com
+janelas abertas — jogá-lo fora porque uma requisição falhou desfaria a propriedade que a Onda 2.7
+comprou. Sessão expirada abre o login em **outra aba**; o cookie vale para a origem inteira, e o
+próximo ping limpa o aviso sozinho.
+
+### A bandeja fica VAZIA quando está tudo bem
+
+É regra, não economia: um ícone verde permanente é ruído que ensina a ignorar a bandeja — a lição
+do botão de volume morto da Onda 2.1. Três estados, e cada um só existe enquanto há o que dizer:
+
+| Estado | O que dispara | O que o clique faz |
+|---|---|---|
+| **sessão expirada** | 401 **no ping** — a única resposta que significa isso | abre `/auth/login` em outra aba |
+| **portal fora** | falha de rede, timeout ou 5xx; o intervalo encurta de 5 min para 20 s | pergunta de novo agora |
+| **versão nova publicada** | o `shellBuildId` do ping difere do `window.__VSSH_SHELL_BUILD__` | recarrega — **só com o clique** |
+
+A última fecha o laço que o item 3 deixou aberto. A maquinaria antiga recarregava a página por
+conta própria, com overlay e timer; ela nunca rodou, e não volta assim — **agir pelas costas de
+quem está trabalhando é pior que não avisar**.
 
 ---
 
@@ -551,9 +605,11 @@ um app instalado que nunca sobe, e o operador descobre pelo usuário.
   `vssh-update-client`, `chrome-extension`, `ExtensionAdapter`, `vsshBrowserExtension` e
   `customclient` não existem mais em **código** (comentário pode explicá-los, e deve). Cinco
   testes, todos provados por refutação.
-- **O item 4 por refutação:** um teste que expira a sessão no store e confirma que o `ping` a
-  renova; e outro que confirma que o `apiFetch` **decide pelo status antes de parsear** — o bug que
-  o portal já teve.
+- ✅ **O item 4 por refutação:** `session-rolling.test.js` (5) mede a renovação no middleware de
+  verdade — cookie **e** `store.touch()`, porque só um dos dois faria a correção parecer feita — e
+  `session-heartbeat.test.js` (15) carrega o `VsshApi` e o `SessionMonitor` num escopo de página
+  falso. **12/12 refutações capturadas**, incluindo as duas que mais importam: o observador que
+  troca a resposta e o que engole a rejeição.
 - `lint`, `tsc` e a suíte inteira, como sempre.
 
 **Manual, e é o gate:**
