@@ -116,7 +116,7 @@ Primeiro consumidor real sugerido: o **engine de impressão** (`print/v1`) da
 O terceiro consumidor do mesmo contrato de extensão, e o que fecha a analogia com a bandeja: no
 Linux, um aplicativo instalado acrescenta a própria página às configurações do sistema.
 
-A [Onda 2.6](02-apis-de-shell.md#26--a-janela-de-configurações-refeita) constrói a janela nova e o
+A [Onda 2.6](02-apis-de-shell.md#26--a-janela-de-configurações-refeita---feito) constrói a janela nova e o
 registro **interno** — motor de navegação, Serviços, teclado, `fileHandlers`, todos código do
 próprio shell. O que fica para cá é a parte **declarativa**, para vssh-app de terceiro: o manifesto
 declara a seção, e o shell a monta.

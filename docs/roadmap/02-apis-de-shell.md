@@ -431,7 +431,7 @@ arquivo concorda com a barra, inclusive no fuso escolhido. Sem isso o sintoma se
 
 **Ficou de fora, e é o par que falta:** o relógio do host como **diagnóstico** em Configurações →
 Sistema. A conta já existe (`VsshTime.skewMs()` mede a divergência contra a referência do portal);
-falta a linha na janela — e ela cabe melhor na [2.6](#26--a-janela-de-configurações-refeita), que
+falta a linha na janela — e ela cabe melhor na [2.6](#26--a-janela-de-configurações-refeita---feito), que
 reescreve aquela tela.
 
 **Como ficou:** `js/VsshTime.js` (a hora e o formato) + `js/Clock.js` (o mostrador e o painel).
@@ -807,7 +807,32 @@ principal, não o degradado.
 
 ---
 
-## 2.6 — A janela de Configurações, refeita
+## 2.6 — A janela de Configurações, refeita · ✅ feito
+
+> **Entregue.** 1629 linhas de JS e 1496 de CSS apagadas e refeitas. A janela passou a ter
+> `SettingsRegistry`, e **não cita nenhuma seção pelo nome** — é asserção de teste, não
+> convenção. As 11 seções vivem em `js/settings/*.js` e se registram.
+>
+> **O que a execução acrescentou, e não estava previsto aqui:**
+>
+> - **Um terceiro bug em `VsshSettings`**, além dos dois que este texto já nomeava: o merge do
+>   PUT é raso, e gravar `categoryHandlers.terminal` apagava as irmãs. Virou propriedade do
+>   `set()` — caminho pontuado manda o campo de topo inteiro — em vez de um cuidado que cada
+>   chamador precisa lembrar. Oito mutações, todas mortas.
+> - **A seção "Teclado e atalhos" descrevia seis atalhos que não existem**, e culpava a chave
+>   `shortcuts` por não estar no schema. `shortcuts` é outra coisa: são os atalhos da página de
+>   nova aba do NAVEGADOR (`{id, url, title}`). O shell não tem registro de teclas — cada janela
+>   amarra as suas no próprio `keydown`. A seção ficou, inteira e inerte, com a lacuna escrita.
+> - **O portal tinha o saneador de URL FORTE e o shell, o fraco.** Ao mover `safeCssUrl` para o
+>   shell (o portal saiu), a comparação mostrou que `background-image` do desktop trocava só
+>   aspas duplas — um `)` ou uma quebra de linha fecha o `url(` e emenda outra declaração.
+> - **A verificação visual achou dois defeitos que 407 testes verdes não acharam:** a prévia da
+>   área de trabalho renderizando como uma borda de 1 px (bloco livre embrulhado num
+>   `flex: 0 0 auto`), e a lista de serviços sem divisas (as divisas do grupo não alcançam
+>   dentro de um bloco montado por código). A bancada é `docs/mockups/settings/_render.html`,
+>   que carrega os arquivos REAIS, e `_fotografar-real.sh`, com 30 estados.
+
+
 
 **Apagar e refazer, não reformar.** Estamos construindo um sistema operacional na web, e quase toda
 peça nova desta roadmap cria preferência — do-not-disturb (2.2), fuso do relógio (2.2), volume por
@@ -841,6 +866,13 @@ teclado (que hoje vive num **segundo store**, `/api/user/preferences`), e `fileH
 acrescenta seu checkbox à janela atual e joga ~20 linhas fora. É preço aceitável — fazer o Settings
 antes atrasaria a onda inteira atrás de um bloco muito maior.
 
+**Pré-requisito adiantado da [Onda 2.7](02b-motores.md): o registro de motores.** A seção Xpra
+desta janela precisa mostrar o estado do motor, e sem `RemoteDesktopEngines` ela lê `client`
+direto — reintroduzindo o acoplamento que a [2.5](#25--mixer-de-volume-por-aplicação---concluída)
+inverteu, e impedindo que a asserção textual *"não cita um nome do bundle Xpra"* cubra a janela nova
+desde o primeiro commit. É um arquivo no molde de `BrowserEngines.js` mais uma chamada de dentro
+de um `if (client)` que já existe: barato, e caro de fazer depois.
+
 **Pré-requisito extraível, que pode ir antes de tudo:** um `js/VsshSettings.js` (`get`/`set`/
 `subscribe`/`hydrate`) tirado do `SettingsWindow`. Desacopla ~22 consumidores do arquivo que vai ser
 deletado **e** conserta dois bugs reais: o debounce que engole a primeira de duas escritas em menos
@@ -862,6 +894,29 @@ inteira, que existe por causa do dock, seria projetada para ser deletada.
 contrato versionado e negociação por `vssh.capabilities()`, e é ponto de extensão: vai para a
 [Onda 5](04-runtime-composicao.md#registro-de-capabilities), ao lado de `provides` e do `FileOpener`
 plugável. Um contrato de extensão, três consumidores.
+
+---
+
+## 2.7 — Motores: um ambiente só, e o Xpra é um motor dele
+
+> **Detalhado em [02b-motores.md](02b-motores.md).** Está em arquivo próprio porque não é uma API
+> de shell: é uma inversão de conceito, e ela tem tamanho de onda.
+
+As palavras *headless* e *xpraless* descrevem o ambiente pelo que **falta** nele. A 2.7 inverte:
+existe **um** ambiente, e o Xpra é um **motor** que ele pode ter — como o Scramjet é o motor que ele
+pode ter para a web. O que hoje chamamos de "ambiente xpraless" passa a ser simplesmente **o
+ambiente**.
+
+**Era "Onda 8", no fim da fila, e foi puxada para cá.** O motivo não é a 2.6 — é o que vem depois
+dela. Toda onda daqui em diante paga o imposto dos dois perfis, e há uma em que o imposto vira
+dívida permanente: a [Onda 5](04-runtime-composicao.md#registro-de-capabilities) congela um contrato
+**público**, negociado por `vssh.capabilities()`, para gente de fora do repositório. Com dois
+perfis, esse contrato exporta *"em que perfil eu estou"*; com motores, *"que motores existem aqui"*.
+A segunda é a pergunta certa, e contrato publicado não se reescreve numa tarde.
+
+**Um passo dela é adiantado para dentro da 2.6:** o registro `RemoteDesktopEngines`, sem o qual a
+seção Xpra da janela nova lê `client` direto e desfaz a inversão que a
+[2.5](#25--mixer-de-volume-por-aplicação---concluída) acabou de fazer.
 
 ---
 
