@@ -309,7 +309,7 @@ ser desta onda, que é a do toolkit:
 
 | | O que é | Estado |
 |---|---|---|
-| **T6** | a ponte `fs` do shim não tem `exists`, `rename` nem `copy` — o backend `vssh-app-fs` tem os três | ⬜ o shim expõe `list`/`stat`/`read`/`readBytes`/`write`/`writeBytes`/`mkdir`/`delete`/`watch`. Os três continuam fora, e é o que sobra do bloqueio de **A4** |
+| **T6** | a ponte `fs` do shim não tem `exists`, `rename` nem `copy` | ✅ **feito** — ver abaixo |
 | **T7** | `capabilities()` não diz a versão do shell | ✅ **feito** — ver abaixo |
 | **T7** | sem `.d.ts` | ✅ **feito** — ver abaixo |
 
@@ -327,6 +327,39 @@ e achar que o outro ficou resolvido é o erro natural aqui:
 A 2.7 já escolheu o idioma do lado direito (`RemoteDesktopEngines.comCapacidade`, duck-typing no
 ponto de uso). O T7 é a ponte entre as duas colunas: sem ele, o app sabe *o que* o shell faz, mas
 nunca *qual shell* é.
+
+#### T6 — e a parte cara não eram as três ops
+
+`vssh.fs` ganhou `exists`, `rename` (que é também o **mover**) e `copy`. As rotas do portal já
+existiam (`/api/fs/rename`, `/api/fs/copy`, `/api/fs/stat`); o que faltava era o shell expor as ops
+e o shim chamá-las. Isso é o barato.
+
+**O caro é o gate de permissão, porque `rename` e `copy` têm DOIS caminhos e o gate conferia um.**
+O modelo é o da File System Access API: o app alcança só o que o usuário escolheu num seletor. Com
+um caminho conferido, a fuga existe nas duas direções — e as duas **sucedem**, sem erro nenhum:
+
+| | o que o app conseguiria |
+|---|---|
+| origem concedida, destino não | **mover** o arquivo do usuário para fora da área que ele autorizou, onde some do alcance de quem concedeu |
+| destino concedido, origem não | **copiar** para dentro da própria área um arquivo que não tinha permissão de ler — e depois lê à vontade, legitimamente |
+
+O gate passou a ser uma **lista de campos por op**, com um default que falha **fechado**: uma op
+nova que esqueça de se declarar cai num caminho vazio, que não é concedido. O erro de esquecer é
+recusar demais, nunca permitir demais.
+
+A guarda executa o método **de verdade** — o corpo do `_appFs` é extraído do arquivo e rodado sobre
+um `this` de mentira, então o que o teste exercita é o código que vai para o navegador, e não uma
+reimplementação dele. Sete ataques por refutação, todos vermelhos: voltar ao gate de um caminho,
+`rename` declarar um campo só, conferir só o primeiro da lista, o default sumir (falha aberto), a
+política virar `overwrite`, e as duas formas de o `exists` deixar de distinguir 404 de erro.
+
+**`exists` foi o achado lateral, e vale por si.** O `tauri-shim` o implementava como
+`stat(p).catch(() => false)` — o idioma que todo mundo escreve, e que colapsa **três** respostas em
+duas: *"não existe"*, *"não tenho permissão"* e *"não consegui perguntar"* saíam todas como
+`false`. O app então cria por cima de um arquivo que está lá, ou conclui que a pasta do usuário
+está vazia porque a rede piscou. Agora só o 404 vira `false`; o resto sobe. E `rename`/`copy` não
+sobrescrevem por padrão — `{ overwrite: true }` é opt-in, porque perder um arquivo do usuário não
+tem desfazer.
 
 #### As duas versões chegaram juntas — e era esse o ponto
 

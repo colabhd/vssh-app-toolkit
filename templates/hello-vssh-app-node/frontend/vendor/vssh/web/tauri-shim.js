@@ -54,9 +54,13 @@
     createDir: (p) => window.vssh.fs.mkdir(p),
     removeFile: (p) => window.vssh.fs.delete(p),
     removeDir:  (p) => window.vssh.fs.delete(p),
-    async exists(p) {
-      try { await window.vssh.fs.stat(p); return true; } catch { return false; }
-    },
+    // Isto era `stat(p).catch(() => false)`, e esse `catch` engolia três respostas diferentes:
+    // "não existe", "não tenho permissão" e "não consegui perguntar" saíam todas como `false`. Um
+    // app Tauri então criava por cima de um arquivo que estava lá, ou concluía que a pasta do
+    // usuário estava vazia porque a rede piscou. `vssh.fs.exists` só devolve `false` no 404.
+    exists: (p) => window.vssh.fs.exists(p),
+    rename: (from, to) => window.vssh.fs.rename(from, to),
+    copyFile: (from, to) => window.vssh.fs.copy(from, to),
   };
 
   // ── dialog ────────────────────────────────────────────────────────────────

@@ -97,6 +97,22 @@ interface VsshFs {
   delete(path: string): Promise<unknown>;
 
   /**
+   * `false` significa **não existe** — e só isso. Falta de permissão, servidor fora ou rede
+   * piscando **lançam**, em vez de virarem `false`. Não escreva
+   * `exists(p).catch(() => false)`: é justamente esse colapso que esta função existe para evitar.
+   */
+  exists(path: string): Promise<boolean>;
+
+  /**
+   * Renomeia — e é também o **mover**, como o `mv`. Origem e destino precisam **ambos** estar
+   * concedidos pelo usuário; sem isso o shell recusa com 403.
+   *
+   * Destino existente **falha**. `{ overwrite: true }` é a forma de dizer que você quer mesmo.
+   */
+  rename(from: string, to: string, opts?: { overwrite?: boolean }): Promise<unknown>;
+  copy(from: string, to: string, opts?: { overwrite?: boolean }): Promise<unknown>;
+
+  /**
    * Avisa quando algo muda dentro de `path` por fora do app. Devolve a função que cancela —
    * **cancele quando parar de precisar**: cada watch segura um vigia vivo no servidor.
    */

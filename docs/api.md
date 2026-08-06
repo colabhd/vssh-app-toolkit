@@ -511,6 +511,38 @@ Duas precisões que evitam surpresa:
   `grants`, ou desenvolvimento fora do desktop, produzem "não sei" — e "não sei" não é "não". O
   contrário faria o app pedir ao usuário uma permissão que ele já deu.
 
+### Existe? Renomear, mover, copiar
+
+```js
+if (await vssh.fs.exists(destino)) { /* … */ }
+
+await vssh.fs.rename('/casa/proj/rascunho.md', '/casa/proj/final.md');   // rename É o mover
+await vssh.fs.copy('/casa/proj/final.md', '/casa/backup/final.md');
+await vssh.fs.rename(a, b, { overwrite: true });                         // opt-in explícito
+```
+
+Três precisões, e cada uma existe por um modo de falha concreto:
+
+- **`exists()` devolve `false` só quando o arquivo não existe.** Falta de permissão, servidor fora
+  ou rede piscando **lançam**. Isso parece pedante até você notar o que o idioma comum faz:
+
+  ```js
+  const existe = await stat(p).then(() => true).catch(() => false);   // ⚠ não faça
+  ```
+
+  Ali, três respostas viram duas. "Não pude perguntar" vira "não existe", e o app cria por cima de
+  um arquivo que estava lá — ou conclui que a pasta do usuário está vazia porque um `fetch` falhou.
+  **Não escreva `exists(p).catch(() => false)`**: é exatamente o colapso que esta função existe
+  para evitar.
+
+- **Origem e destino precisam AMBOS estar concedidos.** Quem impõe é o shell, e a recusa é 403
+  nomeando o caminho reprovado. Sem os dois lados, um `rename` levaria um arquivo do usuário para
+  fora do que ele autorizou, e um `copy` traria para dentro algo que o app não podia ler — e as
+  duas operações **sucederiam**, sem erro nenhum.
+
+- **Destino existente falha.** `{ overwrite: true }` é a forma de dizer que você quer mesmo.
+  Sobrescrever sem pedir não tem desfazer.
+
 ### Ser avisado quando um arquivo muda por fora
 
 ```js
@@ -769,7 +801,8 @@ window.parent.postMessage({ vsshApp: true, type, requestId?, ...payload }, locat
 | `dialog` | sim | `variant`: `alert`\|`error`\|`confirm`\|`prompt`\|`password`, `message`, `title?`, `value?` |
 | `pick` | sim | `variant`: `open`\|`save`\|`directory`, `title?`, `filter?`, `name?` |
 | `context-menu` | sim | `x`, `y`, `items[]` |
-| `fs` | sim | `op`: `list`\|`stat`\|`read`\|`readBytes`\|`write`\|`writeBytes`\|`mkdir`\|`delete`, `path` |
+| `fs` | sim | `op`: `list`\|`stat`\|`read`\|`readBytes`\|`write`\|`writeBytes`\|`mkdir`\|`delete`\|`exists`, `path` |
+| `fs` | sim | `op`: `rename`\|`copy` — **`from` e `to`** em vez de `path`, e o gate confere os dois |
 | `fs` (`op: watch`) | sim | `path`, `watchId` — a resposta confirma; as mudanças vêm por `fs-change` |
 | `fs` (`op: unwatch`) | sim | `watchId` |
 | `grants` | sim | `path?`, `mode?` — com `path`, booleano; sem, a lista |

@@ -425,6 +425,32 @@
       mkdir(path)          { return call('fs', { op: 'mkdir', path }); },
       delete(path)         { return call('fs', { op: 'delete', path }); },
 
+      // "Existe?" — e o que ela NÃO faz é o ponto. O idioma que todo mundo escreve,
+      // `stat(p).then(() => true).catch(() => false)`, transforma **três** respostas em duas:
+      // "não existe", "não tenho permissão" e "não consegui perguntar" saem todas como `false`.
+      // O app então cria por cima de um arquivo que estava lá, ou conclui que a pasta do usuário
+      // está vazia porque a rede piscou. Aqui só o 404 do servidor vira `false`; o resto lança.
+      exists(path) {
+        return call('fs', { op: 'exists', path }).then((r) => !!(r && r.exists));
+      },
+
+      /**
+       * Renomeia — e é também o **mover**, como o `mv`. `copy` é o irmão.
+       *
+       * **Origem e destino precisam AMBOS estar concedidos**, e isso é imposto pelo shell, não
+       * aqui: sem os dois, um `rename` levaria um arquivo do usuário para fora do que ele
+       * autorizou, e um `copy` traria para dentro algo que o app não podia ler.
+       *
+       * Não sobrescreve: destino existente falha. `{ overwrite: true }` é a forma de dizer que
+       * você quer mesmo — explícito, porque perder um arquivo em silêncio não tem desfazer.
+       */
+      rename(from, to, opts = {}) {
+        return call('fs', { op: 'rename', from, to, policy: opts.overwrite ? 'overwrite' : 'fail' });
+      },
+      copy(from, to, opts = {}) {
+        return call('fs', { op: 'copy', from, to, policy: opts.overwrite ? 'overwrite' : 'fail' });
+      },
+
       // Avisa quando algo muda dentro de `path` por fora do app — outro editor, um `git pull`,
       // um upload pelo gerenciador de arquivos. É a diferença entre "meu editor e o app veem o
       // mesmo arquivo" e "tenho que lembrar de apertar Refresh".
