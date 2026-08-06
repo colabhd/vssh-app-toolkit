@@ -76,13 +76,18 @@ documenta a armadilha e usa `tools_ref: main`. O problema real não era quebra s
 Arquivos: `README.md`, `MIGRATION.md`, `scripts/vssh-app-lib-sync`,
 `.github/workflows/_publish-app-reusable.yml`.
 
-> **A tag `v2` não foi criada, e a decisão foi contornar em vez de esperar.** O texto aqui dizia
-> que ela *"precisa ser criada e empurrada para que os defaults novos funcionem"* — não precisa: o
-> default virou `main` (`scripts/vssh-app-lib-sync:36`, `_publish-app-reusable.yml:43`), e o
-> comentário do workflow registra o porquê: *"enquanto não existir uma tag `v2`, `main` é a única
-> ref que valida de verdade"*. Criar a tag continua sendo uma boa ideia — ela dá a quem publica um
-> alvo estável —, mas **não é pendência de nada**, e anunciá-la como tal fazia parecer que a Onda 0
-> tinha ficado pela metade.
+> **A tag `v2` foi criada no fim da Onda 3**, e o `main` deixou de ser a recomendação. Vale
+> registrar o caminho porque ele contradiz o que este item dizia antes.
+>
+> A Onda 0 concluiu que a tag *"não é pendência de nada"* — e estava certa quanto ao sintoma que
+> tinha em mãos: com o default em `main`, o schema era encontrado e a validação acontecia. O que
+> aquela conclusão não pesou é que **um branch move a validação do CI de quem publica sem ele
+> pedir**: cada commit deste repositório muda o que o CI de terceiros executa, inclusive num push
+> que ninguém do outro lado viu. Isso não é "validar menos" — é não ter alvo estável.
+>
+> A tag só passou a valer a pena agora porque a Onda 3 deu a ela algo para significar: com o
+> `lib_version` conferido no publish, `v2` é um contrato ("estas libs, esta validação"), e não só
+> um apelido de commit.
 
 ### 0.2 — `lib/web/` no README
 
@@ -271,11 +276,37 @@ conferência que se acha feita sem ter sido é pior que nenhuma. (O `sparse-chec
 passou a trazer o `package.json`; um repo pinado num ref antigo continua publicando, só sem esta
 conferência, e sabendo disso.)
 
-> A rota de distribuição em si — publicar `lib/` como pacote npm público e o `vssh-app-lib-sync`
-> virar um passo de build que copia de `node_modules` para a raiz da SPA — **fica em aberto de
-> propósito**. Ela é uma decisão de distribuição que muda o fluxo de todo repo de app existente, e
-> o ganho que ela traz (`npm outdated` sabendo responder) é o mesmo dos três itens acima, por um
-> caminho mais caro. Decidir depois de os três existirem é decidir com o custo real em mãos.
+#### O npm foi considerado e decidido CONTRA
+
+A decisão ficou em aberto de propósito até os três passos existirem — *"decidir com o custo real em
+mãos"*. Com eles em mãos, o custo virou:
+
+| | |
+|---|---|
+| o que o npm acrescentaria | um empurrão **proativo**: dependabot abrindo PR quando sai versão nova, antes de você publicar |
+| o que ele custaria | o **primeiro credential da história deste repositório** (`NPM_TOKEN`) — e *"sem nenhum PAT/GitHub App"* é a razão escrita de ele ser público; mais um escopo npm para manter; mais um passo de build em cada repo de app |
+| o que ele **não** resolveria | a vendorização. O publish empacota o que está **versionado**, então a cópia continuaria sendo commitada — o npm acrescentaria um passo antes dela, não removeria a cópia |
+
+O argumento original do npm era ser *"a única rota que transforma 'a cópia envelheceu' numa
+pergunta que uma ferramenta responde"*. Ele era forte porque **nada** respondia. Hoje o publish
+responde, e responde no momento em que importa: **recusando a publicação**. Um dependabot avisa
+antes; um gate impede. Trocar um gate por um aviso, pagando um credential, não se paga.
+
+**O gatilho que reabre a decisão**, e é bom estar escrito: o dia em que o toolkit distribuir algo
+que **não** é vendorizado — um CLI que se rodaria com `npx`. Aí o npm deixa de ser burocracia e
+vira o transporte natural.
+
+**O que foi feito no lugar**, e compra o mesmo empurrão por muito menos:
+
+1. **a tag `v2` passou a existir.** Só havia a `v1`, do toolkit original — e por isso o README
+   recomendava `@main` como "correção de rota". Puxar de um branch faz a validação do CI de quem
+   publica mudar debaixo dele a cada commit daqui, inclusive num push que ele não viu. `v2` é o
+   default do `tools_ref` e do `--ref`;
+2. **os avisos viraram anotações do Actions.** Em log corrido um aviso é uma linha entre mil, e
+   isso não é hipótese: é exatamente como o `aviso: schema não encontrado` da `v1` passou meses
+   despercebido em repos que publicavam com validação mínima achando que validavam. `::warning::`
+   sobe para o resumo do run e para a aba de anotações do PR. Aquele aviso original foi o primeiro
+   a ser convertido.
 
 ### T1 — `LazyFile` é um `Blob` vazio
 

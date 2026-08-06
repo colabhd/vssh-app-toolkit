@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # vssh-app-lib-sync — copia as bibliotecas do toolkit para dentro do repo de um vssh-app.
-# Uso: vssh-app-lib-sync <dir-do-app> [--parts fs,spa,log,sse,web] [--ref main] [--dest vendor/vssh]
+# Uso: vssh-app-lib-sync <dir-do-app> [--parts fs,spa,log,sse,web] [--ref v2] [--dest vendor/vssh]
 #
 # DOIS DESTINOS, e a distinção importa:
 #
@@ -22,10 +22,10 @@
 # NÃO é porque o servidor-alvo não alcança registry npm — ele alcança. Essa justificativa esteve
 # escrita aqui, no README e na SKILL, entrou num único commit de desenho e nunca foi medida.
 #
-# O custo desta escolha é conhecido e ainda não está pago: a cópia envelhece EM SILÊNCIO. O
-# `.vssh-lib-version` abaixo registra procedência e data, e hoje nenhum programa lê esse arquivo —
-# nem o publish, nem o install, nem o shim, que sequer sabe a própria versão. Ver
-# docs/roadmap/03-toolkit.md.
+# O custo desta escolha era a cópia envelhecer EM SILÊNCIO, e desde a Onda 3 ela não envelhece mais
+# calada: o `.vssh-lib-version` abaixo carimba `lib_version=`, o `vssh-app-publish` o lê e RECUSA
+# publicar quando a major diverge (o resto avisa), e o app reporta o par shell+libs em runtime por
+# `vssh.capabilities()`. Ver docs/roadmap/03-toolkit.md.
 #
 # Depois de rodar, revise o diff e commite. O arquivo `.vssh-lib-version` registra de onde veio,
 # para você saber o que precisa ressincronizar quando o toolkit andar.
@@ -41,9 +41,11 @@
 #   all  → tudo (default)
 set -euo pipefail
 
-# `main` e não `v1`: a tag `v1` é do toolkit original, anterior à criação de `lib/` — fora de um
-# clone, `--ref v1` falha com "lib/ não encontrado no tarball". Ver docs/roadmap/03-toolkit.md.
-APP_DIR="" PARTS="all" REF="main" DEST="vendor/vssh"
+# `v2` e não `v1` nem `main`. A `v1` é do toolkit ORIGINAL, anterior à criação de `lib/` — fora de
+# um clone, `--ref v1` falha com "lib/ não encontrado no tarball". E `main` era uma correção de
+# rota enquanto a `v2` não existia: puxar de um branch faz a sua cópia mudar debaixo de você entre
+# duas sincronizações, sem você ter pedido. Ver docs/roadmap/03-toolkit.md.
+APP_DIR="" PARTS="all" REF="v2" DEST="vendor/vssh"
 REPO="colabhd/vssh-app-toolkit"
 
 while [ $# -gt 0 ]; do

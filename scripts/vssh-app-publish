@@ -34,6 +34,23 @@ WORKDIR="$(mktemp -d)"
 trap 'rm -rf "${WORKDIR}"' EXIT
 PKG="${WORKDIR}/pkg"
 
+# Avisos que aparecem ONDE SE OLHA.
+#
+# Num log corrido, um aviso é uma linha entre mil — e isso não é hipótese: foi exatamente assim que
+# o `aviso: schema não encontrado` passou despercebido em vários repos de app, que publicaram por
+# meses com validação mínima achando que estavam validando (ver a Onda 0 em
+# docs/roadmap/03-toolkit.md). No GitHub Actions, `::warning::` sobe para o resumo do run e para a
+# aba de anotações do PR; fora dele, stderr é o lugar certo mesmo.
+anotar() {   # anotar <warning|notice> <título> <mensagem...>
+  local nivel="$1" titulo="$2"; shift 2
+  if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+    # `%0A` é como uma anotação carrega quebra de linha; um \n cru encerraria o comando.
+    printf '::%s title=%s::%s\n' "${nivel}" "${titulo}" "$(printf '%s' "$*" | sed ':a;N;$!ba;s/\n/%0A/g')"
+  else
+    printf '%s: %s\n' "${titulo}" "$*" >&2
+  fi
+}
+
 # ── 1. Materializa a fonte ─────────────────────────────────────────────────────
 case "${SRC}" in
   *.git|git@*|https://*.git) git clone --depth 1 "${SRC}" "${PKG}" ;;
@@ -138,7 +155,10 @@ if schema_path and os.path.isfile(schema_path):
 else:
     # Sparse checkout antigo (só scripts/) ou execução fora de um clone: seguimos com as
     # checagens mínimas acima em vez de recusar a publicação por falta do schema.
-    print('aviso: schema não encontrado; validando só o mínimo', file=sys.stderr)
+    # `WARN=` em vez de só stderr: o bash o transforma em anotação do Actions. Este aviso É o caso
+    # que ensinou a lição — repos pinados num ref sem `schema/` publicaram por meses com validação
+    # mínima achando que validavam, porque a única pista era esta linha no meio do log.
+    print('WARN=schema não encontrado neste checkout; o manifesto foi validado SÓ no mínimo (id/runtime/entrypoint)')
 
 print(f"ID={app_id}")
 print(f"VERSION={version}")
@@ -146,11 +166,12 @@ print("ICON=" + (m.get('icon') or ''))
 PYEOF
 )"
 
-APP_ID="" VERSION="" ICON="" ERR=""
+APP_ID="" VERSION="" ICON="" ERR="" WARN=""
 INFO="${INFO//$'\r'/}"   # robustez: python em Windows emite \r\n; header do curl não pode ter \r
 while IFS='=' read -r k v; do
-  case "${k}" in ERROR) ERR="${v}";; ID) APP_ID="${v}";; VERSION) VERSION="${v}";; ICON) ICON="${v}";; esac
+  case "${k}" in ERROR) ERR="${v}";; ID) APP_ID="${v}";; VERSION) VERSION="${v}";; ICON) ICON="${v}";; WARN) WARN="${v}";; esac
 done <<< "${INFO}"
+[ -z "${WARN}" ] || anotar warning "validação parcial" "${WARN}"
 [ -z "${ERR}" ] || { echo "ERRO: vssh-app.json inválido (${ERR})." >&2; exit 1; }
 
 # ── 2b. A cópia vendorizada das libs sabe a idade que tem? ─────────────────────
@@ -173,25 +194,32 @@ NOSSA_LIB="$(sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)
   "${HERE_ROOT}/package.json" 2>/dev/null | head -1)"
 
 if [ -z "${NOSSA_LIB}" ]; then
-  echo "aviso: não sei a versão deste toolkit (package.json ausente); a idade das libs vendorizadas do app NÃO foi conferida." >&2
+  anotar warning "libs não conferidas" \
+    "Não sei a versão deste toolkit (package.json ausente no checkout), então a idade das libs vendorizadas do app NÃO foi conferida."
 else
   MARCADORES="$(find "${PKG}" -name .vssh-lib-version -not -path '*/.git/*' 2>/dev/null || true)"
-  [ -n "${MARCADORES}" ] || echo "nota: o app não vendoriza libs do toolkit (nenhum .vssh-lib-version)." >&2
+  [ -n "${MARCADORES}" ] || anotar notice "sem libs vendorizadas" \
+    "O app não vendoriza libs do toolkit (nenhum .vssh-lib-version)."
   while IFS= read -r marcador; do
     [ -n "${marcador}" ] || continue
     DELE="$(sed -n 's/^lib_version=//p' "${marcador}" | head -1)"
     ONDE="${marcador#${PKG}/}"
     if [ -z "${DELE}" ]; then
-      echo "AVISO: ${ONDE} não registra lib_version (sincronizado por um toolkit antigo). Rode o vssh-app-lib-sync." >&2
+      anotar warning "libs sem procedência" \
+        "${ONDE} não registra lib_version (sincronizado por um toolkit antigo). Rode o vssh-app-lib-sync."
       continue
     fi
     [ "${DELE}" = "${NOSSA_LIB}" ] && continue
     if [ "${DELE%%.*}" != "${NOSSA_LIB%%.*}" ]; then
-      echo "ERRO: ${ONDE} traz libs ${DELE} e este toolkit é ${NOSSA_LIB} — MAJOR diferente carrega breaking change." >&2
-      echo "      Ressincronize:  vssh-app-lib-sync . --parts <as suas> --dest <o seu destino>" >&2
+      # Este é `error` e não `warning` porque ele PARA a publicação: major diferente carrega
+      # breaking change real (ver o `//version` do package.json).
+      anotar error "libs de outra major" \
+        "${ONDE} traz libs ${DELE} e este toolkit é ${NOSSA_LIB}.
+Ressincronize:  vssh-app-lib-sync . --parts <as suas> --dest <o seu destino>"
       exit 1
     fi
-    echo "aviso: ${ONDE} traz libs ${DELE}; este toolkit é ${NOSSA_LIB}. Compatível, mas vale ressincronizar." >&2
+    anotar warning "libs desatualizadas" \
+      "${ONDE} traz libs ${DELE}; este toolkit é ${NOSSA_LIB}. Compatível, mas vale ressincronizar."
   done <<< "${MARCADORES}"
 fi
 

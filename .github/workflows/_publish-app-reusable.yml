@@ -40,7 +40,10 @@ on:
       tools_ref:
         description: 'Ref deste toolkit de onde puxar o script de publish (precisa conter schema/)'
         type: string
-        default: 'main'
+        # `v2`: uma tag, e não um branch. Puxar de `main` fazia a validação do seu CI mudar
+        # debaixo de você a cada commit deste repositório — inclusive num push que você não viu.
+        # Bumps compatíveis movem a `v2`; uma mudança incompatível cria a `v3`.
+        default: 'v2'
     secrets:
       publish_token:
         description: 'Token de publicação escopado (app:<id> ou kind:app)'

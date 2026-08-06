@@ -44,10 +44,10 @@ sob a raiz que o `static-spa` serve, então uma cópia para lá existe de qualqu
 > caso real: dependência de **CDN externo em runtime** quebra num servidor sem internet
 > (ver [`docs/lessons/logseq-port.md`](docs/lessons/logseq-port.md)).
 >
-> A vendorização continua valendo pelo motivo do parágrafo acima, mas ela tem um custo que hoje
-> ninguém cobra: **a cópia envelhece em silêncio**. O `.vssh-lib-version` grava de onde ela veio e
-> nada lê esse arquivo. Está na fila em
-> [`docs/roadmap/03-toolkit.md`](docs/roadmap/03-toolkit.md#a-cópia-vendorizada-não-sabe-a-idade-que-tem).
+> **O custo da vendorização era a cópia envelhecer em silêncio, e ele está pago.** O
+> `.vssh-lib-version` carimba a versão das libs, o `vssh-app-publish` a confere e **recusa** quando
+> a major diverge, e o app reporta o par shell+libs em runtime por `vssh.capabilities()`. Ver
+> [Versionamento](#versionamento).
 
 ### Backend (`lib/node/`) — `require()`adas pelo seu processo
 
@@ -122,7 +122,7 @@ Apps de referência mais completos moram em repositórios próprios: `colabhd/vs
      workflow_dispatch:
    jobs:
      publish:
-       uses: colabhd/vssh-app-toolkit/.github/workflows/_publish-app-reusable.yml@main
+       uses: colabhd/vssh-app-toolkit/.github/workflows/_publish-app-reusable.yml@v2
        with:
          app_dir: "."
          repo_api: "https://vssh-repo.colabh.org"       # = seu VSSH_REPO_API
@@ -150,20 +150,39 @@ fica de fora), verifica o sha256 e faz `POST /v1/publish/app`. Ver `--help`.
 
 ## Versionamento
 
-A intenção é que você referencie o reusable por **tag**, não por branch — assim uma mudança interna
-do toolkit não quebra seu CI. Bumps compatíveis movem a tag maior; mudanças incompatíveis criam a
-próxima.
+**Referencie por tag: `@v2`.** Uma tag, e não um branch — puxar de `main` faz a validação do seu CI
+mudar debaixo de você a cada commit deste repositório, inclusive num push que você não viu. Bumps
+compatíveis movem a `v2`; uma mudança incompatível cria a `v3`.
 
-**Hoje, porém, use `@main`** — e isto é uma correção de rota, não a política final:
+É o default em toda parte: `tools_ref` do reusable e `--ref` do `vssh-app-lib-sync`.
 
-> A tag `v1` é do toolkit **original**, anterior à criação de `lib/`, `schema/` e `docs/`. Um repo
-> pinado em `@v1` faz o `vssh-app-publish` publicar com **validação mínima**, avisando só numa linha
-> do log (`aviso: schema não encontrado; validando só o mínimo`) que é fácil não ver. O mesmo vale
-> para `vssh-app-lib-sync --ref v1`, que falha com "lib/ não encontrado no tarball".
->
-> Enquanto uma tag `v2` não for criada neste repositório, `main` é a única ref que valida de verdade.
-> Assim que ela existir, `@v2` passa a ser a recomendação e os defaults acompanham. Acompanhe em
-> [`docs/roadmap/03-toolkit.md`](docs/roadmap/03-toolkit.md).
+> **Não use `@v1`.** Ela é do toolkit **original**, anterior à criação de `lib/`, `schema/` e
+> `docs/`. Um repo pinado ali publica com **validação mínima**, e o `vssh-app-lib-sync --ref v1`
+> falha com "lib/ não encontrado no tarball".
+
+### Como você fica sabendo que está desatualizado
+
+O `vssh-app-publish` lê o `.vssh-lib-version` da sua cópia vendorizada e compara com a versão do
+toolkit que está rodando:
+
+| | |
+|---|---|
+| **major** diferente | **recusa publicar** — outra major carrega breaking change real |
+| menor ou patch | avisa, e publica |
+| sem `lib_version` | avisa: a cópia veio de um toolkit anterior ao carimbo |
+
+No GitHub Actions esses avisos são **anotações** (`::warning::`), não linhas de log. A diferença é
+deliberada e vem de um caso real: o `aviso: schema não encontrado` da tag `v1` passou meses
+despercebido em repos que publicavam com validação mínima achando que validavam — porque a única
+pista era uma linha no meio do log.
+
+> **E o npm?** Publicar `lib/` como pacote npm foi **considerado e decidido contra**. O que ele
+> acrescentaria é um empurrão proativo (dependabot avisando que saiu versão nova); o que custa é o
+> primeiro credential da história deste repositório — e "sem nenhum PAT/GitHub App" é a razão de
+> ele ser público. Além disso, o npm não removeria a vendorização: o publish empacota o que está
+> **versionado**, então a cópia continuaria sendo commitada, com um passo a mais antes. O gatilho
+> que reabriria a decisão é o toolkit passar a distribuir algo que **não** é vendorizado — um CLI
+> que se rodaria com `npx`. Ver [`docs/roadmap/03-toolkit.md`](docs/roadmap/03-toolkit.md#a-cópia-vendorizada-não-sabe-a-idade-que-tem).
 
 ## Migrando de `colabhd/vssh-sso`
 
@@ -174,7 +193,7 @@ Antes, o script/reusable viviam no `vssh-sso` **privado**, o que exigia um PAT (
 Para migrar:
 
 - **Repo que usava o reusable do vssh-sso** (`uses: colabhd/vssh-sso/.../_publish-app-reusable.yml@main`):
-  troque para `uses: colabhd/vssh-app-toolkit/.github/workflows/_publish-app-reusable.yml@main` e
+  troque para `uses: colabhd/vssh-app-toolkit/.github/workflows/_publish-app-reusable.yml@v2` e
   **remova** o secret `tools_token`/`VSSH_TOOLS_TOKEN`.
 - **Repo que inlineava os passos** (checkout do script via PAT): substitua tudo pelo bloco `uses:`
   do Quickstart acima e apague o `VSSH_TOOLS_TOKEN`.
