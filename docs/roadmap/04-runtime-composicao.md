@@ -1,6 +1,6 @@
 # Ondas 4 e 5 — Runtime de apps e composição do ecossistema
 
-> **Estado:** 🟡 em andamento — o healthcheck **virou verdadeiro**; falta torná-lo assíncrono ·
+> **Estado:** 🟡 em andamento — **healthcheck ✅** (verdadeiro **e** assíncrono) ·
 > **Atualizado:** 2026-08-06 · **Repos:** `vssh-sso` + toolkit
 >
 > Revisado contra o código em 2026-08-05, junto com a [Onda 3](03-toolkit.md). O que mudou: a
@@ -23,11 +23,11 @@ O que falta para um app ser um cidadão de primeira classe do ambiente, e não u
 > teste. Limites de recurso, GPU e cofre de segredos são maiores, e nenhum deles desbloqueia um
 > arquétipo sozinho.
 
-### Healthcheck assíncrono
+### Healthcheck assíncrono — ✅ CONCLUÍDO
 
-`POST /api/apps/:id/start` faz poll do healthcheck até 15×1 s **de forma síncrona, bloqueando o
-clique do usuário** (`vssh-apps.ts:570`). Streamlit, Panel e RStudio demoram a subir — o resultado é
-uma janela que parece travada.
+`POST /api/apps/:id/start` fazia poll do healthcheck até 15×1 s **de forma síncrona, bloqueando o
+clique do usuário**. Streamlit, Panel e RStudio demoram a subir — o resultado era uma janela que
+parecia travada.
 
 Caminho: devolver imediatamente com estado `starting`, e a janela mostrar "carregando" até o
 **`/ws/events`** avisar que subiu — o canal já é por sessão e existe **no ambiente**, com ou sem
@@ -70,11 +70,52 @@ mandava **isentar** o healthcheck do gate de token, o que deixou de ser necessá
 > (`routes/apps.ts:167`). A frase da 2.7 que dizia *"o poll aceita qualquer coisa que não seja
 > `000`"* descrevia um poll que já tinha mudado.
 
-#### ⬜ Falta: torná-lo assíncrono
+#### ✅ Depois: assíncrono
 
-Com o sinal verdadeiro, propagá-lo passa a valer a pena. Antes, um `ready` que queria dizer "alguém
-respondeu" só chegaria mais rápido — e num canal onde a janela vai **confiar** nele para sair do
-"carregando".
+Com o sinal verdadeiro, propagá-lo passou a valer a pena. Antes, um `ready` que queria dizer
+"alguém respondeu" só chegaria mais rápido — e num canal onde a janela vai **confiar** nele para
+sair do "carregando".
+
+`POST /start` devolve na hora com **três estados**, e a distinção é o item inteiro:
+
+| | |
+|---|---|
+| `ready` | o healthcheck confirmou, ou o app já estava rodando |
+| `starting` | subimos agora; o veredito chega por `app-status` no `/ws/events` |
+| `failed` | o poll rodou até o fim e o backend não respondeu |
+
+`ready` continua no corpo com a semântica antiga, mas em `starting` ele é **`null`** — nem `true`,
+que seria mentira, nem `false`, que faria o cliente avisar de um fracasso que ainda não aconteceu.
+`result.ready !== false` daria `true` para `null`, e a janela abriria sem cobertura achando que o
+app já serve; há teste para exatamente essa linha.
+
+**Nenhum socket novo.** O `/ws/events` já é por sessão, autenticado, com heartbeat e reconexão
+desde a [Onda 1](01-sessao-sem-xpra.md) — é a peça que dispensou o `src/ws/shell.ts` que a Onda 2
+previa. A rota já chamava `ensureSession` e **descartava o resultado**; era só ele que faltava.
+
+**A janela abre coberta.** `.ds-cobertura` é vocabulário novo do design system, e a diferença para
+o `.ds-carregando` que já existia é de escopo: a linha diz que *um pedaço* está vindo e o resto da
+tela funciona; a cobertura diz que *não há tela ainda*. Um app que já estava rodando **não** é
+coberto — piscar espera sobre conteúdo que existe é pior que não mostrar nada.
+
+E a cobertura sai **também quando o backend não ficou pronto**. Ela promete que algo está a
+caminho; depois de o poll desistir, viraria uma promessa falsa girando para sempre — que é pior
+que o iframe branco que ela veio substituir. Quem diz o que houve é o mesmo aviso de antes, dito
+agora na hora em que se sabe.
+
+**Sem sessão, o poll volta a ser síncrono.** Não há a quem avisar depois, e degradar para o
+comportamento antigo é melhor que abrir a janela e nunca tirar o "carregando" dela.
+
+A guarda é de **junção em quatro pernas** — a rota empurra `app-status`, o `EventsChannel` traduz
+para `vssh-app-status`, o `AppLauncher` escuta e acha a janela, a janela remove a cobertura. Um
+typo em qualquer nome não quebra nada: a mensagem chega e ninguém a atende, e a janela fica em
+"Iniciando…" para sempre. Doze ataques por refutação, todos vermelhos.
+
+> **Duas guardas existentes ficaram vermelhas com a mudança, e foram corrigidas em vez de
+> afrouxadas.** Elas casavam a assinatura de `startApp` com `\([^)]*dbUser\?: any\)` — o que as
+> amarrava a `dbUser` ser o **último** parâmetro e a assinatura caber numa linha. Nenhuma das duas
+> coisas é a propriedade que elas protegem (o `dbUser` chegar ao app), e uma guarda que reclama de
+> mudança legítima é uma guarda que alguém afrouxa.
 
 ### `kind:"service"` **com** janela — o caso que ninguém mediu
 
