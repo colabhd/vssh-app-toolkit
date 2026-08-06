@@ -311,7 +311,7 @@ ser desta onda, que é a do toolkit:
 |---|---|---|
 | **T6** | a ponte `fs` do shim não tem `exists`, `rename` nem `copy` — o backend `vssh-app-fs` tem os três | ⬜ o shim expõe `list`/`stat`/`read`/`readBytes`/`write`/`writeBytes`/`mkdir`/`delete`/`watch`. Os três continuam fora, e é o que sobra do bloqueio de **A4** |
 | **T7** | `capabilities()` não diz a versão do shell | ✅ **feito** — ver abaixo |
-| **T7** | sem `.d.ts` | ⬜ pendente |
+| **T7** | sem `.d.ts` | ✅ **feito** — ver abaixo |
 
 Nenhum dos dois bloqueia T1/T2, e é justamente por isso que sumiram: item que não bloqueia nada
 sobrevive numa tabela de diagnóstico para sempre.
@@ -359,6 +359,31 @@ Três decisões que valem estar escritas:
   `package.json` → literal do shim → `lib_version` do marcador. O `vssh-app-lib-sync` lê **do
   shim**, e não do `package.json`, para que o marcador e o que roda no navegador não possam
   discordar.
+
+#### Os `.d.ts` — e a guarda que impede um arquivo de tipos de mentir
+
+`lib/web/vssh-app-shim.d.ts` declara a superfície inteira do `vssh` como **declaração global** (o
+shim entra por tag `<script>`; um `export` de topo o transformaria em módulo e nada dele ficaria
+visível — com o sintoma *"os tipos não funcionam"*, sem nada apontando para a causa).
+
+O que torna isto diferente de escrever um arquivo de tipos: **a superfície foi enumerada em
+runtime, não lida de memória**. Carregar o shim num contexto e listar `Object.keys(window.vssh)`
+deu os 51 membros exatos, e é contra essa lista que o arquivo é conferido — nos **dois sentidos**,
+porque os dois estragos são silenciosos e opostos:
+
+| direção | o que acontece |
+|---|---|
+| existe e não está declarado | o TypeScript **recusa compilar** código que funciona. A pessoa conclui que a API não existe e escreve um contorno |
+| declarado e não existe | o editor autocompleta, o build passa, e quebra em produção com `undefined is not a function` |
+
+Provado por refutação — os seis ataques deixam a suíte vermelha: membro novo no shim, membro
+inventado no `.d.ts`, membro aninhado novo, membro aninhado removido da interface, o arquivo virar
+módulo, e o global `vssh` sumir.
+
+> **`electron-shim` e `tauri-shim` ficam SEM `.d.ts`, e isso é decisão, não pendência.** Um app
+> portado já usa `@types/electron` ou `@tauri-apps/api`, que declaram aquelas superfícies inteiras.
+> Uma segunda declaração do mesmo nome ou conflita, ou vence a de upstream — e aí passa a esconder
+> o que o nosso shim **não** implementa, que é exatamente a metade que quem porta precisa enxergar.
 
 A guarda do lado do shell é de **junção**, e o motivo é o modo de falha: um typo no nome do global
 não quebra nada — `undefined || null` vira `null`, que é uma resposta *válida*. O defeito se

@@ -640,6 +640,32 @@ existe ali. Use isto para esconder o que não faz sentido, nunca para degradar o
 `vssh.inDesktop` (síncrono) responde a pergunta mais simples: estou dentro do VSSH ou no seu
 `npm run dev`?
 
+### TypeScript
+
+`lib/web/vssh-app-shim.d.ts` vem junto na vendorização e declara a superfície inteira. **Não é um
+módulo**: o shim entra por tag `<script>` e escreve em `window`, então o arquivo é uma declaração
+global — inclua-o e pronto.
+
+```jsonc
+// tsconfig.json
+{ "include": ["src/**/*", "frontend/vendor/vssh/web/*.d.ts"] }
+```
+
+Depois disso `vssh.` autocompleta, `window.vssh` tem tipo, e `caps.shellVersion` já vem como
+`string | null` — o que força a tratar o "não sei" no lugar certo.
+
+O arquivo é conferido contra o código, não escrito de memória: `lib/web/test/tipos.test.js` carrega
+o shim, enumera a superfície real em runtime e compara nos dois sentidos. Membro que existe e não
+está declarado reprova, e declarado que não existe também — porque os dois estragos são
+silenciosos, e opostos: um faz o compilador recusar código que funciona, o outro faz o editor
+autocompletar algo que quebra em produção.
+
+> **`electron-shim` e `tauri-shim` não trazem `.d.ts`, e é de propósito.** Um app portado já usa
+> `@types/electron` ou `@tauri-apps/api`, que declaram aquelas superfícies inteiras. Publicar uma
+> segunda declaração do mesmo nome não somaria informação: ou conflita, ou vence a de upstream e
+> passa a esconder o que o nosso shim **não** implementa — que é a metade que quem porta precisa
+> enxergar. Consulte a tabela de cada shim em [`porting.md`](porting.md).
+
 ### As duas versões, e por que elas vêm em par
 
 | campo | o que é | quem sabe |

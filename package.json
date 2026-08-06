@@ -5,6 +5,8 @@
   "private": true,
   "description": "Ferramentas e bibliotecas para construir e publicar vssh-apps",
   "license": "MIT",
+  "types": "lib/web/vssh-app-shim.d.ts",
+  "//types": "A superfície do `vssh` global. Não é um módulo — o shim entra por tag <script> e o .d.ts é uma declaração global; vendorizado, ele é achado por estar ao lado do .js. `lib/web/test/tipos.test.js` compara o que ele declara com a superfície enumerada em runtime, nos dois sentidos: um .d.ts que envelhece mente para o compilador e para o editor com a autoridade de quem parece ter sido verificado.",
   "engines": { "node": ">=22" },
   "scripts": {
     "//engines": "O >=22 é do RUNNER DE TESTE (o glob abaixo só existe a partir dessa versão). As libs de lib/ rodam em Node >=20 — o CI prova isso rodando o template em 20, e é essa a versão que importa, porque é a do servidor-alvo.",
