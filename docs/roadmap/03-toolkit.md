@@ -132,7 +132,18 @@ devolvia `'0.0.0'` fixo.
 
 ## Onda 3 — A FSA de verdade, e as dívidas do toolkit
 
-> **Estado:** 🟡 em andamento — **T9 ✅**, **T1 ✅**; próximo é o T2
+> **Estado:** 🟢 **fechada** — T9, T1, T2, T6, T7, os dois shims sem teste, a metade declarativa do
+> `requiredPackages` e a cópia vendorizada que passou a se declarar.
+>
+> **O que a onda mediu, e que muda o placar:** três dos itens **não eram o que estavam escritos**.
+> O T2 pedia implementar OPFS — OPFS já existe, e o que faltava era isolá-lo entre apps. A lista de
+> pendências do polyfill catalogava `removeEntry` como conveniência ausente — era perda de dado. E
+> a justificativa de vendorizar (*"o servidor não alcança registry npm"*) nunca tinha sido medida,
+> e é falsa.
+>
+> Nenhum dos três apareceria sem duas coisas que a onda comprou antes de consertar qualquer coisa:
+> o **instrumento de navegador** (T9, feito primeiro de propósito) e o hábito de **sondar antes de
+> implementar**.
 > **Destrava:** **A3** (visualizador científico). *Ela não é o bloqueio de A4/A5* — a revisão de
 > 2026-08-05 conferiu contra o código: A4 depende do T6 e de "uma janela por app" (Onda 4), e A5,
 > de drag-and-drop e teclado. O clipboard, que os dois citavam, foi entregue na Onda 2. Ver as
@@ -238,14 +249,27 @@ servidor alcança o registry. O que sobra a favor de vendorizar é real, mas é 
 empacota o que está versionado, e as libs de `lib/web/` precisam ficar sob a raiz da SPA de
 qualquer forma.
 
-O trabalho, então, não é trocar cópia por instalação — é **fazer a cópia se declarar**:
+O trabalho, então, não é trocar cópia por instalação — é **fazer a cópia se declarar**. Os três
+passos estão feitos:
 
-1. o shim carrega a própria versão (`VSSH_LIB_VERSION`, gerada do `package.json`);
-2. `vssh.capabilities()` devolve o par `shellVersion` + `libVersion` — junto com o **T7**, que é a
-   metade simétrica disto: hoje o app não sabe em que shell roda, e o shell não sabe que libs o app
-   carrega. Mesma doença, direções opostas;
-3. o `vssh-app-publish` lê o `.vssh-lib-version` e **recusa, ou avisa alto**, quando a cópia
-   diverge do toolkit contra o qual está publicando.
+1. ✅ o shim carrega a própria versão (`LIB_VERSION`, amarrada ao `package.json` por
+   `tests/lib-version.test.js`);
+2. ✅ `vssh.capabilities()` devolve o par `shellVersion` + `libVersion` — junto com o **T7**, que
+   é a metade simétrica disto: o app não sabia em que shell roda, e o shell não sabia que libs o
+   app carrega. Mesma doença, direções opostas;
+3. ✅ o `vssh-app-publish` lê o `.vssh-lib-version` do pacote e compara com a própria versão.
+
+**A proporção do passo 3 não é arbitrária.** Divergência de **major** recusa a publicação;
+o resto avisa. O major deste repositório só é bumpado quando as libs carregam breaking change real
+(está escrito no `//version` do `package.json`), então publicar contra outra major é publicar
+contra um contrato que mudou. Menor e patch são compatíveis por definição — recusar ali só
+ensinaria a ignorar o gate, que é o defeito que a Onda 0 diagnosticou no aviso de schema faltando.
+
+E quando o script **não sabe a própria versão** — o checkout esparso do CI traz `scripts/` e
+`schema/`, e pode não trazer o `package.json` —, a conferência é pulada **e dita em voz alta**. Uma
+conferência que se acha feita sem ter sido é pior que nenhuma. (O `sparse-checkout` do reusable
+passou a trazer o `package.json`; um repo pinado num ref antigo continua publicando, só sem esta
+conferência, e sabendo disso.)
 
 > A rota de distribuição em si — publicar `lib/` como pacote npm público e o `vssh-app-lib-sync`
 > virar um passo de build que copia de `node_modules` para a raiz da SPA — **fica em aberto de
@@ -475,14 +499,26 @@ si: **o `installCommand` deixa de ser o lugar onde dependência de sistema se es
 um script opaco que roda duas vezes (root e por usuário) e não declara nada — o que torna
 impossível responder *"este app roda neste servidor?"* sem executá-lo.
 
-> **Desta onda é só a metade declarativa**: o campo no manifesto e a validação no
-> `vssh-app-publish`. **Quem verifica é o portal**, e por isso a outra metade — o
+> ✅ **A metade declarativa está feita**: o campo entrou no `schema/vssh-app.schema.json` e o
+> `vssh-app-publish` o valida. **Quem verifica é o portal**, e por isso a outra metade — o
 > `vssh-app-install` recusando antes de instalar, e o painel admin mostrando o que falta por
 > servidor — está na
 > [Onda 4](04-runtime-composicao.md#requiredpackages--a-metade-que-verifica). O corte não é
 > burocrático: o portal já responde essa pergunta para os grupos de pacotes do provisionamento
 > (`provision-base.sh --print-packages`, com fixture em `tests/unit/provision-packages.test.js`), e
 > a verificação por app nasce ao lado daquilo, não aqui.
+
+**Este campo ganhou uma conferência que os outros não têm, e a razão é a diferença dele:** o valor
+chega a um **gerenciador de pacotes rodando no servidor do usuário**. Um nome com metacaractere de
+shell é injeção, e o gate de publicação é onde isso se recusa — depois já é tarde, e o portal
+teria de desconfiar de um manifesto que passou por aqui. O padrão é o de nome de pacote Debian
+(`^[a-z0-9][a-z0-9+.-]*$`), e o erro **nomeia o valor reprovado**: "pacote inválido" sozinho manda
+quem publica conferir a lista inteira à mão.
+
+O bloco de validação do publish é Python dentro de um heredoc, e por isso nunca teve teste — a
+suíte é Node. `tests/publish-validacao.test.js` o extrai pelos delimitadores reais do heredoc (não
+por número de linha, que um script crescendo invalidaria) e o roda com o `python3` que o próprio
+script já exige. Sem `python3`, os testes se **pulam**, como os de navegador.
 
 ### O `minShellVersion` mudou de onda
 

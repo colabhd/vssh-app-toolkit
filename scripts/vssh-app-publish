@@ -66,6 +66,21 @@ if b.get('runtime') not in ('python3', 'node', 'binary'):
 if not b.get('entrypoint'):
     print('ERROR=entrypoint_ausente'); sys.exit(0)
 
+# `requiredPackages` tem checagem PRÓPRIA, além da do schema, porque este campo é diferente dos
+# outros: o valor dele chega a um gerenciador de pacotes rodando no servidor do usuário. Um nome
+# com metacaractere de shell é injeção, e o gate de publicação é onde isso se recusa — depois já
+# é tarde, e o portal teria de desconfiar de um manifesto que passou por aqui.
+#
+# O erro nomeia o valor reprovado: "pacote inválido" sozinho manda quem publica conferir a lista
+# inteira à mão.
+pkgs = m.get('requiredPackages')
+if pkgs is not None:
+    if not isinstance(pkgs, list):
+        print('ERROR=requiredPackages_nao_e_lista'); sys.exit(0)
+    for nome in pkgs:
+        if not isinstance(nome, str) or not re.match(r'^[a-z0-9][a-z0-9+.\-]*$', nome):
+            print(f'ERROR=pacote_invalido:{nome!r}'); sys.exit(0)
+
 # Validação completa contra schema/vssh-app.schema.json, que é a fonte da verdade do manifesto.
 # Este é o gate de ENTRADA no repositório, então vale ser rigoroso aqui — o vssh-app-install, que
 # roda offline no servidor, continua validando só o mínimo (id/runtime/entrypoint).
@@ -137,6 +152,48 @@ while IFS='=' read -r k v; do
   case "${k}" in ERROR) ERR="${v}";; ID) APP_ID="${v}";; VERSION) VERSION="${v}";; ICON) ICON="${v}";; esac
 done <<< "${INFO}"
 [ -z "${ERR}" ] || { echo "ERRO: vssh-app.json inválido (${ERR})." >&2; exit 1; }
+
+# ── 2b. A cópia vendorizada das libs sabe a idade que tem? ─────────────────────
+#
+# As libs de `lib/` são vendorizadas: o app commita uma cópia e ela vai no tarball. Isso é bom
+# para reprodutibilidade e ruim para diagnóstico — a cópia envelhece SEM DAR SINAL. O
+# `.vssh-lib-version` registra de onde ela veio desde sempre, e até aqui nenhum programa lia esse
+# arquivo: nem este script, nem o install, nem o portal.
+#
+# **Divergência de MAIOR recusa; o resto avisa.** A proporção não é arbitrária: o major deste
+# repositório só é bumpado quando as libs carregam breaking change real (ver o `//version` do
+# package.json), então publicar um app com libs de outra major é publicar contra um contrato que
+# mudou. Menor e patch são compatíveis por definição — recusar ali só ensinaria a ignorar o gate.
+#
+# Sem saber a NOSSA versão (o checkout esparso do CI traz `scripts/` e `schema/`, e pode não
+# trazer o `package.json`), a conferência é pulada e dita em voz alta. Uma conferência que se acha
+# feita sem ter sido é pior que nenhuma.
+HERE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+NOSSA_LIB="$(sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+  "${HERE_ROOT}/package.json" 2>/dev/null | head -1)"
+
+if [ -z "${NOSSA_LIB}" ]; then
+  echo "aviso: não sei a versão deste toolkit (package.json ausente); a idade das libs vendorizadas do app NÃO foi conferida." >&2
+else
+  MARCADORES="$(find "${PKG}" -name .vssh-lib-version -not -path '*/.git/*' 2>/dev/null || true)"
+  [ -n "${MARCADORES}" ] || echo "nota: o app não vendoriza libs do toolkit (nenhum .vssh-lib-version)." >&2
+  while IFS= read -r marcador; do
+    [ -n "${marcador}" ] || continue
+    DELE="$(sed -n 's/^lib_version=//p' "${marcador}" | head -1)"
+    ONDE="${marcador#${PKG}/}"
+    if [ -z "${DELE}" ]; then
+      echo "AVISO: ${ONDE} não registra lib_version (sincronizado por um toolkit antigo). Rode o vssh-app-lib-sync." >&2
+      continue
+    fi
+    [ "${DELE}" = "${NOSSA_LIB}" ] && continue
+    if [ "${DELE%%.*}" != "${NOSSA_LIB%%.*}" ]; then
+      echo "ERRO: ${ONDE} traz libs ${DELE} e este toolkit é ${NOSSA_LIB} — MAJOR diferente carrega breaking change." >&2
+      echo "      Ressincronize:  vssh-app-lib-sync . --parts <as suas> --dest <o seu destino>" >&2
+      exit 1
+    fi
+    echo "aviso: ${ONDE} traz libs ${DELE}; este toolkit é ${NOSSA_LIB}. Compatível, mas vale ressincronizar." >&2
+  done <<< "${MARCADORES}"
+fi
 
 # ── 3. Empacota (só o que está versionado, quando é repo git) ──────────────────
 TARBALL="${WORKDIR}/app.tar.gz"

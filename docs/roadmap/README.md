@@ -99,7 +99,14 @@ não se reescreve numa tarde.
 | 2 | [Motores](02b-motores.md) — passos 2 e 3: o motor instalável (`vsshapp-xpra`), o transporte por SSH e a preferência `x11Engine` | vssh-sso + vsshapp-xpra | ✅ concluído · `xpra.ts` 619→103, `/proxy/desktop/` morreu |
 | 2 | [Interlúdio 2c](02c-interludio.md) — deploys mortos, cliente com fingerprint, sessão que expira em uso, `repo-worker` para fora | vssh-sso + `vssh-repo` | ✅ fechada · −11260 linhas no portal, 107 requisições por carga viraram 0, a sessão parou de expirar em uso, o erro do proxy virou painel de janela, o log do backend virou janela — e três telas pararam de chamar de "vazio" uma falha que tinham em mãos |
 | 2 | [Motores](02b-motores.md#passo-4--a-inversão-de-vocabulário---concluído-2026-08-06) — passo 4: o vocabulário dos dois perfis sai do código | vssh-sso + vsshapp-xpra | ✅ concluído · a coluna `profile` morreu, e o sweep achou um TypeError vivo |
-| 3 | FSA de verdade (`LazyFile`, `slice`, OPFS) | toolkit | ⬜ não iniciado |
+| 3 | [Testes de navegador](03-toolkit.md#t9--testes-de-navegador) (T9) — CDP à mão, sem dependência npm | toolkit | ✅ concluído |
+| 3 | [`LazyFile` com respaldo real](03-toolkit.md#t1--lazyfile-é-um-blob-vazio) (T1) — `slice` por Range HTTP, `Response`/`fetch`/`FileReader` | toolkit | ✅ concluído |
+| 3 | [OPFS isolado por app](03-toolkit.md#t2--opfs) (T2) — o "private" era da origem, não do app | toolkit | ✅ concluído |
+| 3 | [`exists`/`rename`/`copy`](03-toolkit.md#t6-e-t7--as-duas-dívidas-que-não-tinham-onda) (T6) — e o gate de grant de dois caminhos | toolkit + vssh-sso | ✅ concluído |
+| 3 | [Versão do shell + `.d.ts`](03-toolkit.md#t6-e-t7--as-duas-dívidas-que-não-tinham-onda) (T7) | toolkit + vssh-sso | ✅ concluído |
+| 3 | Primeiros testes de `electron-shim` e `tauri-shim` — 3 defeitos achados | toolkit | ✅ concluído |
+| 3 | [`requiredPackages`](03-toolkit.md#requiredpackages--o-app-declara-de-que-pacote-linux-ele-precisa) — a metade declarativa (schema + publish) | toolkit | ✅ concluído |
+| 3 | [A cópia vendorizada se declara](03-toolkit.md#a-cópia-vendorizada-não-sabe-a-idade-que-tem) — `libVersion` e o publish conferindo | toolkit | ✅ concluído |
 | 4 | Runtime: cgroups, GPU, múltiplas instâncias, segredos | vssh-sso | ⬜ não iniciado |
 | 5 | Composição: `provides`, pontos de extensão, mensageria, seção de Configurações por manifesto | vssh-sso + toolkit | ⬜ não iniciado |
 | 6 | Camada de arquivos de rede | vssh-sso | ⬜ não iniciado |

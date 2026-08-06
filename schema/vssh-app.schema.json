@@ -44,6 +44,15 @@
         }
       }
     },
+    "requiredPackages": {
+      "type": "array",
+      "description": "Pacotes Linux de que o app precisa para funcionar (ffmpeg, pandoc, rclone…). Declarar é o ponto: hoje uma dependência de sistema se esconde num installCommand opaco, e não há como responder 'este app roda neste servidor?' sem executá-lo. Nomes no formato Debian; quem VERIFICA é o portal (vssh-app-install recusa antes de instalar, e o painel admin mostra o que falta por servidor).",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9+.-]*$",
+        "description": "Nome de pacote. O padrão é restritivo de propósito: este valor chega a um gerenciador de pacotes no servidor, e um nome com metacaractere de shell seria injeção — o gate de publicação é o lugar certo para recusá-lo."
+      }
+    },
     "icon": { "type": "string", "description": "Caminho relativo à raiz do pacote (.svg/.png/.jpg)." },
     "category": { "type": "string", "description": "Informativo; a UI agrupa tudo em 'Apps Integrados'." },
     "description": { "type": "string" },

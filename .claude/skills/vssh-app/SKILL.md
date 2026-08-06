@@ -79,6 +79,16 @@ falta num app concreto.
   },                                   // Aplicativos). O arquivo escolhido chega via
                                        // `open-context` (ver seção abaixo). Generaliza `handles`,
                                        // que só cobre os 5 launchers embutidos.
+  "requiredPackages": ["ffmpeg"],     // opcional: pacotes Linux de que o app precisa para
+                                       // funcionar. DECLARAR é o ponto — hoje uma dependência de
+                                       // sistema se esconde num installCommand opaco, e não há
+                                       // como responder "este app roda neste servidor?" sem
+                                       // executá-lo. Nomes no formato Debian: o publish RECUSA
+                                       // qualquer coisa fora de `^[a-z0-9][a-z0-9+.-]*$`, porque
+                                       // este valor chega a um gerenciador de pacotes no servidor
+                                       // e um metacaractere de shell ali seria injeção.
+                                       // Quem VERIFICA é o portal (Onda 4): o vssh-app-install
+                                       // recusa antes de instalar, com o nome do pacote que falta.
   "backend": {
     "runtime": "python3",             // "python3" | "node" | "binary"
     "entrypoint": "backend/main.py",  // relativo à raiz do pacote
