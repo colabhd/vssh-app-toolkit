@@ -577,6 +577,32 @@ volta um objeto sem métodos e conclui que a pasta está vazia.
 | handle aninhado (`{ handle, … }`, ou dentro de array) | sim, até 4 níveis |
 | `getAllKeys()` | **não** — chave é chave, não handle |
 
+### OPFS — cada app tem a sua raiz, e ela é cache
+
+`navigator.storage.getDirectory()` funciona: é nativo do navegador, e é o que DuckDB-WASM,
+sqlite-wasm e Pyodide usam para cache local. O polyfill não o reimplementa — **ele o isola**.
+
+```js
+const raiz = await navigator.storage.getDirectory();   // a SUA raiz, não a da origem
+```
+
+> **Por que isso precisou de conserto.** OPFS é privado por **origem**, e todos os vssh-apps são
+> servidos pela origem do portal. Sem isolamento, um app lia — e sobrescrevia — o `cache.db` de
+> outro. O *"Origin Private File System"* é privado de outros **sites**, não de outros **apps**.
+> Cada app passa a receber um subdiretório próprio, nomeado pelo seu id. O handle continua sendo
+> **nativo**, então `createSyncAccessHandle()` e o resto funcionam sem nada nosso no caminho.
+>
+> Fora do proxy (`npm run dev`) nada é isolado: não há outro app com quem colidir, e esconder o
+> armazenamento de quem está desenvolvendo seria pior.
+
+⚠️ **OPFS é cache, nunca a verdade.** O padrão natural do `sqlite-wasm` é usar OPFS como
+armazenamento **primário** — e isso perde tudo quando o usuário troca de máquina, **sem erro
+nenhum**. O ponto do VSSH é o pesquisador pular de um computador para outro sem perder nada; todo
+estado guardado no navegador é dívida contra isso.
+
+A verdade vai para o ambiente remoto — o filesystem do usuário (`showDirectoryPicker`) ou o backend
+do seu app. OPFS é aceleração **reconstruível**: se ele sumir, o app fica lento, não amnésico.
+
 ### O que o polyfill faz, e o que ele não faz
 
 | chamada | |

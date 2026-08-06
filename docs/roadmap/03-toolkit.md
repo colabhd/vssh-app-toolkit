@@ -293,13 +293,51 @@ e há teste medindo os bytes que o servidor entregou, não só o resultado.
 
 ### T2 — OPFS
 
-`navigator.storage.getDirectory()` e `createSyncAccessHandle` não existem no polyfill. DuckDB-WASM,
-sqlite-wasm e Pyodide dependem de OPFS para cache local — é a fundação de metade das ferramentas de
-dados client-side.
+> ✅ **CONCLUÍDO** — mas não fazendo o que este item dizia.
 
-> **A regra sai junto com a feature:** [OPFS é cache, nunca a verdade](criterios.md#regra-para-autores-de-app-opfs-é-cache-nunca-a-verdade).
+O item dizia: *"`navigator.storage.getDirectory()` e `createSyncAccessHandle` não existem no
+polyfill"*. **Não precisam existir: são nativos do navegador.** Medir antes de implementar mudou o
+T2 de "implementar OPFS" para "consertar a isolação do OPFS" — e o que estava lá era pior do que
+uma ausência.
+
+**OPFS é privado por ORIGEM, e todos os vssh-apps são servidos pela origem do portal.** A sonda
+montou dois apps em caminhos diferentes da mesma origem:
+
+```
+app A:  getDirectory() → escreve 'segredo.db'
+app B:  getDirectory() → lê "o banco do app A", verbatim — e pode sobrescrevê-lo
+```
+
+O *"Origin Private File System"* é privado de outros **sites**, não de outros **apps**. Quem
+escreve um vssh-app assume a segunda coisa — é o nome que promete isso — e recebe a primeira: o
+banco sqlite de um app, o cache de pacotes do Pyodide de outro, sem aviso nenhum. Não é só
+vazamento de leitura: um app pode **corromper** o banco de outro.
+
+O conserto é dar a cada app a sua raiz — um subdiretório com o id do app, tirado do path que o
+portal serve. O handle devolvido é **nativo**, um subdiretório de verdade, então
+`createSyncAccessHandle` e o resto seguem funcionando sem nada nosso no caminho. Fora do proxy
+(`npm run dev`) nada é isolado: não há outro app com quem colidir, e esconder o armazenamento de
+quem está desenvolvendo seria pior.
+
+**Efeito colateral que a medição forçou:** com os globais trocados pelas nossas classes (ver a
+seção anterior), um handle **nativo** do OPFS deixaria de passar no `instanceof` — trocaríamos um
+`instanceof` quebrado por outro. As nossas classes passaram a aceitar as duas procedências, por
+`Symbol.hasInstance` **nelas**, e não por remendo nas nativas: são nossas, e dizer o que aceitam é
+prerrogativa delas.
+
+> **A regra saiu junto com a feature:** [OPFS é cache, nunca a verdade](criterios.md#regra-para-autores-de-app-opfs-é-cache-nunca-a-verdade).
 > O padrão natural de `sqlite-wasm` é usar OPFS como armazenamento primário, e isso perde tudo ao
-> trocar de máquina, sem erro nenhum. Entregar T2 sem a regra é entregar uma armadilha.
+> trocar de máquina, sem erro nenhum. Entregar T2 sem a regra seria entregar uma armadilha.
+>
+> E o item deixou um **precedente para o critério 3.2**: toda API de armazenamento do navegador
+> tem o escopo do NAVEGADOR, não o do nosso ambiente. `localStorage`, `IndexedDB` e cookies estão
+> sob a mesma origem única e merecem a mesma pergunta.
+
+Seis ataques por refutação, todos vermelhos — e **um deles achou um teste fraco meu**: a primeira
+versão do "fora do proxy" conferia se o arquivo criado era visível de onde foi criado, o que é
+verdade em qualquer namespace. A asserção certa não é *"o que eu criei está aqui?"*, é *"esta raiz
+É a raiz de verdade?"* — comparada com a `getDirectory` original, guardada antes de o polyfill
+envelopá-la.
 
 ### T6 e T7 — as duas dívidas que não tinham onda
 

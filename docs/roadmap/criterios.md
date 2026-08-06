@@ -65,6 +65,17 @@ reconstruível.
 Entregar OPFS ([Onda 3](03-toolkit.md)) sem essa regra é entregar uma armadilha — por isso as duas
 coisas saem juntas, e a regra entra em [`../api.md`](../api.md).
 
+> **A Onda 3 achou uma segunda armadilha, e essa não era de durabilidade.** OPFS é privado por
+> **origem**, e todos os vssh-apps são servidos pela origem do portal. Medido num Chrome de
+> verdade: o app B lia — e podia sobrescrever — o `cache.db` do app A, verbatim. O *"Origin
+> Private File System"* é privado de outros **sites**, não de outros **apps**, e quem escreve um
+> vssh-app assume a segunda coisa: é o nome que promete isso.
+>
+> O polyfill passou a dar a cada app um subdiretório próprio. Vale como precedente geral para o
+> 3.2: **toda API de armazenamento do navegador tem o escopo do navegador, não o do nosso
+> ambiente.** Antes de usar uma, a pergunta é de quem é aquele espaço aqui dentro —
+> `localStorage`, `IndexedDB` e cookies estão sob a mesma origem única e merecem a mesma pergunta.
+
 ### Sobre os grants: boa parte não precisava existir
 
 O modelo de permissão da File System Access API nasceu no navegador porque os arquivos são da
