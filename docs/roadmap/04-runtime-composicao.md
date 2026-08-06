@@ -1,6 +1,7 @@
 # Ondas 4 e 5 — Runtime de apps e composição do ecossistema
 
 > **Estado:** 🟡 em andamento — **healthcheck ✅** (verdadeiro **e** assíncrono) ·
+> **`kind:"service"` com janela ✅** (medido: era um teste) ·
 > **Atualizado:** 2026-08-06 · **Repos:** `vssh-sso` + toolkit
 >
 > Revisado contra o código em 2026-08-05, junto com a [Onda 3](03-toolkit.md). O que mudou: a
@@ -20,8 +21,8 @@ O que falta para um app ser um cidadão de primeira classe do ambiente, e não u
 > destrava A2 (que o [`casos-de-uso.md`](casos-de-uso.md) já chama de *"quase pronto"*), fecha o
 > suspeito B de *"atualizei o app e nada mudou"*, e o canal por onde a resposta chega **já existe**
 > desde a Onda 1. Depois vêm as duas coisas que decidem se A1 precisa de mecanismo novo ou de um
-> teste. Limites de recurso, GPU e cofre de segredos são maiores, e nenhum deles desbloqueia um
-> arquétipo sozinho.
+> teste — e a primeira delas, `kind:"service"` **com** janela, já respondeu **teste**. Limites de
+> recurso, GPU e cofre de segredos são maiores, e nenhum deles desbloqueia um arquétipo sozinho.
 
 ### Healthcheck assíncrono — ✅ CONCLUÍDO
 
@@ -117,7 +118,7 @@ typo em qualquer nome não quebra nada: a mensagem chega e ninguém a atende, e 
 > coisas é a propriedade que elas protegem (o `dbUser` chegar ao app), e uma guarda que reclama de
 > mudança legítima é uma guarda que alguém afrouxa.
 
-### `kind:"service"` **com** janela — o caso que ninguém mediu
+### `kind:"service"` **com** janela — ✅ **medido; era um teste, e não um mecanismo**
 
 `routes/apps.ts:75-81` diz que `kind` (lifecycle) é **ortogonal** a `type` (janela / sem janela), e
 o launcher só filtra `type === 'engine'`. Ou seja, um app supervisionado **com** janela é
@@ -128,12 +129,39 @@ O [`casos-de-uso.md`](casos-de-uso.md) chamava isso de *"combinação não supor
 fechar a janela não para backend nenhum (`VsshAppWindow._onClose` só solta listeners do cliente; o
 único `/stop` do ambiente é o botão de Configurações → Serviços).
 
-O que sobra é uma medição de meia hora, e ela pertence a esta onda porque é sobre lifecycle:
+Sobraram duas perguntas, e elas foram medidas rodando os scripts **de verdade** —
+`infra/server/vssh-app-supervisor` e `vssh-app-run` — contra uma árvore de mentira
+(`tests/unit/servico-com-janela.test.js`). Reimplementar a decisão em JS teria respondido sobre a
+reimplementação; foi por isso que os dois scripts ganharam o único seam de que isto precisava
+(`VSSH_APPS_ROOT`, sem efeito em produção).
 
-1. o supervisor relança um serviço que caiu **enquanto a janela dele está aberta**?
-2. a janela reata ao processo novo, ou fica apontando para uma porta morta?
+**1. O supervisor relança — e a janela não entra na conta.** A decisão tem exatamente três
+entradas: o `kind` do manifesto, a existência do EnvironmentFile e o `run.pid`. É o que "ortogonal"
+quer dizer, agora medido em vez de afirmado. A guarda disso não é o caso feliz — é o **conjunto**
+de entradas: o fonte não pode passar a consultar janela nem sessão.
 
-É o que separa A1 de "precisa de mecanismo novo" para "precisa de um teste".
+**2. A janela reata, e quem faz isso é o EnvironmentFile.** A pergunta pressupunha uma porta na
+URL, e não há nenhuma: o `src` do iframe é `/<serverId>/proxy/app/<id>/` e quem resolve a porta é o
+proxy, a cada requisição. Do outro lado, `vssh-app-run` dá `source` no env **antes** do fallback
+determinístico, então o processo novo sobe na mesma porta e com o mesmo token. Tirar o env do
+caminho muda a porta — e é esse teste, o de refutação, que mostra que o mecanismo carrega peso.
+
+> **A guarda que a refutação consertou.** `\bjanela\b` não vê um `JANELA_ABERTA`, porque `_` é
+> caractere de palavra — e `JANELA_ABERTA` é exatamente como a variável se chamaria. Do lado do
+> proxy, medir *uma menção* a `getUserAppPort` era pior: com duas resoluções no arquivo, atacar uma
+> deixava a outra atestando o contrário. O que se mede agora é **toda** atribuição de `port` —
+> nenhuma pode ser valor fixo, porque porta fixa no proxy **é** a porta morta da pergunta. Treze
+> ataques, todos vermelhos.
+
+**O que a medição achou e nenhum teste guarda, porque é ausência e não regra:** nada recarrega o
+iframe. A porta está certa, o processo novo atende — e a página continua sendo a do processo morto,
+falando com um substituto sem saber. Um serviço com estado no backend é justamente onde isso dói.
+
+Não é bloqueio de A1 e não vira mecanismo novo agora: **o canal já existe** (`app-status` no
+`/ws/events`, e a janela já sabe receber veredito desde o healthcheck acima). O que falta é alguém
+**olhar** o `status.json` que o supervisor escreve — hoje só Configurações → Serviços pergunta, e
+sob demanda. Isso é um poller por sessão, e pertence ao item de estado ao vivo dos Serviços, não a
+esta medição.
 
 ### Múltiplas instâncias e múltiplas janelas
 

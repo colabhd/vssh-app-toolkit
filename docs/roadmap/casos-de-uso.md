@@ -10,7 +10,7 @@ referências apontam para [diagnostico.md](diagnostico.md) e para as ondas.
 
 | # | Arquétipo | Exemplos | Bloqueio hoje |
 |---|---|---|---|
-| A1 | Notebook / IDE científico | JupyterLab, RStudio, Marimo, Positron | Uma janela por app ([Onda 4](04-runtime-composicao.md)); `kind:"service"` **com** janela ninguém mediu — ver a nota ⁽¹⁾; sem aviso de célula longa |
+| A1 | Notebook / IDE científico | JupyterLab, RStudio, Marimo, Positron | Uma janela por app ([Onda 4](04-runtime-composicao.md)) — é o que sobrou; `kind:"service"` **com** janela foi medido e **funciona** ⁽¹⁾; sem aviso de célula longa |
 | A2 | Dashboard de dados | Streamlit, Panel, Dash, Voilà, Shiny | **Quase pronto.** Atrito: o healthcheck síncrono de 15 s bloqueia o clique e esses frameworks demoram a subir; sem warm-start ([Onda 4](04-runtime-composicao.md)) |
 | A3 | Visualizador científico | Parquet, HDF5, Zarr, NetCDF, FITS, DICOM, OME-TIFF | **T1 e T2** ([Onda 3](03-toolkit.md)); e `SharedArrayBuffer` para os que usam WASM multi-thread |
 | A4 | Editor / gestão de conhecimento | Logseq (portado), Obsidian, Zotero, Joplin, LaTeX | **T6** (a ponte `fs` sem `exists`/`rename`/`copy`); uma janela por app ([Onda 4](04-runtime-composicao.md)) — ver a nota ⁽²⁾ |
@@ -24,9 +24,12 @@ referências apontam para [diagnostico.md](diagnostico.md) e para as ondas.
 > cliente, nada no shell chama `/stop`, e o backend sobe com `nohup setsid`. O único `/stop` do
 > ambiente é o botão de Configurações → Serviços, que é ação explícita. E `kind:"service"` **com**
 > janela não é *"combinação não suportada"*: `routes/apps.ts:75-81` diz que `kind` (lifecycle) é
-> **ortogonal** a `type` (janela/sem janela), e o launcher só filtra `type === 'engine'`. O que
-> ninguém mediu é o resto — o supervisor relançando um serviço com janela aberta, e a janela
-> reatando ao processo novo. **Nenhuma onda é dona dessa medição**, e ela é barata.
+> **ortogonal** a `type` (janela/sem janela), e o launcher só filtra `type === 'engine'`. O resto —
+> o supervisor relançando um serviço com janela aberta, e a janela reatando ao processo novo — foi
+> **medido na Onda 4**, rodando os scripts de verdade: o supervisor relança (a janela não é entrada
+> da decisão) e a janela reata, porque ela nunca teve porta em mãos e o relançamento sai do mesmo
+> EnvironmentFile. Sobra que **nada recarrega o iframe** — a página segue sendo a do processo
+> morto. Não bloqueia A1; o que bloqueia é a janela única.
 >
 > ⁽²⁾ **O clipboard saiu da lista.** A ponte de arquivos existe (`vssh.clipboard.files()`, e imagem
 > por `vssh.clipboard.readImage()`, [`docs/api.md`](../api.md)) desde a Onda 2. A4 citava **T5**,
