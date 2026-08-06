@@ -458,9 +458,67 @@ mesmas três coisas — entrada no `schema/vssh-app.schema.json`, validação no
 consumidor no portal. Fazer isso duas vezes, em duas ondas, é fazer duas vezes a parte cara e
 arriscar duas noções do mesmo contrato.
 
-### Ainda em aberto no polyfill
+### O que estava em aberto no polyfill
 
-Não implementados e **não documentados como ausentes**: `showOpenFilePicker({multiple:true})`
-(sempre devolve array de 1), descritores `types`/`accept`, `startIn`, `FileSystemHandle.move()`,
-`removeEntry({recursive:true})`. E `window.FileSystemHandle` recebe um `function(){}` vazio, então
-`handle instanceof FileSystemHandle` é **false** para handles reais.
+> ✅ **A parte do toolkit está fechada.** O que sobrou depende do seletor do desktop e está
+> nomeado no fim desta seção.
+
+A lista antiga tinha seis itens, e destrinchá-la contra o código — com o instrumento do T9 — mudou
+dois deles. **Um a favor:** `move()` e `remove()` deixaram de ser trabalho, porque o T6 entregou
+`fs.rename` e `fs.delete` na ponte na mesma onda. **Um contra, e ele não era o que estava escrito:**
+
+#### `removeEntry` não era feature faltando — era perda de dado
+
+A lista dizia *"`removeEntry({recursive:true})` não implementado"*. O `/api/fs/delete` do portal é
+**`rm -rf` incondicional**, e a especificação da FSA manda o contrário: apagar diretório com
+conteúdo sem `{ recursive: true }` tem de lançar `InvalidModificationError`. Ou seja:
+
+```js
+await dir.removeEntry('pasta-cheia');    // apagava a pasta inteira, em silêncio
+```
+
+É a única divergência do polyfill que **perde dado do usuário**, e ela estava catalogada como
+ausência de conveniência.
+
+A guarda é um `list` antes do delete. A primeira versão perguntava ao `stat` se era diretório e só
+então listava — e isso a fazia depender do **formato** da resposta do stat (`isDirectory`): um
+shell cujo stat não trouxesse o campo devolveria `undefined`, a guarda se consideraria
+inaplicável, e o `rm -rf` passaria. Uma proteção que falha **aberto** por causa de um campo
+ausente. Listar direto não pergunta nada a ninguém — arquivo não lista, diretório vazio lista
+vazio. *(Quem achou isso foi um fixture de teste que não devolvia o campo.)*
+
+#### `instanceof` era assimétrico, e só um navegador de verdade mostraria
+
+O Chrome **já tem** `FileSystemHandle`, e o polyfill preservava a nativa (`|| function(){}`). Como
+os nossos handles não descendiam dela:
+
+| | |
+|---|---|
+| `h instanceof FileSystemDirectoryHandle` | `true` — essa nós substituímos |
+| `h instanceof FileSystemHandle` | **`false`** — essa era a nativa |
+
+A classe concreta batia e a **base** falhava — e `instanceof FileSystemHandle` é o idioma de "isto
+é um handle, tanto faz qual". A base passou a ser nossa: dentro do desktop não existe handle
+nativo para quebrar, porque os três `show*Picker` são deste arquivo e o do navegador nunca abre.
+
+#### Os descritores do seletor
+
+`types`/`accept` viram a string de grupos que o seletor do desktop entende (formato Qt,
+`Nome (padrões);;…`), e `startIn` é resolvido quando é um handle — é só o caminho dele.
+
+#### O que sobrou, e é do shell
+
+Duas coisas dependem do gerenciador de arquivos, não do toolkit — e **as duas deixaram de ser
+caladas** nesta onda, que é a metade que era nossa:
+
+| | por que é do shell |
+|---|---|
+| `showOpenFilePicker({multiple:true})` | o seletor é de escolha **única por desenho** (`_pickerMode`, um campo "Selecione um item"). Precisa de UI no gerenciador **e** de a mensagem `pick` passar a devolver lista |
+| `startIn: 'documents'` | o shell teria de resolver os diretórios XDG do usuário |
+
+Devolver um array de um item sem avisar era a pior versão do primeiro: o app recebe a **forma**
+certa com o conteúdo errado e segue como se o usuário tivesse escolhido um arquivo só porque quis.
+
+Sete ataques por refutação, todos vermelhos: `removeEntry` voltando a apagar direto, a guarda
+invertida, o `list` que falha virando "tem conteúdo", a base voltando a ser a nativa, `move` sem
+atualizar o handle, `types` sem virar filtro, e `multiple` voltando a ser silencioso.

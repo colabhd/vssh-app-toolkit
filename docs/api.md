@@ -577,6 +577,24 @@ volta um objeto sem métodos e conclui que a pasta está vazia.
 | handle aninhado (`{ handle, … }`, ou dentro de array) | sim, até 4 níveis |
 | `getAllKeys()` | **não** — chave é chave, não handle |
 
+### O que o polyfill faz, e o que ele não faz
+
+| chamada | |
+|---|---|
+| `showDirectoryPicker` · `showOpenFilePicker` · `showSaveFilePicker` | sim, e `types`/`accept` viram o filtro do seletor |
+| `startIn` **sendo um handle** | sim — abre no caminho dele |
+| `handle.move(nome)` · `.move(pasta)` · `.move(pasta, nome)` | sim, e o handle se atualiza no lugar |
+| `handle.remove({recursive})` · `dir.removeEntry(nome, {recursive})` | sim, **e recusam pasta cheia sem a flag** |
+| `handle instanceof FileSystemHandle` | sim — inclusive na classe base |
+| persistência de handle em IndexedDB | sim, até 4 níveis de aninhamento |
+| `showOpenFilePicker({multiple:true})` | **não** — o seletor do desktop é de escolha única. Devolve 1 e **avisa** |
+| `startIn: 'documents'` e afins | **não** — o shell não resolve diretórios XDG. **Avisa** |
+
+> **`removeEntry` recusa apagar uma pasta com conteúdo**, como manda a especificação — o erro é
+> `InvalidModificationError`. Isso merece nota porque a API de arquivos do portal por baixo é um
+> `rm -rf`: sem essa guarda, `removeEntry('pasta')` apagaria tudo em silêncio. Se você quer mesmo,
+> `{ recursive: true }` é explícito.
+
 **Limites do `File` preguiçoso**, que valem conhecer antes de portar. Cada linha é medida num
 Chrome de verdade em `lib/web/test/fsa-polyfill.browser.test.js` — inclusive as duas últimas:
 
