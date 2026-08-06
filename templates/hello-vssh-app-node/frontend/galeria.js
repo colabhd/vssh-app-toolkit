@@ -1,0 +1,471 @@
+'use strict';
+
+// A galeria — uma peça por capacidade do ambiente.
+//
+// Este arquivo é o par de `index.html` e existe separado dele por um motivo prático: a marcação
+// diz o que cada peça PROVA, e o código mostra o idioma que você vai copiar. Misturar os dois num
+// arquivo só fazia a explicação sumir dentro do script.
+//
+// Três coisas valem para tudo aqui embaixo:
+//
+//   1. **URLs relativas, sempre.** O app é servido sob `/<serverId>/proxy/app/<id>/`, então uma
+//      barra no começo aponta para a raiz do portal, não para o app.
+//   2. **`vssh` não é `import`.** Ele vem do shim, injetado pelo `static-spa` antes do `</head>`
+//      (ver `injectScripts` em backend/server.js). Se ele não existir, a lib não está sendo
+//      SERVIDA — quase sempre por ter sido vendorizada fora da raiz do frontend.
+//   3. **Ausência não é erro.** Shell e apps são publicados à parte, então um app novo pode rodar
+//      contra um shell antigo. Toda peça pergunta antes de usar, e diz o que falta em vez de
+//      estourar um `undefined` que leva junto tudo que vinha depois.
+
+// Este arquivo é INJETADO (ver `injectScripts` em backend/server.js), e não uma `<script src>`
+// escrita no HTML. A diferença é o CARIMBO: o static-spa põe o hash do CONTEÚDO na URL do que
+// injeta, então conteúdo novo mora noutra URL e nenhum cache do caminho pode servir o velho no
+// lugar. Uma tag comum dependeria de revalidação por Last-Modified — o elo fraco que produz
+// "atualizei o app e nada mudou".
+//
+// O preço é que ele roda antes do `</head>`, com o `<body>` ainda inexistente: daí a espera pelo
+// DOM. Sem ela, todo `getElementById` devolveria null e a página ficaria inerte, sem um erro.
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', montarGaleria, { once: true });
+} else {
+  montarGaleria();
+}
+
+function montarGaleria() {
+  const $ = (id) => document.getElementById(id);
+  const escrever = (id, texto) => { $(id).textContent = texto; };
+  const falhar = (id, err) => { $(id).textContent = 'erro: ' + (err?.message || err); };
+
+  // ── Ambiente ─────────────────────────────────────────────────────────────────
+  //
+  // A primeira peça, e a que responde "por que aquilo ali não funciona". `libVersion` é síncrona (é
+  // um literal dentro do shim vendorizado NESTE app); `capabilities()` pergunta ao shell, e é ela
+  // que traz a versão DELE. As duas juntas são o diagnóstico: se divergirem muito, o app está
+  // pedindo coisas que o shell daquele servidor ainda não sabe fazer.
+  (async () => {
+    if (typeof vssh === 'undefined') {
+      escrever('ambiente',
+        'vssh AUSENTE: o shim não foi servido.\n' +
+        'Confira `injectScripts` em backend/server.js e se frontend/vendor/vssh/web/vssh-app-shim.js '
+        + 'existe. Tudo que depende da ponte está desligado nesta página.');
+      return;
+    }
+
+    const linhas = [
+      `dentro do desktop: ${vssh.inDesktop}`,
+      `lib do app (vendorizada): ${vssh.libVersion || 'desconhecida'}`,
+    ];
+    try {
+      const cap = await vssh.capabilities();
+      // Fora do desktop não há shell nenhum — dizer "shell antigo" ali seria diagnosticar um
+      // problema que não existe. `shellVersion: null` tem duas causas e elas pedem ações opostas.
+      linhas.push(vssh.inDesktop
+        ? `shell do servidor: ${cap.shellVersion || 'não informada — shell anterior à Onda 3'}`
+        : 'shell do servidor: nenhum — esta página está fora do desktop');
+      linhas.push(`host: ${cap.host} · apps nativos: ${cap.nativeApps} · interop X11: ${cap.x11Interop}`);
+    } catch (e) {
+      linhas.push('capabilities() falhou: ' + e.message);
+    }
+    linhas.push(`File System Access: ${typeof showDirectoryPicker === 'function' ? 'disponível' : 'ausente (polyfill não injetado?)'}`);
+    escrever('ambiente', linhas.join('\n'));
+  })();
+
+  // ── Backend próprio ──────────────────────────────────────────────────────────
+
+  $('ping').addEventListener('click', async () => {
+    escrever('out', 'chamando...');
+    try {
+      const r = await fetch('api/ping');
+      escrever('out', JSON.stringify(await r.json(), null, 2));
+    } catch (e) { falhar('out', e); }
+  });
+
+  // ── SSE, e a difusão que faz a peça das duas janelas funcionar ───────────────
+
+  $('sub').addEventListener('click', (e) => {
+    e.target.disabled = true;
+    const src = new EventSource('api/events');
+    src.addEventListener('tick', (m) => escrever('events', m.data));
+    // O mesmo stream carrega o estado compartilhado: quem incrementa é uma janela, e a difusão
+    // alcança todas. É por isso que o contador muda na janela em que você NÃO clicou.
+    src.addEventListener('estado', (m) => mostrarEstado(JSON.parse(m.data)));
+    src.onerror = () => {
+      escrever('events', 'conexão SSE caiu');
+      src.close();
+      e.target.disabled = false;
+    };
+  });
+
+  // ── Duas janelas, um backend ─────────────────────────────────────────────────
+
+  function mostrarEstado(s) {
+    escrever('estado',
+      `contador: ${s.contador}\njanelas conectadas (SSE): ${s.conexoes}\nbackend subiu em: ${s.subiuEm}`);
+  }
+
+  $('somar').addEventListener('click', async () => {
+    try {
+      const r = await fetch('api/estado/incrementar', { method: 'POST' });
+      mostrarEstado(await r.json());
+    } catch (e) { falhar('estado', e); }
+  });
+
+  $('reler').addEventListener('click', async () => {
+    try {
+      const r = await fetch('api/estado');
+      mostrarEstado(await r.json());
+    } catch (e) { falhar('estado', e); }
+  });
+
+  // ── Daqui para baixo tudo depende da ponte ───────────────────────────────────
+
+  if (typeof vssh === 'undefined') {
+    escrever('bridge', 'sem o shim não há ponte — veja a peça "Ambiente".');
+  } else {
+
+    escrever('bridge', vssh.inDesktop
+      ? 'dentro do desktop VSSH — diálogos e avisos são os do shell'
+      : 'fora do desktop — o shim degrada para alert/confirm do navegador');
+
+    $('notify').addEventListener('click', () => {
+      vssh.notify('Round-trip concluído', { title: 'Hello World', level: 'success' });
+    });
+
+    $('confirm').addEventListener('click', async () => {
+      const ok = await vssh.dialog.confirm('Isto veio do desktop, não do navegador. Confirma?');
+      escrever('bridge', 'confirm devolveu: ' + ok);
+    });
+
+    // ── Bandeja ────────────────────────────────────────────────────────────────
+    //
+    // `onClick`/`onMenu` ficam aqui e não atravessam a ponte: função não serializa. O shell devolve
+    // só o id do item; quem sabe o que ele significa é o app.
+    let pendentes = 0;
+
+    const mostrarNaBandeja = async () => {
+      const ok = await vssh.tray.set({
+        icon:    'refresh',
+        tooltip: pendentes ? `Hello World — ${pendentes} pendente(s)` : 'Hello World — ocioso',
+        badge:   { count: pendentes },      // count 0 remove o badge, não desenha um "0"
+        menu: [
+          { id: 'focus', label: 'Trazer a janela para a frente', icon: 'launch' },
+          { separator: true },
+          { id: 'reset', label: 'Zerar contador', icon: 'refresh', danger: true },
+        ],
+        onClick: () => escrever('tray', 'clique esquerdo no ícone da bandeja'),
+        onMenu:  (id) => {
+          escrever('tray', 'menu da bandeja: ' + id);
+          if (id === 'focus') vssh.window.focus();
+          if (id === 'reset') { pendentes = 0; mostrarNaBandeja(); }
+        },
+      });
+      // `false` não é erro: é "este ambiente não tem bandeja" — fora do desktop, ou num shell mais
+      // antigo que este app. Trate e siga.
+      escrever('tray', ok ? `na bandeja (badge: ${pendentes})` : 'sem bandeja neste ambiente');
+    };
+
+    $('tray-on').addEventListener('click', mostrarNaBandeja);
+    $('tray-bump').addEventListener('click', () => { pendentes++; mostrarNaBandeja(); });
+    $('tray-off').addEventListener('click', async () => {
+      await vssh.tray.remove();
+      pendentes = 0;
+      escrever('tray', 'removido da bandeja');
+    });
+
+    // ── Impressão ──────────────────────────────────────────────────────────────
+    //
+    // Duas chamadas, e a primeira dá sentido à segunda: `pickFile` é onde o usuário escolhe. `print`
+    // resolve quando a tela ABRE, não quando o usuário imprime — o app não fica sabendo o que foi
+    // impresso, e não precisa.
+    $('print').addEventListener('click', async () => {
+      const path = await vssh.pickFile({ title: 'Escolha um arquivo para imprimir' });
+      if (!path) { escrever('printout', 'cancelado no seletor'); return; }
+      const abriu = await vssh.print(path);
+      escrever('printout', abriu
+        ? `tela de impressão aberta para ${path}`
+        : 'vssh.print devolveu false — fora do desktop, ou shell sem suporte a impressão');
+    });
+
+    // ── Arquivos do usuário: File System Access ────────────────────────────────
+    //
+    // O handle vai para o IndexedDB porque é assim que um app real reabre o mesmo grafo depois de um
+    // reload. Um handle é objeto com métodos e structured clone descarta métodos — quem reidrata na
+    // leitura é o polyfill, envelopando `IDBObjectStore.get`. Por isso este código é o mesmo que
+    // você escreveria num navegador, sem nada de especial.
+    const NOME = 'vssh-galeria.txt';
+    const NOME2 = 'vssh-galeria-renomeado.txt';
+    let pasta = null;
+    let arquivo = NOME;
+
+    const idb = {
+      abrir: () => new Promise((ok, nao) => {
+        const r = indexedDB.open('galeria', 1);
+        r.onupgradeneeded = () => r.result.createObjectStore('handles');
+        r.onsuccess = () => ok(r.result);
+        r.onerror = () => nao(r.error);
+      }),
+      async guardar(chave, valor) {
+        const db = await idb.abrir();
+        return new Promise((ok, nao) => {
+          const t = db.transaction('handles', 'readwrite');
+          t.objectStore('handles').put(valor, chave);
+          t.oncomplete = () => ok();
+          t.onerror = () => nao(t.error);
+        });
+      },
+      async ler(chave) {
+        const db = await idb.abrir();
+        return new Promise((ok, nao) => {
+          const r = db.transaction('handles').objectStore('handles').get(chave);
+          r.onsuccess = () => ok(r.result);
+          r.onerror = () => nao(r.error);
+        });
+      },
+    };
+
+    const botoesDePasta = ['fsa-listar', 'fsa-escrever', 'fsa-ler', 'fsa-mover', 'fsa-apagar', 'fsa-permissao'];
+    const habilitar = (ligado) => botoesDePasta.forEach((id) => { $(id).disabled = !ligado; });
+
+    async function adotar(handle, origem) {
+      pasta = handle;
+      habilitar(true);
+      // `queryPermission` responde de verdade — 'granted' ou 'prompt', consultando o shell. Não
+      // presuma 'granted' só porque o handle voltou do IndexedDB: o usuário pode ter revogado.
+      const estado = await pasta.queryPermission({ mode: 'readwrite' });
+      escrever('fsa', `pasta: ${pasta.name} (${origem})\npermissão: ${estado}`);
+    }
+
+    $('fsa-pick').addEventListener('click', async () => {
+      try {
+        // Escolher É consentir — não há segunda confirmação. Quem abre o seletor é o desktop.
+        const h = await showDirectoryPicker({ mode: 'readwrite' });
+        await idb.guardar('pasta', h);
+        await adotar(h, 'escolhida agora, e guardada no IndexedDB');
+      } catch (e) {
+        escrever('fsa', e?.name === 'AbortError' ? 'cancelado no seletor' : 'erro: ' + e.message);
+      }
+    });
+
+    $('fsa-listar').addEventListener('click', async () => {
+      try {
+        const itens = [];
+        for await (const [nome, h] of pasta.entries()) {
+          itens.push(`${h.kind === 'directory' ? '📁' : '📄'} ${nome}`);
+          if (itens.length >= 30) { itens.push('… (cortado em 30)'); break; }
+        }
+        escrever('fsa', `${pasta.name} — ${itens.length} entrada(s):\n` + (itens.join('\n') || '(vazia)'));
+      } catch (e) { falhar('fsa', e); }
+    });
+
+    $('fsa-escrever').addEventListener('click', async () => {
+      try {
+        const fh = await pasta.getFileHandle(arquivo, { create: true });
+        const w = await fh.createWritable();
+        await w.write(`escrito pela galeria em ${new Date().toISOString()}\n`);
+        await w.close();
+        escrever('fsa', `${arquivo} gravado em ${pasta.name}`);
+      } catch (e) { falhar('fsa', e); }
+    });
+
+    $('fsa-ler').addEventListener('click', async () => {
+      try {
+        const fh = await pasta.getFileHandle(arquivo);
+        const f = await fh.getFile();
+        escrever('fsa', `${arquivo} — ${f.size} bytes, ${new Date(f.lastModified).toLocaleString()}\n\n${await f.text()}`);
+      } catch (e) { falhar('fsa', e); }
+    });
+
+    // `move()` não é do padrão original — é a parte de FileSystemHandle que o Chrome implementa e
+    // que apps portados usam para renomear sem reescrever o arquivo inteiro. O handle é atualizado
+    // no lugar: o mesmo objeto passa a apontar para o nome novo.
+    $('fsa-mover').addEventListener('click', async () => {
+      try {
+        const fh = await pasta.getFileHandle(arquivo);
+        const destino = arquivo === NOME ? NOME2 : NOME;
+        await fh.move(destino);
+        arquivo = destino;
+        escrever('fsa', `renomeado para ${arquivo} — e o handle continua válido (${fh.name})`);
+      } catch (e) { falhar('fsa', e); }
+    });
+
+    // `removeEntry` de uma PASTA não vazia falha sem `{ recursive: true }`, e isso é deliberado: a
+    // rota de baixo é um `rm -rf`, então apagar em silêncio uma pasta cheia era perda de dado sem
+    // desfazer. Aqui é arquivo, mas vale conhecer o guarda-corpo.
+    $('fsa-apagar').addEventListener('click', async () => {
+      try {
+        await pasta.removeEntry(arquivo);
+        escrever('fsa', `${arquivo} apagado`);
+        arquivo = NOME;
+      } catch (e) { falhar('fsa', e); }
+    });
+
+    // `requestPermission()` reabre o seletor, e por isso precisa de um GESTO do usuário — sem gesto
+    // ele devolve 'prompt' sem abrir nada, que é a regra do navegador. Se a pessoa escolher outra
+    // pasta, a resposta é 'denied' e o handle antigo continua fora. 'denied' é estado normal.
+    $('fsa-permissao').addEventListener('click', async () => {
+      try {
+        const r = await pasta.requestPermission({ mode: 'readwrite' });
+        escrever('fsa', `requestPermission devolveu: ${r}`);
+      } catch (e) { falhar('fsa', e); }
+    });
+
+    // Reabre sozinho o que ficou de antes — é o caso real de um editor que volta no mesmo grafo.
+    idb.ler('pasta')
+      .then((h) => { if (h && typeof h.queryPermission === 'function') return adotar(h, 'restaurada do IndexedDB'); })
+      .catch(() => {});
+
+    // ── A ponte `vssh.fs`, por caminho ─────────────────────────────────────────
+
+    let alvo = null;
+    let pararWatch = null;
+    const botoesDeCaminho = ['fs-exists', 'fs-copy', 'fs-rename', 'fs-watch'];
+
+    $('fs-pick').addEventListener('click', async () => {
+      alvo = await vssh.pickFile({ title: 'Escolha um arquivo para exercitar vssh.fs' });
+      if (!alvo) { escrever('fs', 'cancelado no seletor'); return; }
+      botoesDeCaminho.forEach((id) => { $(id).disabled = false; });
+      escrever('fs', alvo);
+    });
+
+    $('fs-exists').addEventListener('click', async () => {
+      try {
+        escrever('fs', `exists(${alvo}) → ${await vssh.fs.exists(alvo)}\n` +
+                       `exists(${alvo}.nao-existe) → ${await vssh.fs.exists(alvo + '.nao-existe')}`);
+      } catch (e) { falhar('fs', e); }
+    });
+
+    // Origem e destino precisam AMBOS estar concedidos, e quem impõe isso é o shell. Como os dois
+    // caminhos aqui moram na mesma pasta que o usuário escolheu no seletor, os dois estão dentro.
+    $('fs-copy').addEventListener('click', async () => {
+      try {
+        await vssh.fs.copy(alvo, alvo + '.bak', { overwrite: true });
+        escrever('fs', `copiado para ${alvo}.bak`);
+      } catch (e) { falhar('fs', e); }
+    });
+
+    // Sem `{ overwrite: true }` um destino existente FALHA, de propósito: perder arquivo em
+    // silêncio não tem desfazer.
+    $('fs-rename').addEventListener('click', async () => {
+      try {
+        await vssh.fs.rename(alvo + '.bak', alvo + '.bak2');
+        escrever('fs', `${alvo}.bak → ${alvo}.bak2`);
+      } catch (e) { falhar('fs', e); }
+    });
+
+    $('fs-watch').addEventListener('click', async () => {
+      if (pararWatch) {
+        pararWatch(); pararWatch = null;
+        $('fs-watch').textContent = 'watch';
+        escrever('fs', 'watch cancelado — o vigia do servidor foi solto');
+        return;
+      }
+      try {
+        escrever('fs', `vigiando ${alvo} — altere o arquivo por fora (outro editor, um git pull)`);
+        pararWatch = await vssh.fs.watch(alvo, ({ path, closed }) => {
+          escrever('fs', closed ? `a assinatura de ${path} acabou` : `mudou por fora: ${path} (${new Date().toLocaleTimeString()})`);
+        });
+        $('fs-watch').textContent = 'parar watch';
+      } catch (e) { falhar('fs', e); }
+    });
+
+    // Cancelar quando a página morre não é higiene opcional: cada watch segura um vigia vivo do
+    // outro lado, e há teto por usuário.
+    window.addEventListener('pagehide', () => pararWatch?.());
+
+    // ── OPFS ───────────────────────────────────────────────────────────────────
+    //
+    // O armazenamento privado do navegador é por ORIGEM, e todo vssh-app vive na mesma. O shim
+    // confina cada app numa raiz `vssh-app-<id>` — sem isso, este app abriria o `cache.db` do
+    // vizinho, e o pior caso não é ler: é gravar.
+    const opfs = () => navigator.storage.getDirectory();
+
+    // O namespace só existe quando dá para identificar o app pela URL — ou seja, sob o proxy do
+    // portal. Rodando solto (`node backend/server.js` na sua máquina) a raiz é a da origem, sem
+    // nome: ali não há outro app com quem colidir, e inventar uma pasta esconderia o
+    // armazenamento de quem está desenvolvendo contra ele.
+    const nomeDaRaiz = (raiz) => raiz.name || '(raiz da origem — fora do proxy não há namespace)';
+
+    $('opfs-escrever').addEventListener('click', async () => {
+      try {
+        const raiz = await opfs();
+        const fh = await raiz.getFileHandle('anotacao.txt', { create: true });
+        const w = await fh.createWritable();
+        await w.write(`gravado em ${new Date().toISOString()}`);
+        await w.close();
+        escrever('opfs', `gravado em anotacao.txt\nraiz: ${nomeDaRaiz(raiz)}`);
+      } catch (e) { falhar('opfs', e); }
+    });
+
+    $('opfs-ler').addEventListener('click', async () => {
+      try {
+        const raiz = await opfs();
+        const f = await (await raiz.getFileHandle('anotacao.txt')).getFile();
+        escrever('opfs', `raiz: ${nomeDaRaiz(raiz)}\n${await f.text()}`);
+      } catch (e) { falhar('opfs', e); }
+    });
+
+    // ── Som ────────────────────────────────────────────────────────────────────
+    //
+    // Repare no que NÃO tem aqui: nenhuma chamada a `vssh.audio` para OBEDECER ao mixer. O app toca
+    // do jeito mais banal possível e obedece ao slider assim mesmo. `vssh.audio` é só a leitura.
+
+    // Um segundo de senoide em memória, em loop. Um arquivo de áudio no pacote seria mais simples de
+    // ler, mas o template não deve carregar binário só para demonstrar.
+    const tomWav = (hz = 220, taxa = 8000) => {
+      const n = taxa, buf = new ArrayBuffer(44 + n * 2), dv = new DataView(buf);
+      const txt = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+      txt(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); txt(8, 'WAVEfmt ');
+      dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+      dv.setUint32(24, taxa, true); dv.setUint32(28, taxa * 2, true);
+      dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+      txt(36, 'data'); dv.setUint32(40, n * 2, true);
+      for (let i = 0; i < n; i++) dv.setInt16(44 + i * 2, Math.sin(2 * Math.PI * hz * i / taxa) * 6000, true);
+      return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+    };
+
+    let el = null;
+    $('som-media').addEventListener('click', (e) => {
+      if (el) { el.pause(); el.remove(); el = null; e.target.textContent = 'tocar um <audio>'; relatarSom(); return; }
+      el = new Audio(tomWav(220));
+      el.loop = true;
+      el.volume = 0.5;          // "metade do MEU volume máximo"
+      document.body.appendChild(el);
+      el.play();
+      e.target.textContent = 'parar o <audio>';
+      relatarSom();
+    });
+
+    let ctx = null, osc = null;
+    $('som-wa').addEventListener('click', (e) => {
+      if (osc) { osc.stop(); osc.disconnect(); osc = null; e.target.textContent = 'tocar por AudioContext'; relatarSom(); return; }
+      ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+      ctx.resume();
+      const g = ctx.createGain();
+      g.gain.value = 0.15;      // senoide crua é agressiva; isto é do APP, não do ambiente
+      osc = ctx.createOscillator();
+      osc.frequency.value = 330;
+      osc.connect(g);
+      g.connect(ctx.destination);   // ← é ESTA linha que o shim intercepta
+      osc.start();
+      e.target.textContent = 'parar o AudioContext';
+      relatarSom();
+    });
+
+    // O ambiente MULTIPLICA: quem lê `el.volume` continua vendo o valor que o app pediu, e o que sai
+    // pelo alto-falante é o produto dos dois. Se fosse sobrescrita, o próximo `el.volume = 1` do app
+    // desfaria o mixer em silêncio.
+    const temAudio = typeof vssh.audio !== 'undefined';
+    function relatarSom() {
+      const meu = el ? ` · o app pediu el.volume=${el.volume}` : '';
+      if (!temAudio) {
+        escrever('audio', 'este shim é anterior à Onda 2.5 e não tem vssh.audio — o mixer do desktop '
+          + 'NÃO controla este app. Rode `vssh-app-lib-sync . --parts web --dest frontend/vendor/vssh`, '
+          + 'commite e reinstale.' + meu);
+        return;
+      }
+      escrever('audio', `ambiente: gain=${vssh.audio.gain().toFixed(2)} mudo=${vssh.audio.muted()}${meu}`);
+    }
+    if (temAudio) vssh.audio.onChange(relatarSom);
+    relatarSom();
+  }
+}

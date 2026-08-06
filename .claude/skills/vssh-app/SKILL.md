@@ -407,7 +407,14 @@ usuários ou peça para reabrirem o app.
 | Runtime | Python 3 stdlib | Node stdlib |
 | Traz | o mínimo absoluto | libs do toolkit vendorizadas |
 | Já vem com | — | log estruturado, gate de token timing-safe, healthcheck isento, SSE |
+| E também | — | a **galeria**: uma peça por capacidade do ambiente (ponte, FSA, `vssh.fs`, OPFS, bandeja, som, impressão, duas janelas sobre um backend só) |
 | Use quando | o app é pequeno e você quer ler tudo em 2 minutos | qualquer coisa que vá crescer |
+
+> **A galeria é para instalar, não só para ler.** Ela é a resposta a "este servidor faz isto?" —
+> cada peça diz o que PROVA, e a primeira delas (*Ambiente*) mostra a versão do shim vendorizado
+> no app ao lado da versão do shell daquele servidor, que é o que explica quase toda ausência.
+> Ao copiar o template para um app seu, apague `frontend/galeria.js`, as peças de
+> `frontend/index.html` e as rotas `api/estado*` — o que sobra é o mínimo.
 
 O Python é o menor caminho até "funciona": um app mínimo completo que exercita o pipeline inteiro
 — janela abre, o iframe carrega `frontend/index.html` servido pelo próprio backend, e um botão faz

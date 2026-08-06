@@ -39,23 +39,41 @@ const spa = createStaticSpa({
   //      arquivo é este mesmo `createStaticSpa`, e ele só serve o que está sob `root`.
   // Com a lib no lugar errado a página carrega normalmente, a tag aponta para 404 e o `vssh`
   // simplesmente não existe — sem erro nenhum que ligue uma coisa à outra.
-  injectScripts: ['vendor/vssh/web/vssh-app-shim.js'],
-
-  // O polyfill da File System Access API (`showDirectoryPicker()` e cia.) está vendorizado ao lado,
-  // mas NÃO é injetado por padrão — este template é um "olá mundo" e não mexe em arquivo nenhum do
-  // usuário. Ligue-o acrescentando à lista acima:
-  //   'vendor/vssh/web/fsa-polyfill.js'   (SEMPRE depois do shim — ele depende do `vssh`)
+  // A ORDEM importa: o polyfill de File System Access depende do `vssh` que o shim publica, então
+  // ele vem SEMPRE depois. Trocar a ordem não dá erro nenhum — dá um `showDirectoryPicker` que
+  // não existe, que é bem pior de descobrir.
   //
-  // Os limites que antes desaconselhavam ligá-lo caíram na Onda 3: `slice()` lê por Range HTTP,
-  // e `new Response(file)`, `fetch({body})` e `FileReader` funcionam. Sobraram dois caminhos
-  // SÍNCRONOS sem conserto — `new Blob([file])` e `FormData.append` —, que hoje avisam no console
-  // em vez de entregarem vazio calados. Ver docs/api.md.
+  // O polyfill é injetado porque este template é também a GALERIA: a seção "Arquivos do usuário"
+  // usa a API padrão do W3C, e é assim que um app real alcança a home. Se o seu app não mexe em
+  // arquivo do usuário, tire a segunda linha — ela não custa nada em runtime (o polyfill só age
+  // quando alguém chama um seletor), mas o que não se usa não se serve.
+  //
+  // `galeria.js` — o código DESTE app — entra na mesma lista, e não como uma `<script src>` no
+  // index, para ganhar o carimbo de conteúdo na URL: só o que é injetado é carimbado, e o carimbo
+  // é o que garante que uma reinstalação não sirva a versão velha de nenhum cache do caminho.
+  // Quem tem build (Vite e afins) já recebe um nome com hash e não precisa disto.
+  injectScripts: [
+    'vendor/vssh/web/vssh-app-shim.js',
+    'vendor/vssh/web/fsa-polyfill.js',
+    'galeria.js',
+  ],
 
   // Descomente se o seu app usa roteamento HTML5 (History API) em vez de fragmento:
   // spaFallback: true,
   missingBundleHint: 'Rode o build do frontend antes de subir o backend.',
   onWarn: (event) => log('spa-warn', event),
 });
+
+// ── Estado do processo, compartilhado por todas as janelas ────────────────────
+//
+// Um `Set` de streams SSE abertos e um contador. É o menor estado possível que ainda prova o
+// modelo: N janelas, UM backend.
+const conexoes = new Set();
+let contador = 0;
+const subiuEm = new Date().toISOString();
+
+const estado = () => ({ contador, conexoes: conexoes.size, subiuEm });
+const difundir = () => { for (const s of conexoes) s.send('estado', estado()); };
 
 // Comparação de tamanho fixo: hash dos dois lados antes de comparar, para não vazar prefixo pelo
 // tempo nem tropeçar em comprimentos diferentes.
@@ -95,14 +113,41 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Exemplo de SSE. Prove que eventos chegam sem buffer: `curl -N <baseUrl>api/events`.
+    //
+    // O stream também entra no conjunto de conexões abertas — é o que faz a demonstração de
+    // "duas janelas, um backend" funcionar: quem incrementa é uma janela, e a difusão alcança
+    // todas as outras. Sem o `delete` no `close`, cada abrir-e-fechar de janela deixaria um
+    // stream morto no conjunto e o número de conexões só subiria.
     if (url.pathname === '/api/events') {
       const stream = openSseStream(res);
+      conexoes.add(stream);
+      stream.send('estado', estado());
       let n = 0;
       const timer = setInterval(() => {
         if (stream.closed) return clearInterval(timer);
         stream.send('tick', { n: ++n, time: new Date().toISOString() });
       }, 1000);
-      res.on('close', () => clearInterval(timer));
+      res.on('close', () => { clearInterval(timer); conexoes.delete(stream); difundir(); });
+      return;
+    }
+
+    // ── Duas janelas, um backend ────────────────────────────────────────────
+    //
+    // O contador vive AQUI, no processo. Duas janelas do mesmo app (menu de contexto da janela →
+    // "Nova janela") são duas visões deste mesmo processo — mesma porta, mesmo token, mesmo
+    // VSSH_APP_DATA_DIR. É o que este par de rotas demonstra, e também o que ele avisa: estado de
+    // UI guardado no backend passa a ter mais de um cliente.
+    if (url.pathname === '/api/estado' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(estado()));
+      return;
+    }
+
+    if (url.pathname === '/api/estado/incrementar' && req.method === 'POST') {
+      contador += 1;
+      difundir();
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(estado()));
       return;
     }
 

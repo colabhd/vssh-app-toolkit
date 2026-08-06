@@ -21,7 +21,7 @@ padrão — **sem nenhum PAT/GitHub App**.
 | [`scripts/vssh-app-lib-sync`](scripts/vssh-app-lib-sync) | Copia `lib/` para dentro do repo do seu app (vendorizado). |
 | [`.github/workflows/_publish-app-reusable.yml`](.github/workflows/_publish-app-reusable.yml) | Reusable workflow que o CI do seu repo de app chama com um `uses:`. |
 | [`templates/hello-vssh-app/`](templates/hello-vssh-app/) | Template de partida (Python 3 stdlib, zero deps). Copie e adapte. |
-| [`templates/hello-vssh-app-node/`](templates/hello-vssh-app-node/) | Template Node: usa as libs, já nasce com log estruturado, gate de token e SSE. |
+| [`templates/hello-vssh-app-node/`](templates/hello-vssh-app-node/) | Template Node **e galeria**: log estruturado, gate de token e SSE — e uma peça por capacidade do ambiente, para instalar num servidor e conferir com as mãos. |
 | [`docs/api.md`](docs/api.md) | **Referência de API** — o que o app pode pedir ao ambiente: janela, título, diálogos, menu de contexto, seletores, arquivos, abas. E o que não existe. |
 | [`docs/porting.md`](docs/porting.md) | Portar um app web/Electron/Tauri: árvore de decisão e como medir o buraco em minutos. |
 | [`docs/lessons/logseq-port.md`](docs/lessons/logseq-port.md) | O que portar um app real ensinou — a origem da maioria das regras acima. |

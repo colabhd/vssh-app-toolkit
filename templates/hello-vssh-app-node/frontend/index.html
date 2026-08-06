@@ -5,278 +5,211 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Hello World (Node)</title>
   <style>
-    :root { color-scheme: light dark; }
+    :root { color-scheme: light dark; --linha: rgba(127,127,127,.35); --fundo: rgba(127,127,127,.12); }
+    * { box-sizing: border-box; }
     body {
-      margin: 0; padding: 2rem;
-      font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
-      display: flex; flex-direction: column; gap: 1rem; align-items: flex-start;
+      margin: 0; padding: 1.5rem;
+      font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+      display: flex; flex-direction: column; gap: 1.25rem;
     }
-    h1 { margin: 0; font-size: 1.4rem; }
+    header h1 { margin: 0 0 .25rem; font-size: 1.35rem; }
+    header p  { margin: 0; opacity: .8; max-width: 70ch; }
+
+    /* Uma peça por funcionalidade. O que importa na leitura é a linha `.porque`: ela diz o que
+       aquele botão PROVA, não o que ele faz. */
+    .galeria { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); }
+    section {
+      border: 1px solid var(--linha); border-radius: 10px; padding: 1rem;
+      display: flex; flex-direction: column; gap: .6rem; min-width: 0;
+    }
+    section h2 { margin: 0; font-size: 1.05rem; }
+    section p  { margin: 0; }
+    .porque { opacity: .75; font-size: .92em; }
+    .acoes { display: flex; flex-wrap: wrap; gap: .5rem; }
     button {
-      font: inherit; padding: .5rem 1rem; border-radius: 6px;
+      font: inherit; padding: .4rem .8rem; border-radius: 6px;
       border: 1px solid currentColor; background: transparent; color: inherit; cursor: pointer;
     }
+    button:disabled { opacity: .45; cursor: default; }
     pre {
-      margin: 0; padding: .75rem 1rem; border-radius: 6px; align-self: stretch;
-      background: rgba(127,127,127,.15); overflow-x: auto; min-height: 1.5em;
+      margin: 0; padding: .6rem .8rem; border-radius: 6px; background: var(--fundo);
+      overflow-x: auto; min-height: 1.55em; white-space: pre-wrap; word-break: break-word;
+      font-size: .88em;
     }
+    code { background: var(--fundo); padding: .05em .3em; border-radius: 4px; }
+    .larga { grid-column: 1 / -1; }
   </style>
 </head>
 <body>
-  <h1>Hello World — vssh-app (Node)</h1>
-  <p>Frontend servido pelo próprio backend, através do proxy do portal.</p>
+  <header>
+    <h1>Hello World — vssh-app (Node)</h1>
+    <p>
+      Template de partida <strong>e</strong> galeria: cada peça abaixo exercita uma capacidade real
+      do ambiente. Frontend servido pelo próprio backend, através do proxy do portal.
+    </p>
+  </header>
 
-  <button id="ping">Chamar api/ping</button>
-  <pre id="out">—</pre>
+  <div class="galeria">
 
-  <button id="sub">Assinar api/events (SSE)</button>
-  <pre id="events">—</pre>
+    <section id="c-ambiente" class="larga">
+      <h2>Ambiente</h2>
+      <p class="porque">
+        <strong>Leia esta peça primeiro</strong> — ela explica todas as outras. Shell e apps são
+        publicados à parte, então <em>versão dessincronizada é a regra</em>: um app instalado hoje
+        roda contra o shim vendorizado nele e contra o shell que estiver no servidor. Quando algo
+        aqui embaixo não existir, é aqui que se vê por quê.
+      </p>
+      <pre id="ambiente">—</pre>
+    </section>
 
-  <h2 style="margin:1rem 0 0;font-size:1.1rem">A ponte com o desktop</h2>
-  <p style="margin:0">
-    <code>vssh</code> vem do <code>vssh-app-shim.js</code>, injetado pelo <code>static-spa</code> —
-    não há tag <code>&lt;script&gt;</code> para ele neste arquivo.
-  </p>
+    <section>
+      <h2>Backend próprio</h2>
+      <p class="porque">
+        O app é um processo seu no servidor Linux. <code>fetch('api/ping')</code> — relativo,
+        sempre: uma barra no começo apontaria para a raiz do portal, não para o app.
+      </p>
+      <div class="acoes"><button id="ping">chamar api/ping</button></div>
+      <pre id="out">—</pre>
+    </section>
 
-  <button id="notify">vssh.notify</button>
-  <button id="confirm">vssh.dialog.confirm</button>
-  <pre id="bridge">—</pre>
+    <section>
+      <h2>SSE</h2>
+      <p class="porque">
+        Eventos empurrados pelo backend, com os cabeçalhos que sobrevivem ao proxy e ao CDN. Se
+        chegassem em lote em vez de um a um, o problema seria bufferização na borda.
+      </p>
+      <div class="acoes"><button id="sub">assinar api/events</button></div>
+      <pre id="events">—</pre>
+    </section>
 
-  <h2 style="margin:1rem 0 0;font-size:1.1rem">Bandeja do sistema</h2>
-  <p style="margin:0">
-    Um ícone do app ao lado do relógio, com badge e menu. Clique nele lá na barra —
-    o retorno aparece aqui embaixo.
-  </p>
+    <section class="larga">
+      <h2>Duas janelas, um backend</h2>
+      <p class="porque">
+        Abra a <strong>segunda janela</strong> pelo menu de contexto da janela (clique direito no
+        cabeçalho → <em>Nova janela</em>) e clique em somar numa delas: o número muda nas duas.
+        Elas não são duas instâncias — são duas visões do mesmo processo, com a mesma porta, o
+        mesmo token e o mesmo <code>VSSH_APP_DATA_DIR</code>. É a consequência que vale para quem
+        escreve o app: estado de UI guardado no backend passa a ter mais de um cliente.
+      </p>
+      <div class="acoes">
+        <button id="somar">somar 1 no backend</button>
+        <button id="reler">reler api/estado</button>
+      </div>
+      <pre id="estado">— (assine o SSE acima para receber as mudanças da outra janela)</pre>
+    </section>
 
-  <button id="tray-on">vssh.tray.set</button>
-  <button id="tray-bump">badge +1</button>
-  <button id="tray-off">vssh.tray.remove</button>
-  <pre id="tray">—</pre>
+    <section>
+      <h2>Diálogo e aviso</h2>
+      <p class="porque">
+        <code>vssh</code> vem do <code>vssh-app-shim.js</code>, injetado pelo <code>static-spa</code>
+        — não há <code>&lt;script&gt;</code> para ele neste arquivo. Nada disto passa pelo Xpra.
+      </p>
+      <div class="acoes">
+        <button id="notify">vssh.notify</button>
+        <button id="confirm">vssh.dialog.confirm</button>
+      </div>
+      <pre id="bridge">—</pre>
+    </section>
 
-  <h2 style="margin:1rem 0 0;font-size:1.1rem">Impressão</h2>
-  <p style="margin:0">
-    O app <strong>não imprime</strong>: ele pede a tela, e quem escolhe o destino e confirma é
-    o usuário — mesmo padrão de <code>dialog</code> e <code>pick</code>. Por isso o botão abre
-    um seletor primeiro: sem um arquivo do servidor não há o que imprimir.
-  </p>
-  <p style="margin:0">
-    O destino que o desktop oferece primeiro é a fila do <strong>próprio servidor</strong>, e a
-    razão vale saber: ali o arquivo não viaja. Imprimir um PDF de 200 páginas pelo navegador
-    significa baixar 200 páginas antes de imprimir 200 páginas.
-  </p>
+    <section>
+      <h2>Bandeja do sistema</h2>
+      <p class="porque">
+        Um ícone do app ao lado do relógio, com badge e menu. Chamar <code>set</code> de novo
+        <em>atualiza</em> o mesmo ícone — o badge muda e ele não pula de lugar.
+      </p>
+      <div class="acoes">
+        <button id="tray-on">vssh.tray.set</button>
+        <button id="tray-bump">badge +1</button>
+        <button id="tray-off">remover</button>
+      </div>
+      <pre id="tray">—</pre>
+    </section>
 
-  <button id="print">escolher arquivo e vssh.print</button>
-  <pre id="printout">—</pre>
+    <section class="larga">
+      <h2>Arquivos do usuário — File System Access</h2>
+      <p class="porque">
+        A API padrão do W3C, servida pelo <code>fsa-polyfill</code>: um app que já usa FSA roda
+        aqui <strong>sem fork</strong>. Escolher no seletor <em>é</em> o consentimento — não há
+        segunda confirmação —, e o acesso <strong>sobrevive à sessão</strong>, que é o par
+        necessário de guardar o handle no IndexedDB. Revogar é no menu de contexto da janela →
+        <em>Permissões de arquivo</em>.
+      </p>
+      <div class="acoes">
+        <button id="fsa-pick">escolher pasta</button>
+        <button id="fsa-listar" disabled>listar</button>
+        <button id="fsa-escrever" disabled>criar e escrever</button>
+        <button id="fsa-ler" disabled>ler de volta</button>
+        <button id="fsa-mover" disabled>renomear (move)</button>
+        <button id="fsa-apagar" disabled>apagar</button>
+        <button id="fsa-permissao" disabled>reautorizar</button>
+      </div>
+      <pre id="fsa">—</pre>
+    </section>
 
-  <h2 style="margin:1rem 0 0;font-size:1.1rem">Som</h2>
-  <p style="margin:0">
-    O desktop tem um <strong>mixer de volume</strong> na barra, e este app já obedece a ele
-    <strong>sem chamar nada</strong> — quem cuida disso é o shim. Toque um dos dois abaixo e mexa
-    no slider deste app lá na barra.
-  </p>
-  <p style="margin:0">
-    São dois caminhos porque <code>&lt;audio&gt;</code> e Web Audio não se alcançam pelo mesmo
-    lugar, e só o primeiro o desktop enxerga de fora. <strong>Um app que toca por
-    <code>AudioContext</code> e não carrega o shim nem aparece no mixer</strong> — não por
-    esquecimento: um slider que não morde é pior que slider nenhum.
-  </p>
+    <section class="larga">
+      <h2>A ponte <code>vssh.fs</code>, por caminho</h2>
+      <p class="porque">
+        O caminho de baixo, para quem não fala FSA. <code>exists</code> devolve três respostas em
+        vez de duas: só o 404 vira <code>false</code>, e "não tenho permissão" lança em vez de
+        virar "não existe". <code>watch</code> avisa quando algo muda <strong>por fora</strong> do
+        app — e devolve a função que cancela, porque cada assinatura segura um vigia vivo no
+        servidor.
+      </p>
+      <div class="acoes">
+        <button id="fs-pick">escolher um arquivo</button>
+        <button id="fs-exists" disabled>exists</button>
+        <button id="fs-copy" disabled>copy → .bak</button>
+        <button id="fs-rename" disabled>rename do .bak</button>
+        <button id="fs-watch" disabled>watch</button>
+      </div>
+      <pre id="fs">—</pre>
+    </section>
 
-  <button id="som-media">tocar um &lt;audio&gt;</button>
-  <button id="som-wa">tocar por AudioContext</button>
-  <pre id="audio">—</pre>
+    <section>
+      <h2>Armazenamento privado (OPFS)</h2>
+      <p class="porque">
+        <code>navigator.storage.getDirectory()</code> é por <em>origem</em>, e todo vssh-app vive na
+        mesma. Sem isolamento, um app leria — e sobrescreveria — o banco do vizinho. O shim
+        confina cada app na sua raiz; o nome dela aparece abaixo.
+      </p>
+      <div class="acoes">
+        <button id="opfs-escrever">gravar</button>
+        <button id="opfs-ler">ler</button>
+      </div>
+      <pre id="opfs">—</pre>
+    </section>
 
-  <script>
-    // URLs RELATIVAS, sempre: o app é servido sob /<serverId>/proxy/app/<id>/, então uma barra no
-    // começo apontaria para a raiz do portal, não para o app.
-    const out = document.getElementById('out');
-    document.getElementById('ping').addEventListener('click', async () => {
-      out.textContent = 'chamando...';
-      try {
-        const r = await fetch('api/ping');
-        out.textContent = JSON.stringify(await r.json(), null, 2);
-      } catch (e) {
-        out.textContent = 'erro: ' + e.message;
-      }
-    });
+    <section>
+      <h2>Impressão</h2>
+      <p class="porque">
+        O app <strong>não imprime</strong>: ele pede a tela, e quem escolhe o destino e confirma é o
+        usuário. O destino oferecido primeiro é a fila do <em>próprio servidor</em> — ali o arquivo
+        não viaja, e imprimir 200 páginas pelo navegador significa baixar 200 páginas antes.
+      </p>
+      <div class="acoes"><button id="print">escolher arquivo e imprimir</button></div>
+      <pre id="printout">—</pre>
+    </section>
 
-    // SSE pelo mesmo caminho relativo. Se os eventos chegarem em lote em vez de um a um, o
-    // problema é bufferização na borda — ver lib/node/sse.js.
-    const ev = document.getElementById('events');
-    document.getElementById('sub').addEventListener('click', (e) => {
-      e.target.disabled = true;
-      const src = new EventSource('api/events');
-      src.addEventListener('tick', (m) => { ev.textContent = m.data; });
-      src.onerror = () => { ev.textContent = 'conexão SSE caiu'; src.close(); e.target.disabled = false; };
-    });
+    <section class="larga">
+      <h2>Som</h2>
+      <p class="porque">
+        Este app obedece ao mixer da barra <strong>sem chamar nada</strong> — quem cuida disso é o
+        shim. São dois botões porque <code>&lt;audio&gt;</code> e Web Audio não se alcançam pelo
+        mesmo lugar: o desktop enxerga o primeiro de fora, e o segundo só é controlável porque o
+        shim envolve <code>AudioNode.connect</code>. Um app que toca por <code>AudioContext</code>
+        e não carrega o shim <em>nem aparece</em> no mixer.
+      </p>
+      <div class="acoes">
+        <button id="som-media">tocar um &lt;audio&gt;</button>
+        <button id="som-wa">tocar por AudioContext</button>
+      </div>
+      <pre id="audio">—</pre>
+    </section>
 
-    // ─── A ponte com o desktop ────────────────────────────────────────────────
-    //
-    // `vssh` é global porque o static-spa injetou a tag do shim antes do </head> (ver
-    // backend/server.js). Se ele não existir, a lib não está sendo SERVIDA — quase sempre porque
-    // foi vendorizada fora da raiz do frontend. É a falha que mais custa tempo, então o template
-    // a nomeia em vez de deixar um TypeError solto.
-    const br = document.getElementById('bridge');
-    if (typeof vssh === 'undefined') {
-      br.textContent = 'vssh ausente: o shim não foi servido. Confira injectScripts em '
-                     + 'backend/server.js e se frontend/vendor/vssh/web/vssh-app-shim.js existe.';
-    } else {
-      // `vssh.inDesktop` é síncrono e responde a pergunta mais simples: estou dentro do desktop
-      // VSSH ou rodando solto? Fora dele NADA disto lança — cada função degrada para o
-      // equivalente do navegador. É por isso que dá para desenvolver o app inteiro sem servidor.
-      br.textContent = vssh.inDesktop
-        ? 'dentro do desktop VSSH — diálogos e toasts são os do shell'
-        : 'fora do desktop — o shim degrada para alert/confirm do navegador';
+  </div>
 
-      document.getElementById('notify').addEventListener('click', () => {
-        vssh.notify('Round-trip concluído', { title: 'Hello World', level: 'success' });
-      });
-
-      document.getElementById('confirm').addEventListener('click', async () => {
-        const ok = await vssh.dialog.confirm('Isto veio do desktop, não do navegador. Confirma?');
-        br.textContent = 'confirm devolveu: ' + ok;
-      });
-
-      // ─── Impressão ──────────────────────────────────────────────────────────
-      //
-      // Duas chamadas, e a primeira é a que dá sentido à segunda: `pickFile` é onde o usuário
-      // escolhe — e escolher É o consentimento, mesmo modelo da File System Access API.
-      // `print` então pede a tela; ele resolve assim que ela ABRE, não quando o usuário
-      // imprime. O app não fica sabendo o que foi impresso, e não precisa.
-      const po = document.getElementById('printout');
-      document.getElementById('print').addEventListener('click', async () => {
-        const path = await vssh.pickFile({ title: 'Escolha um arquivo para imprimir' });
-        if (!path) { po.textContent = 'cancelado no seletor'; return; }
-        const abriu = await vssh.print(path);
-        po.textContent = abriu
-          ? `tela de impressão aberta para ${path}`
-          : 'vssh.print devolveu false — fora do desktop, ou shell sem suporte a impressão';
-      });
-
-      // ─── Bandeja ────────────────────────────────────────────────────────────
-      //
-      // Um item por app. Chamar `set` de novo ATUALIZA o mesmo ícone — é o botão
-      // "badge +1" aqui embaixo provando isso: o número muda e o ícone não sai do
-      // lugar, que é o comportamento que importa quando ele muda a cada segundo.
-      //
-      // `onClick`/`onMenu` ficam neste arquivo e não atravessam a ponte: função não
-      // serializa. O shell devolve só o id do item; quem sabe o que ele significa é
-      // o app.
-      const tr = document.getElementById('tray');
-      let count = 0;
-
-      const showTray = async () => {
-        const ok = await vssh.tray.set({
-          icon:    'refresh',
-          tooltip: count ? `Hello World — ${count} pendente(s)` : 'Hello World — ocioso',
-          badge:   { count },      // count 0 remove o badge, não desenha um "0"
-          menu: [
-            { id: 'focus', label: 'Trazer a janela para a frente', icon: 'launch' },
-            { separator: true },
-            { id: 'reset', label: 'Zerar contador', icon: 'refresh', danger: true },
-          ],
-          onClick: () => { tr.textContent = 'clique esquerdo no ícone da bandeja'; },
-          onMenu:  (id) => {
-            tr.textContent = 'menu da bandeja: ' + id;
-            if (id === 'focus') vssh.window.focus();
-            if (id === 'reset') { count = 0; showTray(); }
-          },
-        });
-        // `false` não é erro: é "este ambiente não tem bandeja" — fora do desktop,
-        // ou num shell mais antigo que este app. Trate e siga.
-        tr.textContent = ok ? `na bandeja (badge: ${count})` : 'sem bandeja neste ambiente';
-      };
-
-      document.getElementById('tray-on').addEventListener('click', showTray);
-      document.getElementById('tray-bump').addEventListener('click', () => { count++; showTray(); });
-      document.getElementById('tray-off').addEventListener('click', async () => {
-        await vssh.tray.remove();
-        count = 0;
-        tr.textContent = 'removido da bandeja';
-      });
-
-      // ─── Som ────────────────────────────────────────────────────────────────
-      //
-      // Estes dois botões existem para EXERCITAR o mixer, e são os dois porque as vias são
-      // diferentes: o shell enxerga os `<audio>` deste iframe (mesma origem) mas não tem como
-      // saber que existe um AudioContext aqui dentro — o segundo caminho só é controlável
-      // porque o shim envolve `AudioNode.connect` e desvia por um GainNode.
-      //
-      // Repare no que NÃO tem aqui: nenhuma chamada a `vssh.audio`. O app toca do jeito mais
-      // banal possível e obedece ao slider assim mesmo. É esse o contrato.
-      const au = document.getElementById('audio');
-
-      // Um segundo de senoide em memória, em loop. Um arquivo de áudio no pacote seria mais
-      // simples de ler, mas o template não deve carregar binário só para demonstrar.
-      const tomWav = (hz = 220, taxa = 8000) => {
-        const n = taxa, buf = new ArrayBuffer(44 + n * 2), dv = new DataView(buf);
-        const txt = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
-        txt(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); txt(8, 'WAVEfmt ');
-        dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
-        dv.setUint32(24, taxa, true); dv.setUint32(28, taxa * 2, true);
-        dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
-        txt(36, 'data'); dv.setUint32(40, n * 2, true);
-        for (let i = 0; i < n; i++) dv.setInt16(44 + i * 2, Math.sin(2 * Math.PI * hz * i / taxa) * 6000, true);
-        return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
-      };
-
-      let el = null;
-      document.getElementById('som-media').addEventListener('click', (e) => {
-        if (el) { el.pause(); el.remove(); el = null; e.target.textContent = 'tocar um <audio>'; relatar(); return; }
-        el = new Audio(tomWav(220));
-        el.loop = true;
-        el.volume = 0.5;          // "metade do MEU volume máximo"
-        document.body.appendChild(el);
-        el.play();
-        e.target.textContent = 'parar o <audio>';
-        relatar();
-      });
-
-      let ctx = null, osc = null;
-      document.getElementById('som-wa').addEventListener('click', (e) => {
-        if (osc) { osc.stop(); osc.disconnect(); osc = null; e.target.textContent = 'tocar por AudioContext'; relatar(); return; }
-        ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
-        ctx.resume();
-        const g = ctx.createGain();
-        g.gain.value = 0.15;      // senoide crua é agressiva; isto é do APP, não do ambiente
-        osc = ctx.createOscillator();
-        osc.frequency.value = 330;
-        osc.connect(g);
-        g.connect(ctx.destination);   // ← é ESTA linha que o shim intercepta
-        osc.start();
-        e.target.textContent = 'parar o AudioContext';
-        relatar();
-      });
-
-      // O ponto que a leitura do painel não mostra sozinha: o ambiente MULTIPLICA. Quem lê
-      // `el.volume` continua vendo o valor que o app pediu, e o que sai pelo alto-falante é o
-      // produto dos dois. Se fosse sobrescrita, o próximo `el.volume = 1` do app desfaria o
-      // mixer em silêncio — e ninguém descobriria por quê.
-      //
-      // ── E por que este `if` existe ──
-      //
-      // `vssh.audio` só existe a partir do shim da Onda 2.5. **Shell e apps são deployados à
-      // parte, então versão dessincronizada é a regra, não a exceção** — um app publicado hoje
-      // roda contra o shim que estiver instalado, que pode ser o de meses atrás. Sem esta
-      // guarda, um template novo contra um shim velho estoura `undefined.onChange` no load e
-      // leva junto tudo que viesse depois nesta função.
-      //
-      // Repare no que a mensagem diz e no que ela NÃO diz: com o shim velho, o problema não é
-      // que "faltam os números" — é que o mixer não alcança este app de jeito nenhum, porque
-      // quem multiplica a mídia e interpõe o GainNode é o shim. `vssh.audio` é só a leitura.
-      const temAudio = typeof vssh.audio !== 'undefined';
-      function relatar() {
-        const meu = el ? ` · o app pediu el.volume=${el.volume}` : '';
-        if (!temAudio) {
-          au.textContent = 'este shim é anterior à Onda 2.5 e não tem vssh.audio — o mixer do '
-                         + 'desktop NÃO controla este app. Rode `vssh-app-lib-sync . --parts web '
-                         + '--dest frontend/vendor/vssh`, commite e reinstale.' + meu;
-          return;
-        }
-        au.textContent = `ambiente: gain=${vssh.audio.gain().toFixed(2)} mudo=${vssh.audio.muted()}${meu}`;
-      }
-      if (temAudio) vssh.audio.onChange(relatar);
-      relatar();
-    }
-  </script>
+  <!-- O comportamento está em `galeria.js`, que NÃO tem tag aqui: ele é injetado pelo
+       `static-spa` junto com o shim, para ganhar o carimbo de conteúdo na URL. Ver o cabeçalho
+       do arquivo e `injectScripts` em backend/server.js. -->
 </body>
 </html>
