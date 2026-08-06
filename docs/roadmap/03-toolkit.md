@@ -132,7 +132,7 @@ devolvia `'0.0.0'` fixo.
 
 ## Onda 3 — A FSA de verdade, e as dívidas do toolkit
 
-> **Estado:** ⬜ não iniciado
+> **Estado:** 🟡 em andamento — **T9 ✅**, **T1 ✅**; próximo é o T2
 > **Destrava:** **A3** (visualizador científico). *Ela não é o bloqueio de A4/A5* — a revisão de
 > 2026-08-05 conferiu contra o código: A4 depende do T6 e de "uma janela por app" (Onda 4), e A5,
 > de drag-and-drop e teclado. O clipboard, que os dois citavam, foi entregue na Onda 2. Ver as
@@ -153,34 +153,124 @@ lugar de uma que poderia.**
 
 ### T9 — Testes de navegador
 
-As falhas estruturais do T1 estão **documentadas mas não testadas**: os testes atuais rodam o código
-de navegador num contexto `vm` com stubs manuais, que não reproduzem leituras internas da
-plataforma. `electron-shim` e `tauri-shim` não têm teste nenhum.
+> ✅ **CONCLUÍDO.** O estado fica aqui, e não no cabeçalho: título é âncora, e âncora que muda
+> quebra link de fora do repositório sem avisar ninguém.
 
-O critério de pronto não é "existe um runner": é **o T1 falhando de verdade** neste instrumento
-antes de ser consertado. Um teste que passa com o `super([])` no lugar não mede o que precisa
-medir.
+As falhas estruturais do T1 estavam **documentadas mas não testadas**: os testes rodavam o código
+de navegador num contexto `vm` com stubs manuais, que não reproduzem leituras internas da
+plataforma. O critério de pronto não era "existe um runner": era **o T1 falhando de verdade** neste
+instrumento antes de ser consertado.
+
+**A medição que decidiu o instrumento veio antes dele.** A pergunta era se as leituras que o T1
+quebra reproduzem em Node — e a resposta separou os dois ambientes exatamente na leitura que mais
+importa:
+
+| | `new Response(f)` | `new Blob([f])` |
+|---|---|---|
+| Node / undici | chama o `.stream()` **público** → funciona | sequência interna → vazio |
+| navegador (Fetch) | *get stream* **interno** → vazio | sequência interna → vazio |
+
+Ou seja: consertar o T1 por cima de `stream()` deixaria o teste verde no Node com o navegador
+ainda quebrado. E `FileReader` não existe no Node — não é discordância, é ausência.
+
+**`tests/browser/chrome.js`, sem dependência npm.** Acha um Chrome/Edge já instalado, sobe headless
+numa porta efêmera e fala CDP pelo `WebSocket` nativo do Node 22+. Sem navegador, os testes se
+**pulam** em vez de falharem: falha por ausência de ambiente é ruído, e o runner Ubuntu do CI já
+traz Chrome — nenhum passo novo de instalação.
+
+O que ele mede que o `vm` não alcançava: `FileReader`, `FormData` de verdade, o IndexedDB do
+navegador com structured clone real (a reidratação de handle era medida contra stubs escritos à
+mão), e `Range` HTTP contra um servidor de verdade.
+
+**Duas coisas que a primeira execução ensinou, e ficaram no código:**
+
+- `about:blank` é **origem opaca** e o Chrome nega IndexedDB ali. O erro chegava como
+  `SecurityError` lançado de dentro da biblioteca sob teste — indistinguível de defeito dela. Daí
+  o `servirOrigem()`;
+- o primeiro `slice()` por `Range` devolveu `<!doctyp` — o `fetch` batia na página em branco da
+  origem, que responde 200 para qualquer caminho, e o código fatiava o HTML. Isso virou **uma
+  defesa no polyfill** (só `206`, ou `200` com corpo grande o bastante para conter a faixa) e uma
+  rota de `/api/fs/read` no teste. O fixture credulo mentiu antes do código.
+
+> **Fica pendente, e é dívida nomeada:** `electron-shim` e `tauri-shim` continuam sem teste
+> nenhum. O instrumento que faltava agora existe — o que falta é escrevê-los.
+
+### A cópia vendorizada não sabe a idade que tem
+
+Item aberto durante o T9, a partir de uma pergunta direta: *copiar em vez de instalar não deixa o
+sistema mais frágil?*
+
+A resposta separou três cópias que não compartilham justificativa — e a que falhou naquele momento
+(`lib/` → `templates/*/vendor/`, **dentro do mesmo repositório**) era justamente a única já
+guardada, por `tests/vendored-libs.test.js`. Ela falhou no `npm test`, com o nome do arquivo e o
+comando do conserto. A guarda funcionou.
+
+**O problema é a cópia de fora:** o `vendor/vssh/` do repositório de um app. O
+`.vssh-lib-version` registra `origin` e `synced_at` e **nenhum programa lê esse arquivo** — nem o
+`vssh-app-publish`, nem o `vssh-app-install`, nem o portal, nem o shim, que não sabe a própria
+versão. Uma cópia de seis meses atrás é indistinguível de uma de hoje. O cabeçalho do
+`vendored-libs.test.js` narra o precedente: dois arquivos atrasados, *"descobertos por acaso, meses
+depois, procurando outra coisa"*.
+
+**Uma justificativa foi removida do README, da SKILL e do `vssh-app-lib-sync` por ser falsa:** *"o
+servidor-alvo pode não ter registry npm acessível num exec não-interativo por SSH"*. Ela entrou num
+único commit de desenho (`53d7714`), em três lugares ao mesmo tempo, e nunca foi medida — o
+servidor alcança o registry. O que sobra a favor de vendorizar é real, mas é outra coisa: o publish
+empacota o que está versionado, e as libs de `lib/web/` precisam ficar sob a raiz da SPA de
+qualquer forma.
+
+O trabalho, então, não é trocar cópia por instalação — é **fazer a cópia se declarar**:
+
+1. o shim carrega a própria versão (`VSSH_LIB_VERSION`, gerada do `package.json`);
+2. `vssh.capabilities()` devolve o par `shellVersion` + `libVersion` — junto com o **T7**, que é a
+   metade simétrica disto: hoje o app não sabe em que shell roda, e o shell não sabe que libs o app
+   carrega. Mesma doença, direções opostas;
+3. o `vssh-app-publish` lê o `.vssh-lib-version` e **recusa, ou avisa alto**, quando a cópia
+   diverge do toolkit contra o qual está publicando.
+
+> A rota de distribuição em si — publicar `lib/` como pacote npm público e o `vssh-app-lib-sync`
+> virar um passo de build que copia de `node_modules` para a raiz da SPA — **fica em aberto de
+> propósito**. Ela é uma decisão de distribuição que muda o fluxo de todo repo de app existente, e
+> o ganho que ela traz (`npm outdated` sabendo responder) é o mesmo dos três itens acima, por um
+> caminho mais caro. Decidir depois de os três existirem é decidir com o custo real em mãos.
 
 ### T1 — `LazyFile` é um `Blob` vazio
 
-`lib/web/fsa-polyfill.js:65` constrói `LazyFile extends Blob` com `super([])`. A sequência interna
-de bytes fica vazia, e **tudo que lê o `Blob` pelo caminho da plataforma devolve 0 bytes, em
-silêncio**:
+> ✅ **CONCLUÍDO.** O cabeçalho fica como estava: o README do repositório aponta para esta âncora.
 
-| Falha | Funciona |
-|---|---|
-| `new Response(f)` | `.text()` |
-| `new Blob([f])` | `.arrayBuffer()` |
-| `FileReader.*` | `.stream()` |
-| `FormData.append` | `.bytes()` |
-| `f.slice()` — **lança** | `URL.createObjectURL` (interceptado) |
+`LazyFile extends Blob` com `super([])` deixa a sequência interna de bytes vazia, e **tudo que lê o
+`Blob` pelo caminho da plataforma devolvia 0 bytes, em silêncio**.
 
-`slice()` é o mais grave: é a **operação primária** de qualquer leitor de Parquet, HDF5, Zarr ou
-DICOM, que lê por range em vez de carregar o arquivo. Enquanto ele lançar, o arquétipo A3 está
-bloqueado.
+**A medição num Chrome de verdade achou um modo de falha pior do que estava escrito aqui.** Não é
+"vem vazio": `new Blob([f])` devolvia **`size` correto com conteúdo vazio** — quem confere
+`blob.size > 0` antes de usar passa na conferência e recebe nada. E um `FormData` subia
+`filename="nota.md"` com zero bytes: um upload perfeitamente formado de um arquivo em branco.
 
-O conserto é dar respaldo real de bytes ao `LazyFile` — carregamento sob demanda com `Blob`
-construído a partir do range HTTP, e `slice()` virando um range novo em vez de exceção.
+**A fronteira do conserto é o relógio, não a herança.** A regra antiga — *"preguiça e
+compatibilidade estrutural não coexistem numa subclasse de `Blob`"* — estava larga demais, e tinha
+sido escrita sem instrumento capaz de refutá-la. Onde cabe um `await`, cabe conserto:
+
+| caminho | antes | agora |
+|---|---|---|
+| `f.slice(a, b)` | **lançava** | faixa nova, lida por `Range` HTTP, sem leitura prévia |
+| `new Response(f)` · `new Request` | 0 bytes | corpo vira `f.stream()` — correto **e** preguiçoso |
+| `fetch(url, {body: f})` | 0 bytes | `Blob` real, carregado na hora do envio |
+| `FileReader.readAs*` | 0 bytes | carrega e despacha os mesmos eventos |
+| `new Blob([f])` · `FormData.append` | 0 bytes calado | 0 bytes **com aviso**, e correto se já houve leitura |
+
+Os dois últimos leem os bytes de forma **síncrona** — não há onde encaixar a busca. Ficam como
+limite conhecido, medido por teste, e deixam de ser silenciosos. Uma vez lido o arquivo, os dois
+passam a funcionar sozinhos, porque aí os bytes existem.
+
+`slice()` era o mais grave, e é o que destrava o **A3**: é a operação primária de qualquer leitor
+de Parquet, HDF5, Zarr ou DICOM. Hoje fatiar 64 bytes de um arquivo de 100 kB transfere 64 bytes —
+e há teste medindo os bytes que o servidor entregou, não só o resultado.
+
+> **Uma defesa que nasceu de um fixture mentiroso:** um servidor pode **ignorar** o `Range` e
+> responder 200 com o recurso inteiro. Confiar no pedido em vez de conferir a resposta entrega
+> bytes errados em silêncio — foi o que aconteceu na primeira execução do teste, e o `slice()`
+> devolveu `<!doctyp` com cara de conteúdo. Só `206` com o tamanho certo, ou `200` com corpo
+> grande o bastante para conter a faixa, são aceitos; o resto cai na leitura pela ponte.
 
 ### T2 — OPFS
 

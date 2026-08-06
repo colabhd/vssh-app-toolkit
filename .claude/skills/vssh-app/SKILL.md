@@ -115,12 +115,18 @@ falta num app concreto.
 
 Se o `backend.runtime` for `"node"` (ou qualquer outro com um gerenciador de pacotes real) e o app
 tiver dependências de verdade, prefira **vendorizar `node_modules/` já instalado** (rodar
-`npm install`/`npm ci` uma vez em dev/CI e commitar o resultado no pacote) em vez de depender de
-`npm install` funcionando no servidor-alvo durante `vssh-app-install`/`vssh-app-run` — mesma
-lição do binário Go compilado do `terminal-latch` (abaixo), só que pra dependências npm: o
-servidor remoto pode não ter acesso à internet/registry em modo não-interativo via SSH.
-`installCommand` fica como rede de segurança/rebuild (`test -d node_modules || npm ci`), guardado
-pelo mesmo idioma `VSSH_APP_REBUILD` já usado pro binário Go.
+`npm install`/`npm ci` uma vez em dev/CI e commitar o resultado no pacote) — mesma lição do binário
+Go compilado do `terminal-latch` (abaixo), só que pra dependências npm. O motivo é a regra de
+empacotamento do parágrafo seguinte: **o publish leva o que está versionado**, então uma dependência
+não commitada só existe no servidor se alguém a instalar lá. `installCommand` fica como rede de
+segurança/rebuild (`test -d node_modules || npm ci`), guardado pelo mesmo idioma
+`VSSH_APP_REBUILD` já usado pro binário Go.
+
+> Isto **não** é porque o servidor-alvo não alcança o registry — ele alcança. Essa justificativa
+> estava escrita aqui e em outros dois documentos, entrou num único commit de desenho e nunca foi
+> medida; foi removida. Vendorizar continua sendo o caminho recomendado pelo motivo acima (um
+> tarball auto-suficiente instala igual sempre, e não depende da rede do servidor no momento da
+> instalação), mas é uma escolha de reprodutibilidade, não uma restrição de conectividade.
 
 **O que entra no tarball:** `vssh-app-publish` empacota **o que está versionado** (quando a fonte é
 um repo git, via `git archive`; senão, um `tar` que só exclui `.git`/`data`/`__pycache__`/`*.pyc`).
@@ -186,8 +192,9 @@ respostas JSON).
 ## Não reimplemente: as bibliotecas do toolkit
 
 Quatro problemas aparecem em todo app, e todo mundo erra do mesmo jeito na primeira vez. Já estão
-resolvidos em `lib/` — vendorize com `vssh-app-lib-sync` e commite o resultado (o servidor pode não
-alcançar registry npm num exec por SSH, e o publish empacota o que está versionado).
+resolvidos em `lib/` — vendorize com `vssh-app-lib-sync` e commite o resultado, porque o publish
+empacota o que está versionado. Ressincronize quando o toolkit andar: o `.vssh-lib-version` diz de
+onde a sua cópia veio, e hoje **nada confere isso por você**.
 
 ```bash
 # libs de backend ao lado do backend; libs de frontend sob a raiz que o static-spa serve

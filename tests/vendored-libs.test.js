@@ -41,7 +41,12 @@ const PARTS = {
   sse:  { file: 'node/sse.js' },
   tray: { file: 'node/vssh-tray.js' },
   notify: { file: 'node/vssh-notify.js' },
-  web: { dir: 'web' },
+  // `web` é a única parte com exclusão, e ela espelha o `rm -rf` do vssh-app-lib-sync. O destino
+  // de `web/` fica sob a raiz que o static-spa serve, então tudo que for copiado vira asset
+  // público do app; e os testes de navegador dependem do runner em `tests/browser/`, que não é
+  // lib e não é vendorizado. Se o script e esta lista divergirem, os dois testes abaixo falham —
+  // que é o resultado certo.
+  web: { dir: 'web', exceto: (rel) => rel === 'test' || rel.startsWith('test/') },
 };
 
 /** Todos os arquivos sob `dir`, como caminhos relativos a ele. Diretório ausente → []. */
@@ -55,6 +60,21 @@ function filesUnder(dir) {
     }
   })(dir, '');
   return out;
+}
+
+/**
+ * Um caminho que o vssh-app-lib-sync exclui de propósito e que, portanto, não pode estar na
+ * cópia. Vale o outro lado da conferência: se ele estiver lá, é resto de uma sincronização
+ * antiga — e um arquivo obsoleto passa despercebido justamente por continuar idêntico a lib/.
+ */
+function excluidoDePropostio(rel) {
+  for (const spec of Object.values(PARTS)) {
+    if (!spec.dir || !spec.exceto) continue;
+    if (rel === spec.dir || rel.startsWith(`${spec.dir}/`)) {
+      return spec.exceto(rel.slice(spec.dir.length + 1));
+    }
+  }
+  return false;
 }
 
 /** Cada `vendor/vssh/` dos templates, com as partes que ele declara ter. */
@@ -101,6 +121,10 @@ for (const v of VENDORS) {
     const stale = [];
     for (const rel of filesUnder(v.dir)) {
       if (rel === '.vssh-lib-version') continue;   // é o carimbo, não vem de lib/
+      if (excluidoDePropostio(rel)) {
+        stale.push(`${rel}: o vssh-app-lib-sync não copia mais isto — sobrou de uma sync antiga`);
+        continue;
+      }
       const src = path.join(LIB, rel);
       if (!fs.existsSync(src)) {
         stale.push(`${rel}: não existe em lib/ (removido de lá, ou nunca esteve)`);
@@ -122,7 +146,11 @@ for (const v of VENDORS) {
     const parts = v.parts.includes('all') ? Object.keys(PARTS) : v.parts;
     for (const p of parts) {
       const spec = PARTS[p];
-      const rels = spec.file ? [spec.file] : filesUnder(path.join(LIB, spec.dir)).map(r => `${spec.dir}/${r}`);
+      const rels = spec.file
+        ? [spec.file]
+        : filesUnder(path.join(LIB, spec.dir))
+            .filter(r => !(spec.exceto && spec.exceto(r)))
+            .map(r => `${spec.dir}/${r}`);
       for (const rel of rels) {
         if (!fs.existsSync(path.join(v.dir, rel))) missing.push(`${rel} (parte '${p}')`);
       }

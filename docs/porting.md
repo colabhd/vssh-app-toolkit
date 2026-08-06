@@ -32,18 +32,24 @@ O que o modo web costuma pedir é acesso a arquivos — e é exatamente o que o 
 **sem o app rodar backend de filesystem nenhum**.
 
 **Um limite do polyfill que vale conhecer antes de portar.** O `File` devolvido por `getFile()` é
-preguiçoso: busca o conteúdo só quando alguém chama `.text()`/`.arrayBuffer()`. Isso é o que torna
-viável abrir um diretório grande (o padrão de chamada dos apps é pedir o `File` de todo arquivo
-antes de filtrar). O custo é que ele não é um `Blob` completo para quem lê o **estado interno** em
-vez de chamar métodos:
+preguiçoso: busca o conteúdo só quando alguém pede de verdade. Isso é o que torna viável abrir um
+diretório grande (o padrão de chamada dos apps é pedir o `File` de todo arquivo antes de filtrar).
+O custo é que ele não é um `Blob` completo para quem lê o **estado interno** em vez de chamar
+métodos — e sobraram exatamente dois caminhos assim:
 
 | caminho | funciona? |
 |---|---|
-| `await file.text()` / `.arrayBuffer()` / `.stream()` | sim |
+| `.text()` / `.arrayBuffer()` / `.bytes()` / `.stream()` · `file.slice(a, b)` | sim |
 | `URL.createObjectURL(file)` → `<img src>` | sim — interceptado, vira URL HTTP do portal |
-| `new Response(file)`, `new Blob([file])`, `FileReader`, `FormData.append` | **não** — 0 bytes |
+| `new Response(f)` · `new Request` · `fetch(url, {body: f})` · `FileReader.*` | sim — interceptados |
+| `new Blob([f])` · `FormData.append` | **não** — 0 bytes, e avisam no console |
 
-Se o app usa um dos últimos, materialize antes: `new Blob([await file.arrayBuffer()])`.
+Os dois últimos são síncronos: leem os bytes na hora, e não há onde encaixar a busca. Materialize
+antes — `await file.arrayBuffer()` uma vez e eles passam a funcionar sozinhos.
+
+`slice()` merece nota própria porque é o que decide se um leitor por blocos (Parquet, HDF5, Zarr,
+DICOM) roda: ele lê **só a faixa pedida**, por `Range` HTTP, sem baixar o arquivo. Abrir um arquivo
+de gigabytes para ler alguns kilobytes de índice custa alguns kilobytes.
 
 **Permissão, e o que o app precisa tratar.** O grant persiste entre sessões — é o par necessário
 da persistência de handle, já que um handle restaurado sem grant é um handle morto. Mas o usuário

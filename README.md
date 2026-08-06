@@ -30,9 +30,24 @@ padrão — **sem nenhum PAT/GitHub App**.
 ## Bibliotecas (`lib/`)
 
 Nenhuma tem dependência npm e nenhuma lê variável de ambiente: quem traduz o ambiente VSSH em
-config é o backend do app. São vendorizadas, não instaladas — o servidor-alvo pode não ter registry
-npm acessível num exec não-interativo por SSH, e o `vssh-app-publish` empacota o que está
-**versionado**.
+config é o backend do app.
+
+**São vendorizadas, não instaladas**, e o motivo é um só: o `vssh-app-publish` empacota o que está
+**versionado** — o que não estiver commitado não chega ao servidor. Para as libs de `lib/web/` há
+ainda uma razão estrutural: elas são carregadas pelo navegador por tag `<script>` e precisam ficar
+sob a raiz que o `static-spa` serve, então uma cópia para lá existe de qualquer forma.
+
+> **Uma justificativa que costumava aparecer aqui foi removida por ser falsa:** *"o servidor-alvo
+> pode não ter registry npm acessível num exec não-interativo por SSH"*. Ela entrou num único
+> commit de desenho, em três documentos ao mesmo tempo, e nunca foi medida — o servidor-alvo
+> alcança o registry. O que é verdade e vale a mesma cautela é outra coisa, essa sim vinda de um
+> caso real: dependência de **CDN externo em runtime** quebra num servidor sem internet
+> (ver [`docs/lessons/logseq-port.md`](docs/lessons/logseq-port.md)).
+>
+> A vendorização continua valendo pelo motivo do parágrafo acima, mas ela tem um custo que hoje
+> ninguém cobra: **a cópia envelhece em silêncio**. O `.vssh-lib-version` grava de onde ela veio e
+> nada lê esse arquivo. Está na fila em
+> [`docs/roadmap/03-toolkit.md`](docs/roadmap/03-toolkit.md#a-cópia-vendorizada-não-sabe-a-idade-que-tem).
 
 ### Backend (`lib/node/`) — `require()`adas pelo seu processo
 

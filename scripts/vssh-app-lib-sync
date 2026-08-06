@@ -12,10 +12,20 @@
 # serve (`frontend/`), senão a tag injetada por `injectScripts` aponta para 404. Esse era o defeito
 # do template até a Onda 0: a tag era injetada e ninguém servia o arquivo.
 #
-# Por que copiar em vez de instalar: o servidor-alvo pode não ter acesso a registry npm num exec
-# não-interativo por SSH, e `vssh-app-publish` empacota o que está VERSIONADO. Então o caminho que
-# funciona é o mesmo que a SKILL já prega para node_modules — vendorizar e commitar. O resultado
-# entra no tarball e o app fica auto-suficiente.
+# Por que copiar em vez de instalar: `vssh-app-publish` empacota o que está VERSIONADO, então o
+# que não estiver commitado não chega ao servidor. É o mesmo caminho que a SKILL prega para
+# node_modules — vendorizar e commitar. O resultado entra no tarball e o app fica auto-suficiente.
+#
+# Para as libs de `web/` há ainda uma razão estrutural, e essa não depende de política nenhuma:
+# elas são carregadas pelo NAVEGADOR e precisam ficar sob a raiz que o `static-spa` serve.
+#
+# NÃO é porque o servidor-alvo não alcança registry npm — ele alcança. Essa justificativa esteve
+# escrita aqui, no README e na SKILL, entrou num único commit de desenho e nunca foi medida.
+#
+# O custo desta escolha é conhecido e ainda não está pago: a cópia envelhece EM SILÊNCIO. O
+# `.vssh-lib-version` abaixo registra procedência e data, e hoje nenhum programa lê esse arquivo —
+# nem o publish, nem o install, nem o shim, que sequer sabe a própria versão. Ver
+# docs/roadmap/03-toolkit.md.
 #
 # Depois de rodar, revise o diff e commite. O arquivo `.vssh-lib-version` registra de onde veio,
 # para você saber o que precisa ressincronizar quando o toolkit andar.
@@ -81,12 +91,21 @@ if want log; then mkdir -p "${TARGET}/node" && cp "${LIB_SRC}/node/app-log.js"  
 if want sse; then mkdir -p "${TARGET}/node" && cp "${LIB_SRC}/node/sse.js"        "${TARGET}/node/" && copied="${copied} sse.js"; fi
 if want tray;then mkdir -p "${TARGET}/node" && cp "${LIB_SRC}/node/vssh-tray.js"  "${TARGET}/node/" && copied="${copied} vssh-tray.js"; fi
 if want notify; then mkdir -p "${TARGET}/node" && cp "${LIB_SRC}/node/vssh-notify.js" "${TARGET}/node/" && copied="${copied} vssh-notify.js"; fi
-if want web; then mkdir -p "${TARGET}/web"  && cp -R "${LIB_SRC}/web/." "${TARGET}/web/" && copied="${copied} web/"; fi
+if want web; then mkdir -p "${TARGET}/web"  && cp -R "${LIB_SRC}/web/." "${TARGET}/web/" \
+  && rm -rf "${TARGET}/web/test" && copied="${copied} web/"; fi
 
 [ -n "${copied}" ] || { echo "ERRO: nenhuma parte selecionada (--parts '${PARTS}')." >&2; exit 1; }
 
-# Os testes da lib vão junto: são o que prova que a cópia vendorizada continua íntegra, e rodam
-# sem env var nenhuma do VSSH (`node --test vendor/vssh/node/vssh-app-fs/test/`).
+# Os testes das libs de `node/` vão junto: são o que prova que a cópia vendorizada continua
+# íntegra, e rodam sem env var nenhuma do VSSH (`node --test vendor/vssh/node/vssh-app-fs/test/`).
+#
+# Os de `web/` NÃO vão, e a assimetria tem duas razões independentes:
+#
+#   1. o destino de `web/` fica sob a raiz que o `static-spa` serve — é onde ele PRECISA ficar
+#      para a tag injetada não dar 404. Levar os testes junto os publica como asset do app;
+#   2. desde a Onda 3 uma parte deles roda num navegador de verdade e depende do runner em
+#      `tests/browser/`, que não é uma lib e não é vendorizado. A cópia não teria como executar —
+#      e um teste que não pode rodar contradiz exatamente o motivo pelo qual os outros vão.
 
 # ── 3. Marca a procedência ────────────────────────────────────────────────────
 cat > "${TARGET}/.vssh-lib-version" <<EOF

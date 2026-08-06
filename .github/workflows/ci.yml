@@ -3,6 +3,14 @@ name: CI
 # As libs de lib/ são código compartilhado: um bug aqui se espalha para todo vssh-app que as
 # vendorizar. Sem dependência npm, então não há `npm ci` — é `node --test` e pronto.
 #
+# ISSO CONTINUA VALENDO DEPOIS DA ONDA 3, e foi decisão consciente. Parte dos testes de lib/web/
+# roda num Chrome de verdade (o `vm` do Node discorda do navegador justamente na leitura que o
+# fsa-polyfill quebrava), e o instrumento é `tests/browser/chrome.js`: CDP à mão, sobre o
+# `WebSocket` nativo do Node, usando um navegador JÁ INSTALADO. O runner ubuntu-latest traz Chrome,
+# então não há passo de instalação nem download de ~130 MB para cachear. Sem navegador — numa
+# máquina de desenvolvimento sem Chrome, por exemplo — esses testes se PULAM em vez de falharem;
+# `VSSH_TEST_CHROME` aponta um caminho específico quando necessário.
+#
 # SÓ LINUX NO CI, DE PROPÓSITO — não é sobra de uma matriz que encolheu.
 #
 # O alvo de um vssh-app é sempre um servidor Linux, independente de onde o app é desenvolvido.
@@ -70,6 +78,8 @@ jobs:
           # a tag era injetada e ninguém servia o arquivo — página carregava, `vssh` não existia.
           curl -fsS http://127.0.0.1:45999/ | grep -q 'vendor/vssh/web/vssh-app-shim.js'
           curl -fsS http://127.0.0.1:45999/vendor/vssh/web/vssh-app-shim.js | grep -q 'window.vssh'
-          # O polyfill da FSA fica vendorizado mas NÃO injetado enquanto os limites do LazyFile não
-          # forem resolvidos (ver docs/roadmap/03-toolkit.md). Se alguém ligar sem querer, falha aqui.
+          # O polyfill da FSA fica vendorizado mas NÃO injetado neste template: ele é um "olá
+          # mundo" e não toca em arquivo do usuário. (O motivo original — os limites do LazyFile —
+          # caiu no T1 da Onda 3; o que ficou é a escolha de escopo do template.) Se alguém ligar
+          # sem querer, falha aqui.
           ! curl -fsS http://127.0.0.1:45999/ | grep -q 'fsa-polyfill'

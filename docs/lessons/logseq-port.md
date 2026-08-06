@@ -319,6 +319,19 @@ Os outros consumidores estruturais continuam sem conserto, e isso está document
 polyfill em vez de escondido. **Falhar em silêncio era o pior desfecho**; hoje o caminho que
 importa funciona e o resto é dito em voz alta.
 
+> **Post-scriptum da Onda 3 — a regra acima estava larga demais.** Ao construir um instrumento que
+> roda o polyfill num Chrome de verdade (`tests/browser/`), a frase *"preguiça e compatibilidade
+> estrutural não coexistem numa subclasse de `Blob`"* não sobreviveu à medição. A fronteira real é
+> **o relógio, não a herança**: onde cabe um `await`, cabe conserto. `Response`, `Request`, `fetch`
+> e `FileReader` aceitam trabalho assíncrono e hoje funcionam; `new Blob([f])` e `FormData.append`
+> leem os bytes de forma síncrona e continuam sem saída. `slice()`, que lançava, virou leitura por
+> `Range` HTTP.
+>
+> Vale registrar por que isso demorou: a generalização foi feita **sem instrumento capaz de
+> refutá-la**. Os testes rodavam num `vm` do Node — e o Node discorda do navegador exatamente aqui
+> (o `undici` monta o corpo de `new Response(f)` chamando o `.stream()` público, o navegador usa o
+> *get stream* interno). Uma regra escrita a partir de um instrumento cego herda a cegueira dele.
+
 Corolário mais amplo: **ao subclassificar um tipo da plataforma, pergunte o que a plataforma lê —
 não o que ela chama.** Estado interno não é interceptável por getter, e o teste que revela isso não
 é o que exercita a sua API: é o que entrega o objeto para outra parte da plataforma.

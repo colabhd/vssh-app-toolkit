@@ -545,15 +545,31 @@ volta um objeto sem métodos e conclui que a pasta está vazia.
 | handle aninhado (`{ handle, … }`, ou dentro de array) | sim, até 4 níveis |
 | `getAllKeys()` | **não** — chave é chave, não handle |
 
-**Limites do `File` preguiçoso**, que valem conhecer antes de portar:
+**Limites do `File` preguiçoso**, que valem conhecer antes de portar. Cada linha é medida num
+Chrome de verdade em `lib/web/test/fsa-polyfill.browser.test.js` — inclusive as duas últimas:
 
 | caminho | funciona? |
 |---|---|
-| `await file.text()` / `.arrayBuffer()` / `.stream()` | sim |
+| `await file.text()` / `.arrayBuffer()` / `.bytes()` / `.stream()` | sim |
+| `file.slice(a, b)` | sim — lê **só a faixa**, por `Range` HTTP, sem leitura prévia |
 | `URL.createObjectURL(file)` → `<img src>` | sim — vira URL HTTP do portal, com Range |
-| `new Response(f)`, `new Blob([f])`, `FileReader`, `FormData.append` | **não** — 0 bytes |
+| `new Response(f)` · `new Request(…, {body: f})` · `fetch(url, {body: f})` | sim — o corpo vira o stream do arquivo |
+| `FileReader.readAsText` / `ArrayBuffer` / `DataURL` / `BinaryString` | sim |
+| `new Blob([f])` · `FormData.append(nome, f)` | **não** — 0 bytes, **com aviso no console** |
 
-Precisa de um dos últimos? Materialize: `new Blob([await file.arrayBuffer()])`.
+Os dois últimos leem a sequência de bytes do `Blob` de forma **síncrona**, e não há onde encaixar
+a busca do conteúdo. Eles passam a funcionar sozinhos assim que o arquivo tiver sido lido uma vez
+(`await file.arrayBuffer()`), porque aí os bytes já existem — e é essa a saída recomendada:
+
+```js
+await file.arrayBuffer();          // ou .text(), ou qualquer leitura
+new Blob([file]);                   // agora carrega o conteúdo
+```
+
+Enquanto isso não acontecer, os dois **avisam no console** em vez de devolverem vazio em silêncio.
+O modo de falha que isso encerra vale ser explícito: `new Blob([f])` devolvia `size` correto com
+conteúdo vazio, e um `FormData` subia `filename="nota.md"` com zero bytes — um upload perfeitamente
+formado de um arquivo em branco, sem erro nenhum em lugar nenhum.
 
 ### Abrir no visualizador do desktop
 

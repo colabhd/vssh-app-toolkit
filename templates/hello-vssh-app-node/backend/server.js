@@ -42,10 +42,14 @@ const spa = createStaticSpa({
   injectScripts: ['vendor/vssh/web/vssh-app-shim.js'],
 
   // O polyfill da File System Access API (`showDirectoryPicker()` e cia.) está vendorizado ao lado,
-  // mas NÃO é injetado por padrão: ele tem limites estruturais conhecidos hoje — `new Response(file)`,
-  // `FileReader` e `FormData` leem 0 bytes em silêncio, e `slice()` lança. Ligue-o conscientemente,
-  // depois de ler docs/roadmap/03-toolkit.md, acrescentando à lista acima:
+  // mas NÃO é injetado por padrão — este template é um "olá mundo" e não mexe em arquivo nenhum do
+  // usuário. Ligue-o acrescentando à lista acima:
   //   'vendor/vssh/web/fsa-polyfill.js'   (SEMPRE depois do shim — ele depende do `vssh`)
+  //
+  // Os limites que antes desaconselhavam ligá-lo caíram na Onda 3: `slice()` lê por Range HTTP,
+  // e `new Response(file)`, `fetch({body})` e `FileReader` funcionam. Sobraram dois caminhos
+  // SÍNCRONOS sem conserto — `new Blob([file])` e `FormData.append` —, que hoje avisam no console
+  // em vez de entregarem vazio calados. Ver docs/api.md.
 
   // Descomente se o seu app usa roteamento HTML5 (History API) em vez de fragmento:
   // spaFallback: true,
