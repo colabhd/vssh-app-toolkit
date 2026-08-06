@@ -108,9 +108,18 @@ if want web; then mkdir -p "${TARGET}/web"  && cp -R "${LIB_SRC}/web/." "${TARGE
 #      e um teste que não pode rodar contradiz exatamente o motivo pelo qual os outros vão.
 
 # ── 3. Marca a procedência ────────────────────────────────────────────────────
+#
+# `lib_version` sai do LITERAL do shim, e não do package.json de propósito: é aquele número que o
+# app vai reportar em runtime por `vssh.capabilities()`. Ler a mesma fonte é o que garante que o
+# marcador e o que roda no navegador nunca discordem — um marcador que mente sobre a própria idade
+# é pior que marcador nenhum. (`tests/lib-version.test.js` amarra o literal ao package.json.)
+LIB_VERSION="$(sed -n "s/^[[:space:]]*const LIB_VERSION = '\([^']*\)';.*/\1/p" \
+  "${LIB_SRC}/web/vssh-app-shim.js" 2>/dev/null | head -1)"
+
 cat > "${TARGET}/.vssh-lib-version" <<EOF
 origin=${ORIGIN}
 parts=${PARTS}
+lib_version=${LIB_VERSION:-desconhecida}
 synced_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
 

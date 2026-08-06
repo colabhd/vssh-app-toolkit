@@ -14,6 +14,18 @@
 // para o equivalente do navegador. É o que permite desenvolver o app fora do VSSH.
 
 (function () {
+  // Versão das libs do toolkit que este app está CARREGANDO — não a do toolkit que existe hoje.
+  //
+  // As libs são vendorizadas: o app commita uma cópia e a leva no tarball. Isso é bom para
+  // reprodutibilidade e ruim para diagnóstico, porque a cópia envelhece sem dar sinal. Um relato
+  // de bug que diz "não funciona" e não diz qual par shell/lib estava em jogo custa uma rodada
+  // inteira de perguntas.
+  //
+  // Fica como literal, e não lida do `package.json`, porque isto roda no NAVEGADOR — não há de
+  // onde ler. Quem impede a divergência é `tests/lib-version.test.js`, que compara este número com
+  // o do `package.json` e falha quando alguém bumpa um sem o outro.
+  const LIB_VERSION = '2.0.0';
+
   const inDesktop = window.parent !== window;
   const pending = new Map();
   let seq = 0;
@@ -324,12 +336,33 @@
   const vssh = {
     inDesktop,
 
+    // A versão das libs do toolkit que este app carrega. Síncrona de propósito: ela é conhecida
+    // aqui dentro e não depende de ninguém — obrigar um `await` que fala com o pai para saber algo
+    // que já está nesta função seria pior. Aparece também em `capabilities()`, porque é lá que
+    // mora o PAR — e é o par que responde perguntas de diagnóstico.
+    libVersion: LIB_VERSION,
+
     // O que este ambiente sabe fazer. `nativeApps: false` significa que não há X11 — "abrir com"
     // só terá vssh-apps, e não há programa Linux com UI para lançar.
+    //
+    // `shellVersion` e `libVersion` vêm juntos, e essa é a razão de existirem aqui: shell e apps
+    // são deployados à parte, então versão dessincronizada é a regra e não a exceção. Sem o par, o
+    // app sabe o que o shell FAZ mas não QUAL shell é — e quem recebe um relato de bug não sabe
+    // nenhum dos dois.
+    //
+    // `shellVersion: null` é resposta legítima e quer dizer "shell antigo demais para se
+    // declarar", não "erro". Garantir a chave é o que permite ao app escrever
+    // `caps.shellVersion ?? 'desconhecida'` em vez de descobrir a ausência em produção.
     async capabilities() {
       if (caps) return caps;
-      if (!inDesktop) return (caps = { nativeApps: false, x11Interop: false, host: 'none' });
-      caps = await call('capabilities', {}, { timeout: 5000 }).catch(() => ({ host: 'unknown' }));
+      if (!inDesktop) {
+        return (caps = {
+          nativeApps: false, x11Interop: false, host: 'none',
+          shellVersion: null, libVersion: LIB_VERSION,
+        });
+      }
+      const resposta = await call('capabilities', {}, { timeout: 5000 }).catch(() => ({ host: 'unknown' }));
+      caps = { ...resposta, shellVersion: resposta?.shellVersion ?? null, libVersion: LIB_VERSION };
       return caps;
     },
 

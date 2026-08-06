@@ -630,7 +630,7 @@ vssh.tabs.on((msg) => {
 
 ```js
 const caps = await vssh.capabilities();
-// { nativeApps, x11Interop, keyboardGrab, sessionStats, host }
+// { nativeApps, x11Interop, keyboardGrab, sessionStats, host, shellVersion, libVersion }
 ```
 
 `nativeApps: false` significa **ambiente sem Xpra**: não existe programa Linux com UI para lançar,
@@ -639,6 +639,41 @@ existe ali. Use isto para esconder o que não faz sentido, nunca para degradar o
 
 `vssh.inDesktop` (síncrono) responde a pergunta mais simples: estou dentro do VSSH ou no seu
 `npm run dev`?
+
+### As duas versões, e por que elas vêm em par
+
+| campo | o que é | quem sabe |
+|---|---|---|
+| `shellVersion` | a versão **declarada** do desktop que hospeda o app | o shell responde |
+| `libVersion` | a versão das libs do toolkit que **este app** carrega | está embutida no shim |
+
+Elas respondem perguntas diferentes e nenhuma das duas sozinha basta. O app é vendorizado: ele leva
+uma cópia das libs no tarball, e essa cópia envelhece independente do desktop, que é deployado por
+outra gente em outro momento. **Versão dessincronizada é a regra, não a exceção** — e sem o par,
+um relato de "não funciona" não diz qual combinação estava em jogo.
+
+O uso mais barato, e o que se paga na primeira depuração remota, é carimbar o par no seu log:
+
+```js
+const { shellVersion, libVersion } = await vssh.capabilities();
+log('ambiente', { shellVersion, libVersion });     // lib/node/app-log.js
+```
+
+`libVersion` também está em `vssh.libVersion`, **síncrono** — é conhecido dentro do shim e não
+depende de perguntar a ninguém.
+
+`shellVersion: null` é resposta legítima, e quer dizer *"este shell é antigo demais para se
+declarar"* — não é erro. Trate como desconhecido:
+
+```js
+const versao = caps.shellVersion ?? 'desconhecida';
+```
+
+> **Isto não é o gate de compatibilidade.** `capabilities()` responde **em runtime**, no ponto de
+> uso, e quem decide o que fazer com o "não" é o app — degradar, esconder um botão, avisar. O gate
+> que recusa **no publish**, contra um número declarado no manifesto (`minShellVersion`), é outra
+> coisa e está na [Onda 5](roadmap/04-runtime-composicao.md#o-contrato-do-manifesto-um-schema-uma-validação-uma-guarda).
+> Construir um e achar que o outro ficou resolvido é o erro natural aqui.
 
 ---
 

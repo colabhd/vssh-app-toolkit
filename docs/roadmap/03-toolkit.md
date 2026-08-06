@@ -307,10 +307,11 @@ O [diagnóstico](diagnostico.md#13-dívidas-do-toolkit) lista nove dívidas do t
 na Onda 0 (T3, T4, T5, T8), três são as de cima — e **duas não estavam em lugar nenhum**. Passam a
 ser desta onda, que é a do toolkit:
 
-| | O que é | Estado conferido em 2026-08-05 |
+| | O que é | Estado |
 |---|---|---|
-| **T6** | a ponte `fs` do shim não tem `exists`, `rename` nem `copy` — o backend `vssh-app-fs` tem os três | `lib/web/vssh-app-shim.js:369` expõe `list`/`stat`/`read`/`readBytes`/`write`/`writeBytes`/`mkdir`/`delete`/`watch`. Os três continuam fora, e é o que sobra do bloqueio de **A4** |
-| **T7** | sem `.d.ts`; `capabilities()` não diz a versão do shell | a versão **existe e é servida** desde a Onda 2c — falta o shim expô-la |
+| **T6** | a ponte `fs` do shim não tem `exists`, `rename` nem `copy` — o backend `vssh-app-fs` tem os três | ⬜ o shim expõe `list`/`stat`/`read`/`readBytes`/`write`/`writeBytes`/`mkdir`/`delete`/`watch`. Os três continuam fora, e é o que sobra do bloqueio de **A4** |
+| **T7** | `capabilities()` não diz a versão do shell | ✅ **feito** — ver abaixo |
+| **T7** | sem `.d.ts` | ⬜ pendente |
 
 Nenhum dos dois bloqueia T1/T2, e é justamente por isso que sumiram: item que não bloqueia nada
 sobrevive numa tabela de diagnóstico para sempre.
@@ -326,6 +327,46 @@ e achar que o outro ficou resolvido é o erro natural aqui:
 A 2.7 já escolheu o idioma do lado direito (`RemoteDesktopEngines.comCapacidade`, duck-typing no
 ponto de uso). O T7 é a ponte entre as duas colunas: sem ele, o app sabe *o que* o shell faz, mas
 nunca *qual shell* é.
+
+#### As duas versões chegaram juntas — e era esse o ponto
+
+`vssh.capabilities()` passa a devolver **`shellVersion` e `libVersion`**, e as duas juntas porque
+nenhuma sozinha responde a pergunta que importa. Um app é vendorizado: leva uma cópia das libs no
+tarball, e essa cópia envelhece independente do desktop, deployado por outra gente em outro
+momento. Um relato de *"não funciona"* sem o par não diz qual combinação estava em jogo.
+
+Isso fecha, na mesma volta, a metade do
+[item da cópia vendorizada](#a-cópia-vendorizada-não-sabe-a-idade-que-tem) que dizia *"o shim
+sequer sabe a própria versão"*.
+
+| peça | onde |
+|---|---|
+| o shell injeta `window.__VSSH_SHELL_VERSION__` | já existia desde a 2c (`vssh-shell.ts`) |
+| a resposta de `capabilities` carrega o campo | `VsshAppWindow.js` — **novo** |
+| o shim garante a chave e acrescenta a sua | `vssh-app-shim.js` — **novo** |
+| o marcador da cópia vendorizada carimba `lib_version=` | `vssh-app-lib-sync` — **novo** |
+
+Três decisões que valem estar escritas:
+
+- **`shellVersion: null` é resposta, não erro** — quer dizer "shell antigo demais para se
+  declarar". O shim garante a chave justamente para o app poder escrever `?? 'desconhecida'` em
+  vez de descobrir a ausência em produção;
+- **o `|| null` no shell não é cosmético.** `undefined` desaparece na serialização do
+  `postMessage`, e o app receberia a **chave faltando** — indistinguível de um shim velho que nem
+  sabe perguntar;
+- **o `LIB_VERSION` é um literal no shim**, porque aquilo roda no navegador e não tem `package.json`
+  de onde ler. Quem impede a divergência é `tests/lib-version.test.js`, que amarra três pontas:
+  `package.json` → literal do shim → `lib_version` do marcador. O `vssh-app-lib-sync` lê **do
+  shim**, e não do `package.json`, para que o marcador e o que roda no navegador não possam
+  discordar.
+
+A guarda do lado do shell é de **junção**, e o motivo é o modo de falha: um typo no nome do global
+não quebra nada — `undefined || null` vira `null`, que é uma resposta *válida*. O defeito se
+disfarça exatamente do estado que o campo existe para representar. Por isso o nome que o servidor
+**escreve** e o nome que o cliente **lê** são medidos um contra o outro num arquivo só
+(`tests/unit/versao-do-shell-chega-ao-app.test.js`), e a asserção exige a **leitura** (`window.X`),
+não uma menção ao nome. Provada por refutação: typo no global, remoção do `|| null`, remoção do
+campo e o nome citado só em comentário — os quatro deixam a suíte vermelha.
 
 ### `requiredPackages` — o app declara de que pacote Linux ele precisa
 
