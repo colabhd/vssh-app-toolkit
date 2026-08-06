@@ -48,6 +48,15 @@
       const p = await window.vssh.pickSave({ title: opts.title, name: opts.defaultPath });
       return { canceled: !p, filePath: p || undefined };
     },
+    // `response` é o ÍNDICE do botão clicado, e a ordem dos botões é do app — não nossa. Presumir
+    // que o afirmativo é o índice 0 acerta em `['Sim','Não']` e ERRA em `['Cancelar','OK']`:
+    // confirmar devolveria 0, que ali é o "Cancelar", e o app descartaria o trabalho do usuário
+    // achando que foi ele quem pediu. Sem erro nenhum, e num diálogo que o usuário respondeu
+    // corretamente.
+    //
+    // `defaultId`/`cancelId` são justamente como o Electron declara quais índices significam o
+    // quê. Quando o app os informa, obedecemos; quando não, 0/1 continua sendo o palpite — que é
+    // o certo para a ordem convencional.
     async showMessageBox(opts = {}) {
       const o = opts.message ? opts : (arguments[1] || opts);
       const hasCancel = Array.isArray(o.buttons) && o.buttons.length > 1;
@@ -56,7 +65,10 @@
         return { response: 0, checkboxChecked: false };
       }
       const yes = await window.vssh.dialog.confirm(o.message || '', o.title);
-      return { response: yes ? 0 : 1, checkboxChecked: false };
+      // `?? ` e não `||`: `defaultId: 0` é um índice legítimo e não pode cair no default.
+      const sim  = Number.isInteger(o.defaultId) ? o.defaultId : 0;
+      const nao  = Number.isInteger(o.cancelId)  ? o.cancelId  : 1;
+      return { response: yes ? sim : nao, checkboxChecked: false };
     },
     showErrorBox(title, content) { window.vssh.dialog.error(content || '', title); },
   };
@@ -194,8 +206,12 @@
   };
 
   window.electron = Object.assign(window.electron || {}, electron);
+  // Devolve `window.electron`, e não o objeto local: os dois são a mesma superfície, mas eram
+  // OBJETOS DIFERENTES — `Object.assign` copia para um alvo novo. Um app que substitui
+  // `window.electron.dialog` (o idioma comum para mockar em teste) continuava recebendo o diálogo
+  // original por `require('electron')`, e as duas metades do app passavam a discordar.
   window.require = window.require || ((mod) => {
-    if (mod === 'electron') return electron;
+    if (mod === 'electron') return window.electron;
     throw new Error(`[electron-shim] require('${mod}') não disponível no navegador.`);
   });
 })();

@@ -89,7 +89,12 @@
     requestPermission:   async () => 'granted',
     sendNotification(arg) {
       const o = typeof arg === 'string' ? { body: arg } : (arg || {});
-      window.vssh.notify(o.body || '', { title: o.title });
+      // `sendNotification({ title })` sem corpo é uso legítimo da API do Tauri, e passar `''`
+      // como mensagem produzia um toast EM BRANCO — um retângulo sem texto, sem erro nenhum.
+      // Quando só há título, ele vira a mensagem; o campo `title` do toast é para quando os dois
+      // existem. É o mesmo tratamento que o `electron-shim` já dava, e a divergência entre os dois
+      // shims irmãos era o defeito.
+      window.vssh.notify(o.body || o.title || '', { title: o.body ? o.title : undefined });
     },
   };
 

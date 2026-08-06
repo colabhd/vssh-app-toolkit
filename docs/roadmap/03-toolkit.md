@@ -192,8 +192,27 @@ mão), e `Range` HTTP contra um servidor de verdade.
   defesa no polyfill** (só `206`, ou `200` com corpo grande o bastante para conter a faixa) e uma
   rota de `/api/fs/read` no teste. O fixture credulo mentiu antes do código.
 
-> **Fica pendente, e é dívida nomeada:** `electron-shim` e `tauri-shim` continuam sem teste
-> nenhum. O instrumento que faltava agora existe — o que falta é escrevê-los.
+**Os dois shims sem teste — a dívida que o T9 nomeou — foram pagos junto.** `electron-shim` e
+`tauri-shim` nasceram sem uma asserção sequer; hoje são 48, num harness compartilhado
+(`lib/web/test/_ambiente-falso.js`) que grava toda chamada ao `vssh`. É o que se precisa medir
+neles: um shim que chama `pickFile` onde deveria chamar `pickDirectory` devolve um caminho
+perfeitamente válido, e está errado.
+
+Ficaram no runner de `vm`, não no de navegador — pela mesma regra que separa os dois: os shims são
+comportamento do nosso código, não leitura que a plataforma faz sobre o que devolvemos.
+
+**Os primeiros testes acharam três defeitos, e nenhum deles daria erro em lugar nenhum:**
+
+| onde | o que acontecia |
+|---|---|
+| `tauri-shim` · `sendNotification({title})` sem corpo | passava `''` como mensagem → **toast em branco**. O `electron-shim` já tratava isso; a divergência entre os shims irmãos era o defeito |
+| `electron-shim` · `showMessageBox` | `response` é o ÍNDICE do botão, e presumíamos que o afirmativo é o 0. Correto em `['Sim','Não']`, **errado em `['Cancelar','OK']`** — confirmar devolvia o "Cancelar", e o app descartava o trabalho do usuário achando que foi ele quem pediu. Agora honra `defaultId`/`cancelId` |
+| `electron-shim` · `require('electron')` | devolvia um objeto **diferente** de `window.electron` (o `Object.assign` copia para um alvo novo). Um app que substitui `window.electron.dialog` — o idioma comum para mockar — continuava recebendo o original pelo `require`, e as duas metades do app discordavam |
+
+Uma armadilha do instrumento ficou resolvida no harness, e não em cada teste: um `{}` criado
+dentro do `vm` tem outro `Object.prototype`, e o `deepStrictEqual` reprova por procedência em
+objetos idênticos em tudo que importa. Deixar cada arquivo redescobrir isso é garantir que um
+deles afrouxe a asserção em vez de traduzir.
 
 ### A cópia vendorizada não sabe a idade que tem
 
