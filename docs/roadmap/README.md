@@ -44,7 +44,7 @@ Duas consequências que precisam estar ditas antes de qualquer tabela:
 
 **A numeração não é sequência total.** Ondas 0, 6 e 7 não dependem das outras e podem correr em
 paralelo. Só a Onda 2 depende da 1; a Onda 3 é pré-requisito real do arquétipo **A3** — A4 e A5
-dependem da Onda 4 (uma janela por app) e da 2 (clipboard, já entregue), não da FSA. A
+dependiam da Onda 4 (várias janelas, entregue) e da 2 (clipboard, entregue), não da FSA. A
 **Onda 0c é pré-requisito da 2.6** e recomendada antes da 2.2 — enquanto houver duas variantes de
 UI, cada superfície nova nasce com duas para manter.
 

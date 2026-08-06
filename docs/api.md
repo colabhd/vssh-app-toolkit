@@ -815,13 +815,23 @@ Ser honesto aqui vale mais que a lista de cima, porque é o que decide se o seu 
 | Atalho global, `powerMonitor` | Sem equivalente; normalmente dá para remover |
 | `setSize`/`setPosition` da janela | Tamanho inicial pelo manifest; depois é do usuário |
 | Badge/progresso na taskbar | — |
-| Múltiplas janelas do mesmo app | Uma janela por app; use abas (`richChrome`) |
+| Abrir uma janela nova **pelo app** (`window.open`, `new BrowserWindow`) | Quem abre é o usuário — "Nova janela" no menu de contexto da janela. Ver a nota abaixo |
 | `child_process`, binário nativo, FTS server-side | **Backend do seu app** — é para isso que ele existe |
 | `ipcRenderer.invoke('<comando seu>')` | Idem: vira uma rota HTTP no seu backend |
 
 A última linha é a fronteira real de um port de Electron/Tauri: o shim cobre a **superfície padrão**
 do framework, não o que aquele app inventou. Como medir isso antes de começar está em
 [porting.md](porting.md).
+
+> **Várias janelas do mesmo app existem** — o usuário pede em **Nova janela**, no menu de contexto
+> da janela. O que muda para quem escreve o app: **o backend continua sendo um só**. As duas
+> janelas são duas visões do mesmo processo, como duas abas do navegador no mesmo servidor —
+> mesma porta, mesmo token, mesmo `VSSH_APP_DATA_DIR`. Um app que guarda estado de UI no backend
+> como se houvesse um cliente só vai ver as duas janelas disputando esse estado; guarde por
+> conexão (ou no `localStorage` do próprio frontend, que é por origem e vale para as duas).
+>
+> Notificação com ação e o veredito do healthcheck vão para **uma** janela — a última que teve
+> foco. É deliberado: entregar às duas faria a ação acontecer duas vezes.
 
 ---
 

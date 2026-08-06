@@ -1,7 +1,7 @@
 # Ondas 4 e 5 — Runtime de apps e composição do ecossistema
 
 > **Estado:** 🟡 em andamento — **healthcheck ✅** (verdadeiro **e** assíncrono) ·
-> **`kind:"service"` com janela ✅** (medido: era um teste) ·
+> **`kind:"service"` com janela ✅** (medido: era um teste) · **múltiplas janelas ✅** ·
 > **Atualizado:** 2026-08-06 · **Repos:** `vssh-sso` + toolkit
 >
 > Revisado contra o código em 2026-08-05, junto com a [Onda 3](03-toolkit.md). O que mudou: a
@@ -163,12 +163,42 @@ Não é bloqueio de A1 e não vira mecanismo novo agora: **o canal já existe** 
 sob demanda. Isso é um poller por sessão, e pertence ao item de estado ao vivo dos Serviços, não a
 esta medição.
 
-### Múltiplas instâncias e múltiplas janelas
+### Múltiplas janelas — ✅ **N janelas, um backend**
 
-Uma instância por `(usuário, app)`, uma janela por app — **conferido**: `AppLauncher.findWindow`
-devolve a janela existente em vez de abrir a segunda. Isso bloqueia A1 diretamente — um pesquisador
-quer dois notebooks abertos lado a lado, não abas dentro de uma janela. É o **único** bloqueio de A1
-que continua de pé depois da revisão (ver a seção acima).
+O item pedia duas coisas no mesmo nome, e só uma delas era o bloqueio. **Janelas** eram o pedido de
+A1 — *dois notebooks lado a lado, não abas dentro de uma janela*. **Instância** separada (porta,
+token e `VSSH_APP_DATA_DIR` próprios) é outra coisa, e não é o que A1 quer: dois servidores Jupyter
+sobre a mesma home são dois kernels disputando os mesmos arquivos e o dobro da memória. Duas janelas
+do mesmo app são duas visões do mesmo processo, como duas abas do navegador no mesmo servidor.
+
+Quem pede é o usuário, em **Nova janela** no menu de contexto da janela — e não o app, que continua
+sem `window.open`. Fica ali porque é ali que a pessoa está quando descobre que quer a segunda:
+olhando a primeira.
+
+**O trabalho não foi abrir a segunda janela — foi que `appId` deixou de identificar uma.** Havia
+cinco lugares perguntando "a janela do app X", e cada um daria uma resposta errada em silêncio:
+
+| Onde | O que aconteceria |
+|---|---|
+| veredito do healthcheck | ele acontece **uma vez** — a janela não alcançada fica coberta para sempre |
+| restauração de sessão | duas janelas salvas voltavam como **uma**, com a geometria da outra |
+| bandeja | fechar uma apagava o ícone que a outra ainda sustenta |
+| permissões de arquivo | revogar numa continuava valendo na outra — que é **não** revogar |
+| mixer de volume | duas linhas com o mesmo id, cada uma desfazendo o que a outra escreveu |
+
+Nenhum desses é a janela nova; todos são a **identidade**. `findWindow` passou a devolver a última
+que teve foco (era a primeira que a varredura encontrasse), `findWindows` devolve todas, e `open()`
+devolve **a janela que criou** — quem restaura precisa saber qual é a dela.
+
+> **Um efeito colateral que valia por si.** O `open()` tinha a própria cópia do `POST /start`, não
+> coalescida com a de `ensureRunning`. Como `/start` pode **matar e reiniciar** o backend, duas
+> janelas pedidas ao mesmo tempo — que é o que a restauração de sessão faz — reiniciariam o app no
+> meio da abertura das duas. Agora é uma chamada só, que é a verdade do modelo.
+
+Dezoito ataques por refutação, todos vermelhos. Um deles derrubou uma guarda **minha**: medir o
+sincronizador de grants por texto aprovava um `findWindows(appId).slice(0, 1)`, que sincroniza uma
+janela só e mantém intacta a palavra que a guarda procurava. Virou execução do mecanismo extraído
+do fonte.
 
 Interage com `Window Management (getScreenDetails)` do [critério do navegador](criterios.md#31--o-navegador-já-faz-isso)
 para o caso multi-monitor.

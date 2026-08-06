@@ -150,7 +150,7 @@ devolvia `'0.0.0'` fixo.
 > o **instrumento de navegador** (T9, feito primeiro de propósito) e o hábito de **sondar antes de
 > implementar**.
 > **Destrava:** **A3** (visualizador científico). *Ela não é o bloqueio de A4/A5* — a revisão de
-> 2026-08-05 conferiu contra o código: A4 depende do T6 e de "uma janela por app" (Onda 4), e A5,
+> 2026-08-05 conferiu contra o código: A4 dependia do T6 e das várias janelas (Onda 4), e A5,
 > de drag-and-drop e teclado. O clipboard, que os dois citavam, foi entregue na Onda 2. Ver as
 > notas de [casos-de-uso.md](casos-de-uso.md#categoria-a--aplicações-com-janela-type-app).
 

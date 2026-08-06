@@ -10,10 +10,10 @@ referências apontam para [diagnostico.md](diagnostico.md) e para as ondas.
 
 | # | Arquétipo | Exemplos | Bloqueio hoje |
 |---|---|---|---|
-| A1 | Notebook / IDE científico | JupyterLab, RStudio, Marimo, Positron | Uma janela por app ([Onda 4](04-runtime-composicao.md)) — é o que sobrou; `kind:"service"` **com** janela foi medido e **funciona** ⁽¹⁾; sem aviso de célula longa |
+| A1 | Notebook / IDE científico | JupyterLab, RStudio, Marimo, Positron | **Nada estrutural** ⁽¹⁾ — várias janelas e `kind:"service"` com janela fecharam na [Onda 4](04-runtime-composicao.md). Sobra o aviso de célula longa, que é do app |
 | A2 | Dashboard de dados | Streamlit, Panel, Dash, Voilà, Shiny | **Quase pronto.** Atrito: o healthcheck síncrono de 15 s bloqueia o clique e esses frameworks demoram a subir; sem warm-start ([Onda 4](04-runtime-composicao.md)) |
 | A3 | Visualizador científico | Parquet, HDF5, Zarr, NetCDF, FITS, DICOM, OME-TIFF | **T1 e T2** ([Onda 3](03-toolkit.md)); e `SharedArrayBuffer` para os que usam WASM multi-thread |
-| A4 | Editor / gestão de conhecimento | Logseq (portado), Obsidian, Zotero, Joplin, LaTeX | **T6** (a ponte `fs` sem `exists`/`rename`/`copy`); uma janela por app ([Onda 4](04-runtime-composicao.md)) — ver a nota ⁽²⁾ |
+| A4 | Editor / gestão de conhecimento | Logseq (portado), Obsidian, Zotero, Joplin, LaTeX | **Nada estrutural** — o T6 fechou na [Onda 3](03-toolkit.md#t6-e-t7--as-duas-dívidas-que-não-tinham-onda) e as várias janelas na 4 — ver a nota ⁽²⁾ |
 | A5 | Anotação / rotulagem | CVAT, Label Studio, anotação de áudio/vídeo | Sem drag-and-drop do gerenciador para o app; disputa de teclado só resolvida **com o motor X11 ligado** — ver a nota ⁽²⁾ |
 | A6 | Terminal | — | Questão em aberto ([diagnostico](diagnostico.md#15-questões-em-aberto)) |
 | A7 | Navegador | Scramjet engine (+ extensão MV2) | Questão em aberto |
@@ -29,7 +29,8 @@ referências apontam para [diagnostico.md](diagnostico.md) e para as ondas.
 > **medido na Onda 4**, rodando os scripts de verdade: o supervisor relança (a janela não é entrada
 > da decisão) e a janela reata, porque ela nunca teve porta em mãos e o relançamento sai do mesmo
 > EnvironmentFile. Sobra que **nada recarrega o iframe** — a página segue sendo a do processo
-> morto. Não bloqueia A1; o que bloqueia é a janela única.
+> morto. E a **janela única caiu junto**: "Nova janela" no menu de contexto abre a segunda, com o
+> mesmo backend por baixo (N janelas, um processo). Com isso A1 não tem mais bloqueio estrutural.
 >
 > ⁽²⁾ **O clipboard saiu da lista.** A ponte de arquivos existe (`vssh.clipboard.files()`, e imagem
 > por `vssh.clipboard.readImage()`, [`docs/api.md`](../api.md)) desde a Onda 2. A4 citava **T5**,
