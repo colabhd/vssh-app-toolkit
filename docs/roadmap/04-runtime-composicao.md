@@ -1,6 +1,7 @@
 # Ondas 4 e 5 — Runtime de apps e composição do ecossistema
 
-> **Estado:** não iniciado · **Atualizado:** 2026-08-05 · **Repos:** `vssh-sso` + toolkit
+> **Estado:** 🟡 em andamento — o healthcheck **virou verdadeiro**; falta torná-lo assíncrono ·
+> **Atualizado:** 2026-08-06 · **Repos:** `vssh-sso` + toolkit
 >
 > Revisado contra o código em 2026-08-05, junto com a [Onda 3](03-toolkit.md). O que mudou: a
 > **Onda 4 começa pelo healthcheck**, que absorveu o que a
@@ -34,20 +35,46 @@ motor X11, desde a [Onda 1](01-sessao-sem-xpra.md); não há segundo socket a cr
 [Onda 2.0](02-apis-de-shell.md#canal-shellnavegador-usar-o-wsevents-não-criar-um-segundo)). É o
 atrito que separa A2 de "quase pronto" para "pronto".
 
-> **Antes de tornar o sinal assíncrono, torná-lo verdadeiro.** A revisão do item 10 da
-> [Onda 2c](02c-interludio.md#r3--o-que-sobrou-não-justifica-uma-vm) mediu duas coisas que este
-> parágrafo não sabia:
->
-> - **`ready` significa hoje "alguém respondeu", não "o app está servindo".** O `curl` do poll não
->   manda o `X-Vssh-App-Token`, então um app que feche a porta por token devolve `403` — que não é
->   5xx, e conta como pronto. O motor Xpra não faz isso (serve estático), mas o próximo app que
->   fizer passa no healthcheck sem servir nada.
-> - **5xx já não conta como pronto** (`lastCode !== '000' && !startsWith('5')`), e a resposta já
->   reporta `ready`/`lastCode` (`routes/apps.ts:167`). A frase da 2.7 que dizia *"o poll aceita
->   qualquer coisa que não seja `000`"* descreve um poll que mudou.
->
-> Propagar por WebSocket um `ready` que quer dizer "alguém respondeu" só faz o sinal fraco chegar
-> mais rápido — e num canal onde a janela vai confiar nele para sair do "carregando".
+#### ✅ Primeiro: o sinal virou verdadeiro
+
+*"Antes de tornar o sinal assíncrono, torná-lo verdadeiro"* — feito, e era metade do item.
+
+**O `ready` significava "alguém respondeu", não "o app está servindo".** A sondagem ia sem header
+nenhum; um app que fecha a própria porta por token — defesa em profundidade que a **própria SKILL
+oferece** — respondia `403`; e `403` não é 5xx, então **contava como pronto**. O portal declarava
+servindo um app do qual nunca tinha visto uma resposta de verdade. O motor Xpra não cai nisso
+porque serve estático; o próximo app com gate cairia.
+
+É o pior tipo de modo de falha: **o sinal existe, é verde, e não significa nada.**
+
+O conserto tem duas metades, e uma sem a outra seria pior que nenhuma — só o header deixaria o
+`403` verde, e só a regra reprovaria apps corretos que gateiam a rota:
+
+| | |
+|---|---|
+| a sondagem leva o `X-Vssh-App-Token` | o mesmo que o proxy injeta — exercita o caminho **real** do app em vez de bater na porta e ouvir o porteiro |
+| `401`/`403` deixam de contar como pronto | com o header no lugar, recusar é recusar uma requisição **credenciada**, e o app não está servindo para ninguém |
+
+**`404` continua contando como pronto**, e é decisão registrada: o servidor está de pé e
+respondendo — o que está errado é o `healthcheckPath` do manifesto. Reprovar ali trocaria um sinal
+fraco por um falso negativo, e quem escreveu o app leria "não subiu" sobre um app que subiu.
+
+O `token` é parâmetro **opcional** de `_appHttpCode`, e a assimetria é intencional: os outros três
+chamadores comparam com `'000'` e fazem outra pergunta — *"a porta está viva?"* —, para a qual um
+`403` já é resposta. Há teste para a assimetria, para ela não virar esquecimento.
+
+Sete ataques por refutação, todos vermelhos. E a contraparte no toolkit foi corrigida: a SKILL
+mandava **isentar** o healthcheck do gate de token, o que deixou de ser necessário.
+
+> **5xx já não contava como pronto** antes disto, e a resposta já reportava `ready`/`lastCode`
+> (`routes/apps.ts:167`). A frase da 2.7 que dizia *"o poll aceita qualquer coisa que não seja
+> `000`"* descrevia um poll que já tinha mudado.
+
+#### ⬜ Falta: torná-lo assíncrono
+
+Com o sinal verdadeiro, propagá-lo passa a valer a pena. Antes, um `ready` que queria dizer "alguém
+respondeu" só chegaria mais rápido — e num canal onde a janela vai **confiar** nele para sair do
+"carregando".
 
 ### `kind:"service"` **com** janela — o caso que ninguém mediu
 

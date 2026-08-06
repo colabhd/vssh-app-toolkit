@@ -112,7 +112,12 @@ falta num app concreto.
                                        // responder (até 15x/1s, síncrono, bloqueando o clique de
                                        // "abrir app" do usuário) — responda rápido e sem depender
                                        // de setup pesado ou de uma ferramenta externa que o
-                                       // backend envolva ainda não estar pronta; sirva algo
+                                       // backend envolva ainda não estar pronta.
+                                       // A sondagem vai COM o header X-Vssh-App-Token, então
+                                       // gatear esta rota é permitido; o que NÃO conta como
+                                       // pronto é 000, 5xx e 401/403. Um 404 conta (o servidor
+                                       // respondeu) — se o caminho estiver errado, o healthcheck
+                                       // vira teatro sem ninguém avisar, então confira. Sirva algo
                                        // estático e trate o estado real em endpoints próprios.
   },
   "window": {
@@ -330,8 +335,15 @@ curl -fsS http://127.0.0.1:45999/api/ping
 open http://127.0.0.1:45999/
 ```
 
-Acrescente `VSSH_APP_TOKEN=segredo` para exercitar o gate de token (e confirmar que o healthcheck
-continua isento — é o erro que mais custa depois).
+Acrescente `VSSH_APP_TOKEN=segredo` para exercitar o gate de token. **O healthcheck do portal vai
+COM o header `X-Vssh-App-Token`**, então você pode gatear a rota de healthcheck como qualquer
+outra — não precisa isentá-la. (Isentar continua funcionando; é uma rota a menos protegida, não um
+erro.)
+
+> Isto mudou na Onda 4, e vale saber por quê: antes a sondagem ia sem header nenhum, um app com
+> gate respondia `403`, e `403` não é 5xx — **contava como pronto**. O portal declarava servindo um
+> app do qual nunca tinha visto uma resposta de verdade. Hoje `401`/`403` na sondagem significam
+> "recusou uma requisição credenciada", e portanto **não** contam como pronto.
 
 O que **não** funciona assim, e por isso precisa do loop com servidor abaixo: a ponte com o
 desktop (`vssh.dialog`, `vssh.pickFile`, FSA). Fora do desktop o shim degrada em vez de lançar,
