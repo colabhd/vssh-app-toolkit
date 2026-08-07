@@ -280,7 +280,7 @@ function segredo() {
  * separá-las, "a GPU não codificou" manda a pessoa caçar driver por horas para descobrir que a
  * resposta era "esta placa não faz isso, e isso é normal".
  */
-function _porQueVaapiFalhou(stderr) {
+function _porQueVaapiFalhou(stderr, dispositivo) {
   const s = (stderr || '').toLowerCase();
   if (!s) return null;
   if (s.includes('unknown encoder')) {
@@ -289,16 +289,32 @@ function _porQueVaapiFalhou(stderr) {
   if (s.includes('permission denied')) {
     return 'sem permissão no render node — falta o grupo `render` (usermod -aG render <usuario>)';
   }
-  if (s.includes('entrypoint') || s.includes('not supported') || s.includes('unsupported')) {
-    return 'a placa abre, mas NÃO tem motor de codificação de vídeo. É o normal numa GPU virtual: ' +
-           'ela serve para desenhar tela, não para computar — e é exatamente o que esta peça ' +
-           'existe para descobrir antes de alguém projetar em cima dela';
+
+  // **O diagnóstico usa o que a DESCOBERTA já sabe.** A primeira versão não recebia o dispositivo e
+  // por isso hesitava — "instale o driver, SE ela for física" — mesmo tendo a resposta a uma função
+  // de distância. Num servidor real isso mandou procurar pacote para uma virtio, onde nenhum
+  // pacote resolve. Duas informações que existiam e não se encontravam: o mesmo defeito que fez
+  // "sem GPU" e "sem permissão" darem a mesma resposta.
+  const virtual = dispositivo && dispositivo.virtual === true;
+  const naoInicializou = s.includes('vainitialize') || s.includes('no va display') ||
+    s.includes('failed to initialise') || s.includes('failed to create') || s.includes('not implemented');
+  const semEntrypoint = s.includes('entrypoint') || s.includes('not supported') || s.includes('unsupported');
+
+  if (virtual && (naoInicializou || semEntrypoint)) {
+    // Definitivo, e de propósito: uma resposta que deixa esperança onde não há custa mais que uma
+    // resposta ruim. Quem lê isto precisa parar de procurar pacote e trocar de servidor.
+    return `esta é uma GPU VIRTUAL (${dispositivo.fabricante || dispositivo.driver}) — ela NÃO ` +
+           'implementa VA-API, e nenhum pacote resolve. Ela existe para desenhar tela, não para ' +
+           'codificar vídeo nem computar. Um app que depende de aceleração precisa de outro ' +
+           'servidor, com placa física — e descobrir isso agora é o que esta peça existe para fazer';
   }
-  if (s.includes('vainitialize') || s.includes('no va display') || s.includes('failed to initialise') ||
-      s.includes('failed to create') || s.includes('not implemented')) {
-    return 'o VAAPI não inicializou nesta placa — driver ausente, ou uma GPU que não implementa ' +
-           'a interface (típico de virtio/bochs). Instalar o pacote do driver do fabricante ' +
-           '(mesa-va-drivers, intel-media-va-driver, nvidia) é o caminho, se ela for física';
+  if (semEntrypoint) {
+    return 'a placa abre, mas NÃO tem motor de codificação de vídeo — ela pode servir para render ' +
+           'e não para vídeo';
+  }
+  if (naoInicializou) {
+    return 'o VAAPI não inicializou nesta placa física — driver ausente. O pacote do fabricante ' +
+           '(mesa-va-drivers para AMD, intel-media-va-driver para Intel, o driver NVIDIA) é o caminho';
   }
   return null;
 }
@@ -313,15 +329,27 @@ function _oQueAPlacaSabe(node) {
     return { tem: true, entrypoints: perfis.slice(0, 40),
              codifica: perfis.some((l) => /VAEntrypointEnc/.test(l)) };
   } catch (err) {
-    // `vainfo` ausente é o caso comum e não é erro: ele não vem instalado por padrão.
-    return { tem: false, motivo: (err.stderr?.toString() || err.message || '').split('\n')[0].slice(0, 200) };
+    // `vainfo` ausente é o caso COMUM e não é erro — ele não vem instalado por padrão. Devolver o
+    // `spawnSync vainfo ENOENT` cru seria jogar na cara de quem lê um detalhe de implementação do
+    // Node em vez da única coisa acionável: instale o pacote e a pergunta fica respondida.
+    const bruto = (err.stderr?.toString() || err.message || '');
+    return {
+      tem: false,
+      motivo: /ENOENT/.test(bruto)
+        ? 'o `vainfo` não está instalado neste servidor — `apt-get install -y vainfo` e esta peça ' +
+          'passa a listar o que a placa sabe fazer'
+        : bruto.split('\n')[0].slice(0, 200),
+    };
   }
 }
 
 function benchmarkGpu({ frames = 300 } = {}) {
   const { execFileSync } = require('node:child_process');
   const gpu = gpuDoServidor();
-  const node = (gpu.dispositivos || []).find((d) => d.acesso === 'ok')?.renderNode || null;
+  // O dispositivo, e não só o caminho: o diagnóstico da falha precisa saber se a placa é virtual
+  // para responder em vez de hesitar.
+  const alvo = (gpu.dispositivos || []).find((d) => d.acesso === 'ok') || null;
+  const node = alvo?.renderNode || null;
 
   const temFfmpeg = (() => {
     try { execFileSync('ffmpeg', ['-version'], { stdio: 'ignore', timeout: 5000 }); return true; }
@@ -353,7 +381,7 @@ function benchmarkGpu({ frames = 300 } = {}) {
         // As ÚLTIMAS linhas: o ffmpeg põe a causa no fim, e o começo costuma ser ruído de init.
         erro: saida ? saida.split('\n').slice(-4).join(' · ').slice(0, 400)
                     : (err.message || '').slice(0, 200),
-        diagnostico: _porQueVaapiFalhou(saida),
+        diagnostico: _porQueVaapiFalhou(saida, alvo),
       };
     }
     const ms = Number(process.hrtime.bigint() - t0) / 1e6;

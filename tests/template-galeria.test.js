@@ -321,16 +321,31 @@ test('a falha da GPU é CLASSIFICADA — as causas pedem ações opostas', () =>
   const corpo = SERVER.slice(i, SERVER.indexOf('\n}\n', i) + 2);
   const fn = new Function(`${corpo}\nreturn _porQueVaapiFalhou;`)();
 
-  // A mais comum, e a que não se conserta: a placa abre e não tem motor de vídeo. É o caso de
-  // praticamente toda GPU virtual — e sem esta frase a pessoa caça driver por horas para descobrir
-  // que a resposta era "esta placa não faz isso, e isso é normal".
-  assert.match(fn('No usable encoding entrypoint found for profile'), /GPU virtual/);
-  assert.match(fn('Unknown encoder \'h264_vaapi\''), /compilado SEM VAAPI/);
-  assert.match(fn('Failed to open /dev/dri/renderD128: Permission denied'), /grupo `render`/);
-  assert.match(fn('Failed to initialise VAAPI connection: -1'), /driver/);
-  assert.strictEqual(fn(''), null, 'inventou diagnóstico a partir de stderr vazio');
-  assert.strictEqual(fn('algo que ninguém previu'), null,
+  const VIRTUAL = { virtual: true, fabricante: 'virtio', driver: 'virtio-pci' };
+  const FISICA  = { virtual: false, fabricante: 'AMD', driver: 'amdgpu' };
+
+  // O caso REAL, medido num servidor: `vaInitialize: 2` numa virtio. A primeira versão hesitava —
+  // "instale o driver, SE ela for física" — mesmo com a descoberta já sabendo que é virtual. E aí
+  // a pessoa vai procurar pacote para um problema que nenhum pacote resolve.
+  const s = 'Failed to initialise VAAPI connection: 2 (resource allocation failed).';
+  assert.match(fn(s, VIRTUAL), /NÃO implementa VA-API/);
+  assert.match(fn(s, VIRTUAL), /nenhum pacote resolve/,
+    'a resposta deixou esperança onde não há — pior que uma resposta ruim');
+  assert.match(fn(s, VIRTUAL), /outro servidor/);
+
+  // A MESMA saída numa placa física é outro diagnóstico: aí o pacote É o caminho.
+  assert.match(fn(s, FISICA), /driver ausente/);
+  assert.ok(!/nenhum pacote resolve/.test(fn(s, FISICA)),
+    'mandou desistir numa placa física, onde instalar o driver resolve');
+
+  assert.match(fn("Unknown encoder 'h264_vaapi'", FISICA), /compilado SEM VAAPI/);
+  assert.match(fn('Failed to open /dev/dri/renderD128: Permission denied', FISICA), /grupo `render`/);
+  assert.match(fn('No usable encoding entrypoint found for profile', VIRTUAL), /GPU VIRTUAL/);
+  assert.strictEqual(fn('', VIRTUAL), null, 'inventou diagnóstico a partir de stderr vazio');
+  assert.strictEqual(fn('algo que ninguém previu', VIRTUAL), null,
     'classificou o que não conhece: um diagnóstico errado custa mais que nenhum');
+  // Sem dispositivo (o caminho do "não sei"), não pode afirmar que é virtual.
+  assert.ok(!/VIRTUAL/.test(fn(s, null) || ''), 'afirmou "virtual" sem ter o dispositivo em mãos');
 });
 
 test('um lado que FALHA não vira um número inventado', () => {
