@@ -396,21 +396,70 @@ lentidão, que ninguém liga a uma decisão de manifesto.
 > Xorg para configurar"*. Xorg é assunto do **motor**, não do ambiente — e é justamente por isso que
 > GPU precisava virar conceito de **runtime**, e não continuar sendo um detalhe de quem monta X11.
 
-**O padrão é NÃO ver a placa.** Um app que não declara `gpu: true` recebe `CUDA_VISIBLE_DEVICES=""`.
-É a decisão simétrica à dos limites de recurso: quem não pediu, não pega — e é isso que deixa B3
-(inferência) conviver com os outros consumidores.
+São **duas coisas**, e a primeira versão as tinha misturado numa só — o que a tornou quase inútil.
 
-> **É arbitragem por convenção, não isolamento, e a diferença está dita no código, no schema e na
-> tela.** A variável é respeitada pelo runtime CUDA; ela não fecha `/dev/nvidia*`, e um processo
-> determinado a ignorá-la ainda alcança a placa. A fronteira de verdade seria controle de
-> dispositivo no cgroup, e no v2 isso é eBPF — só root, e o `vssh-app-run` roda como o usuário.
-> Chamar isto de "isolamento" seria repetir o `ready` que dizia pronto sem ter visto resposta.
+#### A correção: descobrir e conter são perguntas diferentes
 
-Três estados, e só um pede atenção: **negada** (não pediu — quase todo app, e não se escreve nada,
-senão a seção vira uma coluna de ruído), **concedida**, e **pediu e este servidor não tem** — que
-não impede o app de subir, porque GPU ausente costuma significar "mais lento" e quem sabe degradar é
-o app, mas aparece no `run.log` e em Configurações. Sem essa linha, *"está lento"* não tem a quem ser
-atribuído.
+A primeira entrega só sabia perguntar ao `nvidia-smi` e só sabia **esconder**
+(`CUDA_VISIBLE_DEVICES=""`). Duas consequências, e a segunda foi vista na galeria do template:
+
+1. um servidor com **AMD**, com **Intel**, ou com GPU **virtual** (virtio, vmwgfx, bochs) era
+   indistinguível de um servidor sem placa nenhuma;
+2. `CUDA_VISIBLE_DEVICES=""` — o resultado de *"o ambiente escondeu"* — é **exatamente o mesmo**
+   resultado de *"não há GPU aqui"*. A demonstração mostrava o padrão e não mostrava nada: *"ela
+   testa a mesma coisa que não ter"*.
+
+**A descoberta é genérica, e pergunta ao KERNEL.** `vssh-gpu-info` lê `/sys/class/drm` e `/dev/dri`
+— que existem em qualquer Linux com DRM — e responde para qualquer fabricante, inclusive para placa
+que não existe fisicamente:
+
+| Pergunta | De onde vem | Por que não do SDK |
+|---|---|---|
+| quem é a placa | id de fabricante do PCI (`device/vendor`) | vem do barramento, não de um driver proprietário instalado |
+| qual driver assumiu | `device/uevent` (`DRIVER=`), com o symlink `device/driver` de reserva | arquivo de texto é legível em qualquer lugar — e **mensurável numa bancada que não pode criar symlink** |
+| é virtual? | nome do driver (`virtio_gpu`, `vmwgfx`, `bochs-drm`, `vgem`…) | uma virtual serve para desenhar tela e não para computar; sem essa marca, "tem GPU e está lento" não tem explicação |
+| **consigo abrir?** | `os.access` no render node | **é o modo de falha mais comum**, e não é ausência de placa: é o usuário fora do grupo `render`. Dizer "sem GPU" ali manda procurar driver quando o conserto é `usermod -aG render` |
+| que pilhas existem | presença de `nvidia-smi`, `rocm-smi`, `vulkaninfo`, `clinfo`, `vainfo` | **presença, sem executar**: `vulkaninfo` num servidor sem driver custa segundos e às vezes trava |
+
+**O portão continua sendo só de CUDA**, e agora isso está dito em vez de implícito: é a única API com
+uma variável padrão que o runtime respeita. Quem não declara `gpu: true` não enumera dispositivo
+CUDA nenhum — a decisão simétrica à dos limites, *quem não pediu não pega*, que é o que deixa B3
+(inferência) conviver com os vizinhos.
+
+> **É arbitragem por convenção, não isolamento, e a diferença está no código, no schema e na tela.**
+> A variável não fecha `/dev/dri`, e um processo determinado a ignorá-la alcança a placa. A
+> fronteira de verdade seria controle de dispositivo no cgroup — eBPF no v2, só root, e o
+> `vssh-app-run` roda como o usuário. Chamar isto de "isolamento" repetiria o `ready` que dizia
+> pronto sem ter visto resposta.
+
+**Quatro estados, não três.** *negada* (não pediu — quase todo app, e não se escreve nada, senão a
+seção vira uma coluna de ruído), *concedida* (com o resumo: "AMD (amdgpu)", "virtio (virtio_gpu,
+virtual)"), *pediu e este servidor não entrega* (**com o motivo** — falta placa, ou falta permissão,
+que pedem ações opostas), e ***não sei*** — o servidor cuja consulta não deu para fazer. A quarta
+não é a terceira: um servidor que não soube responder não é um servidor sem placa.
+
+#### E um benchmark, porque inventário não diz se a placa serve
+
+Descobrir não basta. `/api/gpu/benchmark` na galeria codifica o **mesmo vídeo duas vezes** — CPU
+(`libx264`) e GPU (`VAAPI`, que atravessa Intel, AMD e NVIDIA pelo mesmo render node do DRM) — e o
+número que vale é a **razão**: *"180 fps"* sozinho não diz nada; *"2,4× a CPU deste servidor"* diz.
+
+Três decisões, e a última é a que importa:
+
+- **VAAPI e não CUDA**, porque um benchmark de CUDA só roda onde já havia resposta;
+- **`ffmpeg` é declarado em `requiredPackages`** pelo template — então o instalador já recusa o
+  servidor onde a peça não funcionaria, e as três metades da onda se encontram numa peça só;
+- **um lado que falha não vira número.** Calcular a razão com um lado ausente daria algo com cara de
+  medição; `null` e o motivo são melhores que um número inventado.
+
+A resposta mais útil que ele dá é a desagradável: **uma GPU virtual costuma sair mais lenta que a
+CPU**, e descobrir isso agora custa um clique — depois de projetar em cima dela, custa a onda.
+
+> **Uma frase desta seção foi corrigida no lugar duas vezes.** Primeiro a de que `--gpu` "delega a
+> config de Xorg", que envelheceu na 2.7. Depois a premissa inteira do item — "GPU é CUDA" —, que
+> não envelheceu: **nasceu errada**, e quem a derrubou foi o teste-drive da galeria, com o
+> argumento exato de que a demonstração *"testa a mesma coisa que não ter"*. Estava certo: o padrão
+> escondia a placa, e o resultado de esconder é idêntico ao de não existir.
 
 ### Cofre de segredos — ✅ CONCLUÍDO
 
@@ -449,6 +498,23 @@ Três razões, e a terceira decide:
 
 O cofre **não tem porta de leitura**: a rota devolve nomes, a tela mostra nomes, e o campo de
 entrada é de senha. Ninguém precisa reler um segredo, e uma porta a menos é uma porta a menos.
+
+#### Quem PEDE é o app — a primeira versão pôs o pedido no lugar errado
+
+A tela de Configurações era o lugar de guardar, e isso estava errado: obrigava a pessoa a sair do
+app, achar a seção e **adivinhar o nome da variável** que aquele app espera. O pedido ficava longe
+do motivo.
+
+Quem sabe que falta credencial — e sabe **na hora exata**, no clique de "conectar" — é o app. Ele
+pede por `vssh.secrets.set(nome, {description})`; o **shell** mostra o campo de senha e escreve. O
+app não manda o valor e não o recebe de volta: o que retorna é a lista de nomes, `cancelado: true`
+quando a pessoa desistiu (desistir é resposta, não erro) e `requerReinicio: true` — porque o
+ambiente de um processo é fixado no start, e sem esse aviso a frase seguinte seria *"guardei e não
+funcionou"*.
+
+O que sobra em Configurações é o que só um inventário responde, e por isso a seção se chama
+**Cofre**: o que já está guardado, em que app, e o que falta — mais trocar e apagar, que são
+manutenção. Ninguém abre um app só para substituir uma chave vencida.
 
 #### O que a refutação mudou no desenho
 

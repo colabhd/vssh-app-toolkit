@@ -6,6 +6,8 @@
   "category": "Utility",
   "description": "Template de vssh-app com backend Node e galeria das capacidades do ambiente — ponte com o desktop, File System Access, bandeja, som, impressão, duas janelas sobre um backend só, e o que o ambiente decide por um app: limite de recurso, GPU e cofre de segredos.",
 
+  "requiredPackages": ["ffmpeg"],
+
   "resources": {
     "memoryMax": "512M",
     "tasksMax": "128"

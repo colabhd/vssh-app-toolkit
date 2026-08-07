@@ -251,6 +251,37 @@ interface VsshAudio {
 }
 
 /** "Abra assim" — o arquivo ou caminho com que o app foi aberto (campo `opens` do manifesto). */
+/**
+ * O cofre: credenciais que o app precisa e o USUÁRIO guarda.
+ *
+ * Repare no que NÃO existe aqui: um `get()`. Não é esquecimento — o valor chega ao seu app pelo
+ * AMBIENTE (`process.env.<NOME>`), e um cofre que devolvesse o que guardou seria uma porta a mais
+ * sem servir para nada. `set()` também não recebe o segredo: quem digita fala com o diálogo do
+ * desktop.
+ *
+ * Fora do desktop tudo devolve `null` em vez de lançar — em desenvolvimento local a credencial vem
+ * de onde o autor quiser, e a ausência de cofre não é uma falha.
+ */
+interface VsshCofre {
+  /** Os NOMES guardados para este app. Nunca os valores. `null` fora do desktop. */
+  list(): Promise<string[] | null>;
+
+  /**
+   * Pede ao desktop que guarde uma credencial. **Chame no momento em que ela falta** — no clique
+   * de "conectar", quando não há token —, e não mande a pessoa procurar Configurações: ela não
+   * sabe o nome da variável que o seu app espera.
+   *
+   * `cancelado: true` quando a pessoa desistiu, que é resposta e não erro. `requerReinicio: true`
+   * porque o ambiente de um processo é fixado no start: guardar não basta, o app precisa reiniciar
+   * para enxergar.
+   */
+  set(nome: string, opts?: { title?: string; description?: string }):
+    Promise<{ names: string[] | null; cancelado?: boolean; requerReinicio?: boolean } | null>;
+
+  /** Apaga uma credencial deste app. */
+  remove(nome: string): Promise<{ names: string[]; requerReinicio?: boolean } | null>;
+}
+
 interface VsshContextoDeAbertura {
   type: 'open-context';
   path?: string;
@@ -306,6 +337,8 @@ interface Vssh {
   tabs: VsshAbas;
 
   tray: VsshBandeja;
+
+  secrets: VsshCofre;
 
   /**
    * Pede a tela de impressão do desktop para um arquivo do SERVIDOR. Resolve assim que a tela

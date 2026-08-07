@@ -200,3 +200,90 @@ test('o manifesto do template declara os três, e o `secrets` sem valor', () => 
   assert.ok(!('gpu' in mf),
     'o template passou a pedir GPU: a peça deixa de demonstrar o padrão, que é não enxergar');
 });
+
+// ─── O benchmark ──────────────────────────────────────────────────────────────
+//
+// Descobrir não basta: um inventário não diz se a placa serve para alguma coisa. E o número que
+// importa não é "180 fps" — é a RAZÃO entre o mesmo trabalho em CPU e em GPU, porque só ela
+// responde "vale a pena usar a placa DESTE servidor?".
+//
+// Medido EXECUTANDO a função com um `child_process` de mentira. Rodar o ffmpeg de verdade aqui
+// mediria o ffmpeg; o que se quer medir é a aritmética e, principalmente, o que a função faz
+// quando um dos lados falha.
+
+function comBenchmark(execFake, gpuFake) {
+  const i = SERVER.indexOf('function benchmarkGpu');
+  assert.ok(i > 0, 'não achei benchmarkGpu — o teste ficou obsoleto');
+  const corpo = SERVER.slice(i, SERVER.indexOf('\n}\n', i) + 2);
+  const fn = new Function('require', 'process', 'gpuDoServidor', `${corpo}\nreturn benchmarkGpu;`)(
+    (m) => (m === 'node:child_process' ? { execFileSync: execFake } : require(m)),
+    { hrtime: process.hrtime, env: {} },
+    () => gpuFake,
+  );
+  return fn();
+}
+
+const COM_PLACA = { dispositivos: [{ acesso: 'ok', renderNode: '/dev/dri/renderD128' }] };
+
+test('o ganho é a razão entre os dois lados — e é isso que responde a pergunta', () => {
+  // 600 ms em CPU contra 200 ms em GPU = 3×. O relógio é o `hrtime` de verdade, então o fake
+  // dorme de mentira: o que se mede é a fórmula, não o cronômetro.
+  let n = 0;
+  const r = comBenchmark((bin, args) => {
+    if (args[0] === '-version') return '';
+    const alvo = args.includes('h264_vaapi') ? 60 : 180;
+    const fim = Date.now() + alvo; while (Date.now() < fim) { n++; }
+    return '';
+  }, COM_PLACA);
+  assert.strictEqual(r.rodou, true);
+  assert.ok(r.cpu.ok && r.gpu.ok, 'algum dos lados não rodou');
+  assert.ok(r.ganho > 1.5, `esperava a GPU bem mais rápida, veio ${r.ganho}`);
+  assert.match(r.leitura, /mais rápida/);
+});
+
+test('GPU mais LENTA é dita como tal — é o caso da placa virtual', () => {
+  // A resposta mais útil que este benchmark dá. Uma virtio costuma perder para a CPU, e descobrir
+  // isso depois de projetar em cima dela custa muito mais que descobrir agora.
+  const r = comBenchmark((bin, args) => {
+    if (args[0] === '-version') return '';
+    const alvo = args.includes('h264_vaapi') ? 180 : 60;
+    const fim = Date.now() + alvo; while (Date.now() < fim) { /* espera */ }
+    return '';
+  }, COM_PLACA);
+  assert.ok(r.ganho < 0.8, `esperava a GPU mais lenta, veio ${r.ganho}`);
+  assert.match(r.leitura, /MAIS LENTA/);
+});
+
+test('um lado que FALHA não vira um número inventado', () => {
+  // Calcular a razão com um lado ausente daria um número com cara de medição. Melhor não ter
+  // número: `null` é uma resposta, e a mensagem diz qual lado caiu.
+  const r = comBenchmark((bin, args) => {
+    if (args[0] === '-version') return '';
+    if (args.includes('h264_vaapi')) { const e = new Error('vaapi falhou'); e.stderr = Buffer.from('no VAAPI'); throw e; }
+    return '';
+  }, COM_PLACA);
+  assert.strictEqual(r.gpu.ok, false);
+  assert.strictEqual(r.ganho, null, 'inventou uma razão com um dos lados caído');
+  assert.match(r.leitura, /não codificou/);
+});
+
+test('sem render node acessível, o benchmark diz isso em vez de medir a CPU duas vezes', () => {
+  const r = comBenchmark((bin, args) => (args[0] === '-version' ? '' : ''),
+    { dispositivos: [{ acesso: 'negado', renderNode: '/dev/dri/renderD128' }] });
+  assert.strictEqual(r.gpu.ok, false);
+  assert.match(r.gpu.erro, /nenhum render node acessível/);
+});
+
+test('sem ffmpeg, não roda — e o motivo aponta o requiredPackages', () => {
+  const r = comBenchmark(() => { throw new Error('ENOENT'); }, COM_PLACA);
+  assert.strictEqual(r.rodou, false);
+  assert.match(r.motivo, /requiredPackages/,
+    'o motivo não liga a falta do ffmpeg ao mecanismo que deveria tê-la impedido');
+});
+
+test('o template DECLARA o ffmpeg — senão o benchmark é uma promessa sem lastro', () => {
+  const mf = JSON.parse(ler('vssh-app.json'));
+  assert.ok((mf.requiredPackages || []).includes('ffmpeg'),
+    'o benchmark usa ffmpeg e o manifesto não o declara: o instalador deixaria passar um servidor ' +
+    'onde a peça não funciona');
+});

@@ -82,7 +82,7 @@
     },
     "gpu": {
       "type": "boolean",
-      "description": "O app precisa enxergar a GPU NVIDIA do servidor. O PADRÃO é não: um app que não declara recebe `CUDA_VISIBLE_DEVICES=\"\"` e o runtime CUDA dele não enumera dispositivo nenhum — é o que permite a um app de inferência conviver com os outros consumidores da mesma placa. Isto é arbitragem por CONVENÇÃO, não isolamento: a variável não fecha /dev/nvidia*, e um processo determinado a ignorá-la ainda alcança a placa. Declarar num servidor sem GPU não impede o app de subir (ao contrário de um pacote que falta, GPU ausente costuma significar 'mais lento'), mas fica dito no log e em Configurações.",
+      "description": "O app precisa da GPU do servidor. Declarar faz DUAS coisas, e elas são independentes. (1) DESCOBERTA, genérica: o ambiente consulta o kernel (/sys/class/drm + /dev/dri) e reporta o que há — NVIDIA, AMD, Intel, virtio ou uma placa virtual —, com o driver, se é virtual, e se este processo consegue ABRIR o render node (o modo de falha mais comum não é ausência de placa: é o usuário fora do grupo 'render'). Nada disso depende de SDK ou driver proprietário. (2) PORTÃO, só de CUDA: quem NÃO declara recebe `CUDA_VISIBLE_DEVICES=\"\"` e o runtime CUDA não enumera dispositivo nenhum — é o que deixa um app de inferência conviver com os vizinhos. O portão é arbitragem por CONVENÇÃO, não isolamento: ele não fecha /dev/dri, e a fronteira de verdade exigiria controle de dispositivo no cgroup (eBPF, root). Declarar num servidor sem GPU não impede o app de subir — GPU ausente costuma significar 'mais lento', e quem sabe degradar é o app —, mas o motivo fica dito no run.log e em Configurações.",
       "default": false
     },
     "secrets": {

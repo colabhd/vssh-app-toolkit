@@ -95,7 +95,16 @@ function montarGaleria() {
           : d.limites?.contido === false ? `NÃO aplicado (memory.max=${d.limites.memoryMax || '—'})`
           : `não sei — ${d.limites?.motivo || 'sem resposta'}`}`,
         d.limites?.memoryCurrent ? `        usando agora: ${d.limites.memoryCurrent} bytes` : null,
-        `GPU     ${d.gpu?.leitura || '—'}`,
+        `GPU     ${!d.gpu?.sei ? `não sei — ${d.gpu?.motivo || 'sem resposta'}` : d.gpu.resumo}`,
+        d.gpu?.sei && d.gpu.dispositivos.length
+          ? d.gpu.dispositivos.map((g) =>
+              `        ${g.card}: ${g.fabricante} ${g.vendor || ''} driver=${g.driver || '—'}` +
+              `${g.virtual ? ' (virtual)' : ''} acesso=${g.acesso}`).join('\n')
+          : null,
+        // Reportado ao LADO do inventário de propósito. Sozinha, a string vazia é ambígua: ela é o
+        // mesmo valor para "o ambiente escondeu de mim" e para "não há placa nenhuma".
+        `CUDA    CUDA_VISIBLE_DEVICES=${JSON.stringify(d.gpu?.cudaVisibleDevices)}` +
+          `${d.gpu?.cudaVisibleDevices === '' ? ' — escondida deste app (ele não pediu gpu)' : ''}`,
         `cofre   ${d.segredo?.definido
           ? `HELLO_SEGREDO chegou (${d.segredo.tamanho} caracteres, sha256 ${d.segredo.sha256}…)`
           : d.segredo?.leitura}`,
@@ -107,6 +116,48 @@ function montarGaleria() {
   }
   $('runtime').addEventListener('click', lerRuntime);
   lerRuntime();
+
+  // O benchmark. Botão desabilitado enquanto roda: ele leva segundos e queima CPU, e dois cliques
+  // seguidos mediriam um contra o outro.
+  $('bench').addEventListener('click', async (ev) => {
+    const b = ev.currentTarget; const antes = b.textContent;
+    b.disabled = true; b.textContent = 'medindo…';
+    escrever('runtimeout', 'codificando o mesmo vídeo em CPU e em GPU…');
+    try {
+      const r = await fetch('api/gpu/benchmark', { method: 'POST' });
+      const d = await r.json();
+      escrever('runtimeout', d.rodou
+        ? [
+            d.leitura,
+            '',
+            `cpu   ${d.cpu.ok ? `${d.cpu.ms} ms · ${d.cpu.fps} fps` : `falhou: ${d.cpu.erro}`}`,
+            `gpu   ${d.gpu.ok ? `${d.gpu.ms} ms · ${d.gpu.fps} fps` : `falhou: ${d.gpu.erro}`}`,
+            `nó    ${d.renderNode || '—'}`,
+          ].join('\n')
+        : `não deu para medir — ${d.motivo}`);
+    } catch (e) { falhar('runtimeout', e); }
+    b.disabled = false; b.textContent = antes;
+  });
+
+  // O segredo, pedido DE DENTRO DO APP. É a correção de desenho: quem sabe que falta credencial —
+  // e sabe na hora em que falta — é o app, não a tela de Configurações. O valor não passa por aqui.
+  $('segredo').addEventListener('click', async () => {
+    if (!window.vssh?.secrets) return escrever('runtimeout', 'sem ponte com o desktop (dev local).');
+    escrever('runtimeout', 'pedindo o segredo ao desktop…');
+    try {
+      const r = await vssh.secrets.set('HELLO_SEGREDO', {
+        description: 'Qualquer texto. Serve para demonstrar o cofre: ele vai para o SEU servidor e ' +
+                     'volta para este app como variável de ambiente.',
+      });
+      if (r === null) return escrever('runtimeout', 'cofre indisponível fora do desktop.');
+      if (r.cancelado) return escrever('runtimeout', 'você cancelou — e cancelar é resposta, não erro.');
+      escrever('runtimeout',
+        `guardado. Agora em ${r.names.length} segredo(s): ${r.names.join(', ')}\n\n` +
+        (r.requerReinicio
+          ? 'REINICIE o app para recebê-lo: o ambiente de um processo é fixado no start.'
+          : ''));
+    } catch (e) { falhar('runtimeout', e); }
+  });
 
   $('ping').addEventListener('click', async () => {
     escrever('out', 'chamando...');

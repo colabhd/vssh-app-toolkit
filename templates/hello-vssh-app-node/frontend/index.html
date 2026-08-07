@@ -75,17 +75,44 @@
           manifesto. Num servidor sem gerenciador systemd do usuário
           (<code>loginctl enable-linger</code>) nada é aplicado, e aí ele aparece como
           <code>max</code>: o app roda <em>sem</em> limite, e isso é informação, não erro.</li>
-        <li><strong>GPU</strong> — este template <em>não</em> declara <code>gpu: true</code>, e o
-          esperado é <code>CUDA_VISIBLE_DEVICES=""</code>. Não é falha: é o padrão do ambiente
-          aparecendo. Quem não pediu a placa não a enxerga, e é o que deixa um app de inferência
-          conviver com os vizinhos.</li>
+        <li><strong>GPU</strong> — o <em>inventário</em> do servidor, perguntado ao kernel
+          (<code>/sys/class/drm</code> + <code>/dev/dri</code>): quem é a placa pelo id do
+          barramento, qual driver assumiu, se ela é <em>virtual</em>, e — a pergunta que mais trava
+          gente — se este processo consegue <strong>abrir</strong> o render node. Vale para NVIDIA,
+          AMD, Intel, virtio, o que for; não depende de SDK nem de driver proprietário.
+          <br>Ao lado dele vem <code>CUDA_VISIBLE_DEVICES</code>, que é outra coisa: o
+          <em>portão</em>. Este template não declara <code>gpu: true</code>, então o valor é
+          <code>""</code>. Sozinho, esse vazio é ambíguo — é o mesmo para "escondida de mim" e para
+          "não existe" —, e é exatamente por isso que ele aparece <em>junto</em> do inventário.</li>
         <li><strong>Cofre</strong> — o app declara o <em>nome</em> (<code>HELLO_SEGREDO</code>); o
           valor você guarda em <strong>Configurações → Segredos</strong>, e ele mora no
           <em>seu</em> servidor, não no portal. Depois de guardar,
           <strong>reinicie o app</strong>: o ambiente de um processo é fixado no start.</li>
       </ul>
-      <div class="acoes"><button id="runtime">ler api/runtime</button></div>
+      <div class="acoes">
+        <button id="runtime">ler api/runtime</button>
+        <button id="bench">medir GPU × CPU (leva alguns segundos)</button>
+        <button id="segredo">guardar HELLO_SEGREDO</button>
+      </div>
       <pre id="runtimeout">—</pre>
+      <p class="porque">
+        <strong>O benchmark é o que separa "tem placa" de "a placa serve".</strong> Ele codifica o
+        mesmo vídeo duas vezes — uma em CPU (<code>libx264</code>), outra pela GPU
+        (<code>VAAPI</code>, que atravessa Intel, AMD e NVIDIA pelo mesmo render node do DRM) — e o
+        número útil é a <em>razão</em> entre as duas. "180 fps" sozinho não diz nada; "2,4× mais
+        rápido que a CPU deste servidor" diz. Uma placa virtual costuma sair <em>mais lenta</em>, e
+        é bom descobrir isso antes de projetar em cima dela.
+        <br>Ele usa <code>ffmpeg</code>, que este template declara em <code>requiredPackages</code>
+        — então o instalador já recusou o servidor que não o tem, e as três metades da onda se
+        encontram aqui.
+      </p>
+      <p class="porque">
+        <strong>O segredo se guarda AQUI, no app</strong> — não em Configurações. É o app que sabe
+        que falta credencial, e sabe na hora exata em que ela falta. O botão chama
+        <code>vssh.secrets.set()</code>: o campo é do desktop, o valor vai direto para o seu
+        servidor, e o app <em>nunca o toca</em> — nem no envio, nem na volta. Em Configurações →
+        Cofre você confere o que já está guardado.
+      </p>
     </section>
 
     <section>

@@ -121,21 +121,83 @@ function limitesDoCgroup() {
  * chega como string VAZIA. Não é uma falha — é o padrão do ambiente aparecendo. Quem não pediu a
  * placa não a enxerga, e é isso que deixa um app de inferência conviver com os vizinhos.
  */
-function gpuVisivel() {
-  const v = process.env.CUDA_VISIBLE_DEVICES;
-  // Três leituras, e a do meio é a que não pode ser afirmada. A ausência da variável tem DUAS
-  // causas — o app declarou `gpu: true`, ou este processo subiu fora do `vssh-app-run` (o loop de
-  // desenvolvimento local, em que ninguém aplicou política nenhuma). Chamar isso de "pedi e
-  // recebi" seria inventar uma resposta que o processo não tem como dar.
-  if (v === '') {
-    return { cudaVisibleDevices: '', leitura: 'nenhum dispositivo CUDA visível — este app não pediu GPU' };
+/**
+ * A GPU deste servidor — o INVENTÁRIO, e não só a variável do CUDA.
+ *
+ * A primeira versão desta peça mostrava apenas `CUDA_VISIBLE_DEVICES`, e era inútil: o valor
+ * `""` (o ambiente escondeu) é indistinguível de "não há placa nenhuma", então a demonstração
+ * testava a mesma coisa que não ter. Pior, ela dizia "sem GPU" num servidor com AMD, com Intel ou
+ * com placa virtual — porque só sabia perguntar ao `nvidia-smi`.
+ *
+ * Agora pergunta ao KERNEL, que responde para qualquer fabricante e para placa que nem existe
+ * fisicamente: `/sys/class/drm` diz quem é (id do barramento PCI) e qual driver assumiu, e
+ * `/dev/dri` diz se este processo consegue abrir. As duas perguntas são diferentes, e a segunda é
+ * a que mais trava gente: o dispositivo existe e o usuário não está no grupo `render`.
+ *
+ * Nada disto precisa de SDK, de driver proprietário ou de pacote instalado.
+ */
+function gpuDoServidor() {
+  const fs = require('node:fs');
+  const SYSFS = process.env.VSSH_GPU_SYSFS || '/sys/class/drm';
+  const DEV = process.env.VSSH_GPU_DEV || '/dev/dri';
+  const FABRICANTES = {
+    '0x10de': 'NVIDIA', '0x1002': 'AMD', '0x1022': 'AMD', '0x8086': 'Intel',
+    '0x1af4': 'virtio', '0x1234': 'QEMU', '0x15ad': 'VMware', '0x5853': 'Xen', '0x1414': 'Microsoft',
+  };
+  const VIRTUAIS = new Set(['virtio_gpu', 'bochs-drm', 'bochs', 'vmwgfx', 'qxl', 'vboxvideo',
+                            'simpledrm', 'vgem', 'vkms', 'hyperv_drm']);
+  const ler = (p) => { try { return fs.readFileSync(p, 'utf8').trim(); } catch { return null; } };
+
+  let cartoes;
+  try {
+    cartoes = fs.readdirSync(SYSFS).filter((c) => c.startsWith('card') && !c.includes('-')).sort();
+  } catch (err) {
+    // "Não sei" ≠ "não tem". Um Windows de desenvolvimento cai aqui, e chamar isso de ausência de
+    // GPU seria a peça mentindo sobre o servidor.
+    return { sei: false, motivo: err.message, dispositivos: [] };
   }
-  if (v === undefined) {
-    return { cudaVisibleDevices: null,
-             leitura: 'a variável não foi definida: ou o app declarou gpu:true, ou este processo ' +
-                      'subiu fora do vssh-app-run (dev local)' };
-  }
-  return { cudaVisibleDevices: v, leitura: `a placa está visível (${v})` };
+
+  const dispositivos = cartoes.map((cartao) => {
+    const base = path.join(SYSFS, cartao);
+    const vendor = ler(path.join(base, 'device', 'vendor'));
+    // `uevent` é um arquivo de texto com `DRIVER=amdgpu`; `device/driver` é um symlink de mesmo
+    // nome. O arquivo vem primeiro porque é legível em qualquer lugar — e mensurável numa bancada
+    // que não pode criar symlinks.
+    let driver = null;
+    const uevent = ler(path.join(base, 'device', 'uevent'));
+    const m = uevent && uevent.split('\n').find((l) => l.startsWith('DRIVER='));
+    if (m) driver = m.slice('DRIVER='.length).trim() || null;
+    if (!driver) { try { driver = path.basename(fs.realpathSync(path.join(base, 'device', 'driver'))); } catch {} }
+    let node = null;
+    try {
+      const n = fs.readdirSync(path.join(base, 'device', 'drm')).find((x) => x.startsWith('renderD'));
+      if (n) node = path.join(DEV, n);
+    } catch {}
+    let acesso = 'ausente';
+    if (node) {
+      try { fs.accessSync(node, fs.constants.R_OK | fs.constants.W_OK); acesso = 'ok'; }
+      catch { acesso = fs.existsSync(node) ? 'negado' : 'ausente'; }
+    }
+    return {
+      card: cartao, fabricante: FABRICANTES[(vendor || '').toLowerCase()] || 'desconhecido',
+      vendor, driver, virtual: driver ? VIRTUAIS.has(driver) : null, renderNode: node, acesso,
+    };
+  });
+
+  const usaveis = dispositivos.filter((d) => d.acesso === 'ok');
+  const negados = dispositivos.filter((d) => d.acesso === 'negado');
+  return {
+    sei: true,
+    dispositivos,
+    temGpu: usaveis.length > 0,
+    // O portão do CUDA continua sendo reportado — mas agora ao LADO do inventário, que é o que
+    // torna a variável vazia legível: "escondida do app" deixa de parecer "não existe".
+    cudaVisibleDevices: process.env.CUDA_VISIBLE_DEVICES ?? null,
+    resumo: !dispositivos.length ? 'nenhum dispositivo DRM neste servidor'
+      : usaveis.length ? usaveis.map((d) => `${d.fabricante} (${d.driver || 'sem driver'}${d.virtual ? ', virtual' : ''})`).join(', ')
+      : negados.length ? `${negados.length} dispositivo(s) presentes e SEM ACESSO — falta o grupo 'render' (usermod -aG render <usuario>)`
+      : 'dispositivos presentes, sem render node utilizável',
+  };
 }
 
 /**
@@ -156,6 +218,72 @@ function segredo() {
     definido: true, tamanho: v.length,
     sha256: crypto.createHash('sha256').update(v).digest('hex').slice(0, 12),
     leitura: 'chegou pelo ambiente; o valor não sai daqui',
+  };
+}
+
+/**
+ * O BENCHMARK. Descobrir não basta: um inventário não diz se a placa serve para alguma coisa.
+ *
+ * **Por que ffmpeg, e não CUDA.** Um benchmark de CUDA só roda onde há CUDA, que é justamente o
+ * caso que a versão anterior já cobria e o único. VAAPI atravessa Intel, AMD e NVIDIA, e roda
+ * contra o render node do DRM — o mesmo caminho genérico que a descoberta usa. E `ffmpeg` é um
+ * pacote, não um SDK: por isso este template o DECLARA em `requiredPackages`, e o ambiente confere
+ * antes de instalar. As três metades da Onda 4 se encontram aqui.
+ *
+ * **O número útil é a RAZÃO.** "180 fps" sozinho não diz nada — depende do vídeo, do preset, da
+ * máquina. O mesmo trabalho em CPU e em GPU, medido em seguida, responde a pergunta que se tem de
+ * fato: *vale a pena usar a placa deste servidor?* Uma virtio costuma responder que não, e essa é
+ * uma resposta boa de ter antes de projetar em cima dela.
+ *
+ * Timeboxed e não-fatal: um encoder que trava não pode segurar a requisição nem derrubar o app.
+ */
+function benchmarkGpu({ frames = 300 } = {}) {
+  const { execFileSync } = require('node:child_process');
+  const gpu = gpuDoServidor();
+  const node = (gpu.dispositivos || []).find((d) => d.acesso === 'ok')?.renderNode || null;
+
+  const temFfmpeg = (() => {
+    try { execFileSync('ffmpeg', ['-version'], { stdio: 'ignore', timeout: 5000 }); return true; }
+    catch { return false; }
+  })();
+  if (!temFfmpeg) {
+    return { rodou: false, motivo: 'ffmpeg não está neste servidor — o app o declara em ' +
+                                   'requiredPackages, então o instalador deveria ter recusado' };
+  }
+
+  // `testsrc` é gerado pelo próprio ffmpeg: sem arquivo de entrada, sem download, sem depender de
+  // nada em disco. Saída para /dev/null — o que se mede é o encode, não o I/O.
+  const medir = (args, rotulo) => {
+    const t0 = process.hrtime.bigint();
+    try {
+      execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', ...args], {
+        stdio: 'ignore', timeout: 60000,
+      });
+    } catch (err) {
+      return { rotulo, ok: false, erro: (err.stderr?.toString() || err.message || '').slice(0, 200) };
+    }
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    return { rotulo, ok: true, ms: Math.round(ms), fps: Math.round((frames / ms) * 1000) };
+  };
+
+  const fonte = ['-f', 'lavfi', '-i', `testsrc=size=1280x720:rate=30:duration=${frames / 30}`];
+  const cpu = medir([...fonte, '-c:v', 'libx264', '-preset', 'veryfast', '-f', 'null', '-'], 'cpu');
+  const gpuRes = node
+    ? medir(['-hwaccel', 'vaapi', '-vaapi_device', node, ...fonte,
+             '-vf', 'format=nv12,hwupload', '-c:v', 'h264_vaapi', '-f', 'null', '-'], 'gpu')
+    : { rotulo: 'gpu', ok: false, erro: 'nenhum render node acessível — ver o inventário acima' };
+
+  // A razão só existe quando os DOIS lados mediram. Inventar um número a partir de um lado que
+  // falhou seria pior que não ter número nenhum.
+  const ganho = cpu.ok && gpuRes.ok && gpuRes.ms > 0 ? +(cpu.ms / gpuRes.ms).toFixed(2) : null;
+  return {
+    rodou: true, frames, renderNode: node, cpu, gpu: gpuRes, ganho,
+    leitura: ganho === null
+      ? (gpuRes.ok ? 'não deu para comparar' : `a GPU não codificou: ${gpuRes.erro}`)
+      : ganho >= 1.2 ? `a GPU deste servidor é ${ganho}× mais rápida que a CPU neste trabalho`
+      : ganho <= 0.8 ? `a GPU é MAIS LENTA que a CPU aqui (${ganho}×) — é o que costuma acontecer ` +
+                       'com placa virtual, e é bom saber antes de projetar em cima dela'
+      : `empate técnico (${ganho}×) — a GPU deste servidor não compensa neste trabalho`,
   };
 }
 
@@ -242,7 +370,16 @@ const server = http.createServer(async (req, res) => {
     // onde a resposta é a verdadeira.
     if (url.pathname === '/api/runtime') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ limites: limitesDoCgroup(), gpu: gpuVisivel(), segredo: segredo() }));
+      res.end(JSON.stringify({ limites: limitesDoCgroup(), gpu: gpuDoServidor(), segredo: segredo() }));
+      return;
+    }
+
+    // O benchmark fica numa rota À PARTE, e num POST. Ele leva segundos e queima CPU: pendurá-lo
+    // no `/api/runtime` faria toda abertura da galeria pagar por um número que ninguém pediu.
+    if (url.pathname === '/api/gpu/benchmark' && req.method === 'POST') {
+      const r = benchmarkGpu();
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(r));
       return;
     }
 

@@ -113,17 +113,35 @@ falta num app concreto.
                                        // mesmo, sem limite — e Configurações → Serviços diz isso,
                                        // com o motivo. Contenção que falha não pode virar app que
                                        // não sobe.
-  "gpu": false,                       // opcional (padrão false): o app precisa enxergar a GPU
-                                       // NVIDIA. Quem NÃO declara recebe `CUDA_VISIBLE_DEVICES=""`
-                                       // e o runtime CUDA dele não enumera dispositivo nenhum — é
-                                       // o que permite a um app de inferência conviver com os
-                                       // outros consumidores da mesma placa. **Arbitragem por
-                                       // convenção, não isolamento:** a variável não fecha
-                                       // /dev/nvidia*, e um processo determinado a ignorá-la ainda
-                                       // alcança a placa. Declarar num servidor sem GPU não impede
-                                       // o app de subir — GPU ausente costuma significar "mais
-                                       // lento", e quem decide se dá para seguir em CPU é o app —,
-                                       // mas fica dito no run.log e em Configurações → Serviços.
+  "gpu": false,                       // opcional (padrão false): o app precisa da GPU. Declarar faz
+                                       // DUAS coisas independentes.
+                                       //
+                                       // 1. DESCOBERTA, e ela é GENÉRICA. O ambiente consulta o
+                                       //    KERNEL (/sys/class/drm + /dev/dri), não um SDK — então
+                                       //    responde para NVIDIA, AMD, Intel, virtio, e para placa
+                                       //    VIRTUAL, sem depender de driver proprietário. Reporta
+                                       //    fabricante (id do PCI), driver, se é virtual, e se o
+                                       //    processo consegue ABRIR o render node. Essa última é a
+                                       //    que mais trava gente: o dispositivo existe e o usuário
+                                       //    não está no grupo `render` (usermod -aG render <user>).
+                                       //    O app também pode ler /sys e /dev por conta própria —
+                                       //    o valor de declarar é a resposta vir uniforme, e o
+                                       //    portal poder MOSTRÁ-LA.
+                                       //
+                                       // 2. PORTÃO, e ele é só de CUDA — a única API com variável
+                                       //    padrão que o runtime respeita. Quem NÃO declara recebe
+                                       //    `CUDA_VISIBLE_DEVICES=""` e não enumera dispositivo
+                                       //    CUDA nenhum, que é o que deixa um app de inferência
+                                       //    conviver com os vizinhos. **Convenção, não
+                                       //    isolamento:** não fecha /dev/dri, e a fronteira de
+                                       //    verdade exigiria cgroup de dispositivo (eBPF, root).
+                                       //
+                                       // Declarar num servidor sem GPU NÃO impede o app de subir —
+                                       // GPU ausente costuma significar "mais lento", e quem sabe
+                                       // degradar é o app. Mas o motivo fica no run.log e em
+                                       // Configurações → Serviços, com quatro respostas: negada,
+                                       // concedida (com o resumo), não entrega (com o motivo), e
+                                       // NÃO SEI — que não é o mesmo que "não tem".
   "secrets": [                        // opcional: credenciais que o app recebe pelo AMBIENTE.
     { "name": "OPENAI_API_KEY",        // Declarar é o ponto: sem isto cada app inventa o seu,
       "description": "Chave da API.",  // normalmente um arquivo em texto plano no
