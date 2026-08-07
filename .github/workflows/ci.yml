@@ -74,12 +74,41 @@ jobs:
           curl -fsS http://127.0.0.1:45999/ | grep -q '<!DOCTYPE html>'
           timeout 3 curl -sN http://127.0.0.1:45999/api/events | grep -q 'event: tick'
           test -s "${RUNNER_TEMP}/hwn/app.log"
-          # A ponte com o desktop, em DUAS asserções, porque o defeito real ficava entre elas:
-          # a tag era injetada e ninguém servia o arquivo — página carregava, `vssh` não existia.
-          curl -fsS http://127.0.0.1:45999/ | grep -q 'vendor/vssh/web/vssh-app-shim.js'
+
+          # ── A ponte com o desktop ──────────────────────────────────────────────────────────
+          #
+          # O defeito real mora ENTRE duas asserções: a tag é injetada, ninguém serve o arquivo, a
+          # página carrega inteira e `vssh` simplesmente não existe — sem erro que ligue uma coisa
+          # à outra. Por isso a checagem varre TODAS as tags injetadas e busca cada uma, em vez de
+          # nomear a que existia no dia em que foi escrita.
+          #
+          # A versão anterior exigia que o polyfill de FSA NÃO fosse injetado. Era escopo do
+          # template ("olá mundo não toca em arquivo do usuário"), e escopo mudou: ele agora é
+          # também a galeria, e a peça de arquivos usa a API padrão do W3C. A propriedade que
+          # sobrevive à mudança de escopo é esta: o que se injeta, se serve — e carimbado.
+          srcs=$(curl -fsS http://127.0.0.1:45999/ | grep -o '<script src="[^"]*"' | cut -d'"' -f2)
+          test -n "$srcs"
+          for s in $srcs; do
+            curl -fsS "http://127.0.0.1:45999/${s}" >/dev/null \
+              || { echo "injetado mas NÃO servido: ${s}"; exit 1; }
+            case "$s" in
+              *\?v=*) ;;
+              *) echo "injetado sem carimbo de conteúdo: ${s} — uma reinstalação serviria a versão velha"; exit 1 ;;
+            esac
+          done
+          echo "$srcs" | grep -q 'vssh-app-shim.js'
+          echo "$srcs" | grep -q 'galeria.js'
           curl -fsS http://127.0.0.1:45999/vendor/vssh/web/vssh-app-shim.js | grep -q 'window.vssh'
-          # O polyfill da FSA fica vendorizado mas NÃO injetado neste template: ele é um "olá
-          # mundo" e não toca em arquivo do usuário. (O motivo original — os limites do LazyFile —
-          # caiu no T1 da Onda 3; o que ficou é a escolha de escopo do template.) Se alguém ligar
-          # sem querer, falha aqui.
-          ! curl -fsS http://127.0.0.1:45999/ | grep -q 'fsa-polyfill'
+
+          # ── A galeria: um backend, N janelas ───────────────────────────────────────────────
+          #
+          # Duas conexões, e quem incrementa NÃO é quem escuta: é essa assimetria que a peça
+          # afirma. Sem a difusão, cada janela veria só o próprio clique — e o smoke passaria se
+          # medisse a resposta do POST em vez do stream.
+          ( timeout 5 curl -sN http://127.0.0.1:45999/api/events > "${RUNNER_TEMP}/sse.txt" & )
+          sleep 1
+          curl -fsS -X POST http://127.0.0.1:45999/api/estado/incrementar >/dev/null
+          sleep 1
+          grep -q '"contador":1' "${RUNNER_TEMP}/sse.txt" \
+            || { echo "a mudança de estado não chegou a quem não clicou"; exit 1; }
+          curl -fsS http://127.0.0.1:45999/api/estado | grep -q '"contador":1'
