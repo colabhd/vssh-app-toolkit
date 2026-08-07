@@ -22,7 +22,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const APP = path.join(__dirname, '..', 'templates', 'hello-vssh-app-node');
-const ler = (rel) => fs.readFileSync(path.join(APP, rel), 'utf8');
+// `\r\n` → `\n` na leitura. Um checkout Windows (`core.autocrlf=true`, padrão do Git for Windows)
+// traz CRLF, e qualquer recorte por `\n}\n` devolve −1 ali: o `slice` vai até o fim do arquivo,
+// o `new Function` compila meio repositório e o erro que aparece é sobre um símbolo que não tem
+// nada a ver com a peça sendo medida. Verde no CI, indecifrável na máquina de quem escreve.
+const ler = (rel) => fs.readFileSync(path.join(APP, rel), 'utf8').replace(/\r\n/g, '\n');
 
 const HTML = ler('frontend/index.html');
 const JS = ler('frontend/galeria.js');
@@ -128,4 +132,71 @@ test('a demonstração de duas janelas prova o que diz: um backend só', () => {
     'o stream fechado não sai do conjunto: o número de janelas conectadas só subiria');
   assert.match(JS, /src\.addEventListener\('estado'/,
     'a galeria não escuta o evento difundido — a peça mostraria só o próprio clique');
+});
+
+// ─── O que o ambiente decidiu por este app ────────────────────────────────────
+//
+// A peça mais fácil de estragar da galeria, porque estragá-la não quebra nada: bastaria devolver o
+// valor do segredo junto com o resto e a demonstração continuaria "funcionando" — só teria virado
+// exatamente o hábito que ela existe para ensinar a não ter.
+
+test('o backend NUNCA devolve o valor do segredo', () => {
+  // Medido EXECUTANDO a função, e não lendo o texto dela. A primeira versão deste teste procurava
+  // um `v` solto no fonte e falhava contra si mesma — o próprio `.replace` que ela usava para
+  // ignorar `.length` transformava `tamanho: v.length` em `tamanho: v`, que era exatamente o
+  // padrão proibido. Uma guarda que precisa normalizar o fonte antes de olhar está medindo a
+  // normalização. A resposta da função não tem essa ambiguidade.
+  const i = SERVER.indexOf('function segredo()');
+  assert.ok(i > 0, 'não achei a função do segredo — o teste ficou obsoleto');
+  // `+2` inclui o `}` que fecha a função — sem ele o corpo fica sem fechamento e o `new Function`
+  // devolve um erro de sintaxe que não diz nada sobre o que se queria medir.
+  const corpo = SERVER.slice(i, SERVER.indexOf('\n}\n', i) + 2);
+  const fn = new Function('crypto', 'process', `${corpo}\nreturn segredo;`)(
+    require('node:crypto'), { env: { HELLO_SEGREDO: 'sk-nao-pode-vazar-9f8e7d' } });
+
+  const r = fn();
+  assert.equal(r.definido, true);
+  assert.ok(!JSON.stringify(r).includes('sk-nao-pode-vazar'),
+    'o valor do segredo atravessou a rota — é assim que uma credencial vai parar no log de alguém');
+  assert.equal(r.tamanho, 'sk-nao-pode-vazar-9f8e7d'.length);
+  assert.match(r.sha256, /^[0-9a-f]{12}$/,
+    'o prefixo de hash sumiu: sem ele não dá para responder "é o mesmo que eu guardei?"');
+
+  // E a ausência é a outra metade: sem segredo, a peça tem de DIZER o que fazer — inclusive que
+  // guardar não basta, porque o ambiente de um processo é fixado no start.
+  const vazio = new Function('crypto', 'process', `${corpo}\nreturn segredo;`)(
+    require('node:crypto'), { env: {} },
+  )();
+  assert.equal(vazio.definido, false);
+  assert.match(vazio.leitura, /REINICIE/);
+});
+
+test('o limite mostrado vem do cgroup, não do manifesto', () => {
+  // É a demonstração inteira: o manifesto diz o que se PEDIU, o cgroup diz o que se RECEBEU. Ler o
+  // próprio manifesto aqui daria sempre a resposta bonita — inclusive num servidor onde nada foi
+  // aplicado, que é justamente o caso que a peça precisa saber mostrar.
+  const i = SERVER.indexOf('function limitesDoCgroup()');
+  const corpo = SERVER.slice(i, SERVER.indexOf('\n}\n', i));
+  assert.match(corpo, /\/proc\/self\/cgroup/);
+  assert.match(corpo, /memory\.max/);
+  assert.ok(!/vssh-app\.json|resources/.test(corpo),
+    'a peça passou a ler o manifesto: ela mostraria o teto pedido mesmo onde nada foi aplicado');
+  // "max" é o valor do kernel para "sem teto", e é texto. Confundi-lo com número faria um app sem
+  // limite nenhum aparecer como limitadíssimo.
+  assert.match(corpo, /!== 'max'/);
+});
+
+test('o manifesto do template declara os três, e o `secrets` sem valor', () => {
+  const mf = JSON.parse(ler('vssh-app.json'));
+  assert.ok(mf.resources?.memoryMax, 'o template parou de declarar limite — não há o que demonstrar');
+  assert.deepEqual(mf.secrets?.map((s) => s.name), ['HELLO_SEGREDO']);
+  for (const s of mf.secrets) {
+    for (const proibido of ['value', 'valor', 'default']) {
+      assert.ok(!(proibido in s), `o template traz o VALOR do segredo no manifesto (${proibido})`);
+    }
+  }
+  // `gpu` fica de FORA de propósito: o que a peça demonstra é o PADRÃO — quem não pede não vê a
+  // placa. Um template que declarasse `gpu: true` ensinaria o contrário do que o ambiente decide.
+  assert.ok(!('gpu' in mf),
+    'o template passou a pedir GPU: a peça deixa de demonstrar o padrão, que é não enxergar');
 });

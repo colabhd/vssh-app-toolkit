@@ -1,10 +1,23 @@
 {
   "id": "hello-world-node",
   "name": "Hello World (Node)",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "icon": "icon.svg",
   "category": "Utility",
-  "description": "Template de vssh-app com backend Node e galeria das capacidades do ambiente — ponte com o desktop, File System Access, bandeja, som, impressão e duas janelas sobre um backend só.",
+  "description": "Template de vssh-app com backend Node e galeria das capacidades do ambiente — ponte com o desktop, File System Access, bandeja, som, impressão, duas janelas sobre um backend só, e o que o ambiente decide por um app: limite de recurso, GPU e cofre de segredos.",
+
+  "resources": {
+    "memoryMax": "512M",
+    "tasksMax": "128"
+  },
+
+  "secrets": [
+    {
+      "name": "HELLO_SEGREDO",
+      "description": "Qualquer texto. Serve só para demonstrar o cofre: guarde aqui, reinicie o app, e a galeria mostra que ele chegou — sem nunca mostrar o valor.",
+      "required": false
+    }
+  ],
   "backend": {
     "runtime": "node",
     "entrypoint": "backend/server.js",

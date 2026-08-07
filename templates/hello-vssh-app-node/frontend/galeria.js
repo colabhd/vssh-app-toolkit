@@ -80,6 +80,34 @@ function montarGaleria() {
 
   // ── Backend próprio ──────────────────────────────────────────────────────────
 
+  // ── O que o ambiente decidiu por este app ───────────────────────────────────
+  //
+  // Lida no boot, e não só no clique: as três respostas valem para ESTA execução do processo, e a
+  // mais comum delas ("o segredo ainda não chegou porque o app não reiniciou") só faz sentido se
+  // estiver na tela antes de alguém procurar por ela.
+  async function lerRuntime() {
+    escrever('runtimeout', 'lendo...');
+    try {
+      const r = await fetch('api/runtime');
+      const d = await r.json();
+      const linhas = [
+        `limite  ${d.limites?.contido === true ? `APLICADO — memory.max=${d.limites.memoryMax}`
+          : d.limites?.contido === false ? `NÃO aplicado (memory.max=${d.limites.memoryMax || '—'})`
+          : `não sei — ${d.limites?.motivo || 'sem resposta'}`}`,
+        d.limites?.memoryCurrent ? `        usando agora: ${d.limites.memoryCurrent} bytes` : null,
+        `GPU     ${d.gpu?.leitura || '—'}`,
+        `cofre   ${d.segredo?.definido
+          ? `HELLO_SEGREDO chegou (${d.segredo.tamanho} caracteres, sha256 ${d.segredo.sha256}…)`
+          : d.segredo?.leitura}`,
+        '',
+        JSON.stringify(d, null, 2),
+      ].filter((l) => l !== null);
+      escrever('runtimeout', linhas.join('\n'));
+    } catch (e) { falhar('runtimeout', e); }
+  }
+  $('runtime').addEventListener('click', lerRuntime);
+  lerRuntime();
+
   $('ping').addEventListener('click', async () => {
     escrever('out', 'chamando...');
     try {

@@ -75,6 +75,90 @@ const subiuEm = new Date().toISOString();
 const estado = () => ({ contador, conexoes: conexoes.size, subiuEm });
 const difundir = () => { for (const s of conexoes) s.send('estado', estado()); };
 
+// ── O que o ambiente decidiu por este processo ────────────────────────────────
+//
+// Três coisas que o app DECLARA e o ambiente APLICA. As três se leem de dentro do processo, e é
+// isso que as torna demonstráveis: o manifesto diz o que se pediu; isto aqui diz o que se recebeu.
+
+/**
+ * O teto de memória que está VALENDO, lido do cgroup — não o que o manifesto pediu.
+ *
+ * A diferença é o ponto da demonstração. O manifesto declara; o `vssh-app-run` traduz para um
+ * escopo transitório do systemd; e um servidor sem gerenciador systemd do usuário não aplica nada
+ * (`loginctl enable-linger`). Ler o cgroup é a única resposta que não é uma suposição — e quando
+ * ela vem vazia, o app está rodando SEM limite, que é uma informação e não um erro.
+ */
+function limitesDoCgroup() {
+  const fs = require('node:fs');
+  try {
+    // cgroup v2: uma linha só, `0::<caminho relativo à raiz>`.
+    const linha = fs.readFileSync('/proc/self/cgroup', 'utf8').split('\n').find((l) => l.startsWith('0::'));
+    if (!linha) return { contido: false, motivo: 'sem cgroup v2 neste servidor' };
+    const base = path.join('/sys/fs/cgroup', linha.slice(3).trim());
+    const ler = (nome) => {
+      try { return fs.readFileSync(path.join(base, nome), 'utf8').trim(); } catch { return null; }
+    };
+    const memMax = ler('memory.max');
+    return {
+      // "max" é o valor que o kernel usa para "sem teto" — texto, não número, e confundir os dois
+      // faria um app sem limite parecer limitadíssimo.
+      contido: !!memMax && memMax !== 'max',
+      cgroup: linha.slice(3).trim(),
+      memoryMax: memMax, memoryHigh: ler('memory.high'), tasksMax: ler('pids.max'),
+      // Quanto o processo está usando AGORA. É o que transforma o teto de número em noção.
+      memoryCurrent: ler('memory.current'),
+    };
+  } catch (err) {
+    // Não é Linux, ou o cgroupfs não está montado. "Não sei" é resposta, e diferente de "sem teto".
+    return { contido: null, motivo: err.message };
+  }
+}
+
+/**
+ * A GPU, do ponto de vista deste processo.
+ *
+ * Este template NÃO declara `gpu: true`, e o esperado é justamente isto: `CUDA_VISIBLE_DEVICES`
+ * chega como string VAZIA. Não é uma falha — é o padrão do ambiente aparecendo. Quem não pediu a
+ * placa não a enxerga, e é isso que deixa um app de inferência conviver com os vizinhos.
+ */
+function gpuVisivel() {
+  const v = process.env.CUDA_VISIBLE_DEVICES;
+  // Três leituras, e a do meio é a que não pode ser afirmada. A ausência da variável tem DUAS
+  // causas — o app declarou `gpu: true`, ou este processo subiu fora do `vssh-app-run` (o loop de
+  // desenvolvimento local, em que ninguém aplicou política nenhuma). Chamar isso de "pedi e
+  // recebi" seria inventar uma resposta que o processo não tem como dar.
+  if (v === '') {
+    return { cudaVisibleDevices: '', leitura: 'nenhum dispositivo CUDA visível — este app não pediu GPU' };
+  }
+  if (v === undefined) {
+    return { cudaVisibleDevices: null,
+             leitura: 'a variável não foi definida: ou o app declarou gpu:true, ou este processo ' +
+                      'subiu fora do vssh-app-run (dev local)' };
+  }
+  return { cudaVisibleDevices: v, leitura: `a placa está visível (${v})` };
+}
+
+/**
+ * O segredo do cofre — e **nunca o valor dele**.
+ *
+ * O que se devolve é: chegou, quantos caracteres tem, e um prefixo de hash que serve para conferir
+ * "é o mesmo que eu guardei?" sem que o valor atravesse a rede outra vez. É o hábito que se quer
+ * ensinar: um app que ecoa a própria credencial põe a credencial no log de alguém.
+ */
+function segredo() {
+  const v = process.env.HELLO_SEGREDO;
+  if (!v) {
+    return { definido: false,
+             leitura: 'nada guardado — vá em Configurações → Segredos, guarde HELLO_SEGREDO e ' +
+                      'REINICIE o app (o ambiente de um processo é fixado no start)' };
+  }
+  return {
+    definido: true, tamanho: v.length,
+    sha256: crypto.createHash('sha256').update(v).digest('hex').slice(0, 12),
+    leitura: 'chegou pelo ambiente; o valor não sai daqui',
+  };
+}
+
 // Comparação de tamanho fixo: hash dos dois lados antes de comparar, para não vazar prefixo pelo
 // tempo nem tropeçar em comprimentos diferentes.
 function tokenMatches(expected, received) {
@@ -148,6 +232,17 @@ const server = http.createServer(async (req, res) => {
       difundir();
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify(estado()));
+      return;
+    }
+
+    // ── O que o AMBIENTE decidiu por este processo ──────────────────────────
+    //
+    // Três coisas que o app não escolhe sozinho — ele DECLARA no manifesto e o ambiente decide.
+    // Esta rota existe para que dê para ver as três de dentro do processo, que é o único lugar
+    // onde a resposta é a verdadeira.
+    if (url.pathname === '/api/runtime') {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ limites: limitesDoCgroup(), gpu: gpuVisivel(), segredo: segredo() }));
       return;
     }
 

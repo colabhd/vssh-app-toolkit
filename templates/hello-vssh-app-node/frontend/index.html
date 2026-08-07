@@ -62,6 +62,32 @@
       <pre id="ambiente">—</pre>
     </section>
 
+    <section id="c-runtime" class="larga">
+      <h2>O que o ambiente decidiu por este app</h2>
+      <p class="porque">
+        Três coisas o app <strong>declara</strong> no manifesto e quem <strong>aplica</strong> é o
+        ambiente — então o manifesto diz o que se pediu, e só de dentro do processo se vê o que se
+        recebeu. É a diferença que esta peça existe para mostrar.
+      </p>
+      <ul class="porque">
+        <li><strong>Limite de recurso</strong> — este template declara
+          <code>memoryMax: "512M"</code>, mas o número abaixo vem do <em>cgroup</em>, não do
+          manifesto. Num servidor sem gerenciador systemd do usuário
+          (<code>loginctl enable-linger</code>) nada é aplicado, e aí ele aparece como
+          <code>max</code>: o app roda <em>sem</em> limite, e isso é informação, não erro.</li>
+        <li><strong>GPU</strong> — este template <em>não</em> declara <code>gpu: true</code>, e o
+          esperado é <code>CUDA_VISIBLE_DEVICES=""</code>. Não é falha: é o padrão do ambiente
+          aparecendo. Quem não pediu a placa não a enxerga, e é o que deixa um app de inferência
+          conviver com os vizinhos.</li>
+        <li><strong>Cofre</strong> — o app declara o <em>nome</em> (<code>HELLO_SEGREDO</code>); o
+          valor você guarda em <strong>Configurações → Segredos</strong>, e ele mora no
+          <em>seu</em> servidor, não no portal. Depois de guardar,
+          <strong>reinicie o app</strong>: o ambiente de um processo é fixado no start.</li>
+      </ul>
+      <div class="acoes"><button id="runtime">ler api/runtime</button></div>
+      <pre id="runtimeout">—</pre>
+    </section>
+
     <section>
       <h2>Backend próprio</h2>
       <p class="porque">
