@@ -1,6 +1,6 @@
 # Roadmap do ecossistema vssh-app
 
-> **Atualizado:** 2026-08-04
+> **Atualizado:** 2026-08-07
 
 Este diretório é o plano vivo do ecossistema VSSH — portal (`vssh-sso`), shell de desktop
 (`vssh-client/`) e este toolkit. Não é um documento de uma vez só: **cada arquivo tem cabeçalho
@@ -112,8 +112,9 @@ não se reescreve numa tarde.
 | 4 | [Múltiplas janelas](04-runtime-composicao.md#múltiplas-janelas---n-janelas-um-backend) — a cópia (menu) e a **extra** (`vssh.window.abrir`), com N janelas sobre um backend | vssh-sso + toolkit | ✅ concluído |
 | 4 | [`requiredPackages`](04-runtime-composicao.md#requiredpackages--a-metade-que-verifica---concluído) — a metade que verifica: o instalador recusa, o painel mostra por servidor | vssh-sso + `vssh-repo` | ✅ concluído |
 | 4 | [Limites de recurso](04-runtime-composicao.md#limites-de-recurso---concluído) — `systemd-run --user --scope` no `vssh-app-run`, `resources` no manifesto; e o grupo de processos que a roadmap dizia pago e não estava | vssh-sso + toolkit | ✅ concluído |
-| 4 | [GPU como conceito de runtime](04-runtime-composicao.md#gpu-como-conceito-de-runtime---concluído) — o padrão é NÃO ver a placa; arbitragem por convenção, e dito que não é isolamento | vssh-sso + toolkit | ✅ concluído |
-| 4 | [Cofre de segredos](04-runtime-composicao.md#cofre-de-segredos---concluído) — o app declara, o usuário guarda, e o **portal não guarda cópia**; o valor mora no servidor do usuário | vssh-sso + toolkit | ✅ concluído |
+| 4 | [GPU como conceito de runtime](04-runtime-composicao.md#gpu-como-conceito-de-runtime---concluído) — descoberta **genérica** pelo kernel (qualquer fabricante, inclusive virtual) + benchmark GPU×CPU; o portão é só de CUDA, e isso está dito | vssh-sso + toolkit | ✅ concluído |
+| 4 | [Cofre de segredos](04-runtime-composicao.md#cofre-de-segredos---concluído) — **o app pede** na hora em que falta; Configurações → Cofre só lista; o portal grava e não guarda cópia | vssh-sso + toolkit | ✅ concluído |
+| 4 | [O que só apareceu ao INSTALAR](04-runtime-composicao.md#o-que-só-apareceu-quando-a-onda-foi-instalada) — cinco defeitos que nenhuma bancada alcançava, e a terceira etapa que a regra de verificação ganhou | toolkit | ✅ registrado |
 | 5 | Composição: `provides`, pontos de extensão, mensageria, seção de Configurações por manifesto | vssh-sso + toolkit | ⬜ não iniciado |
 | 6 | Camada de arquivos de rede | vssh-sso | ⬜ não iniciado |
 | 7 | Continuidade entre máquinas | vssh-sso + toolkit | ⬜ não iniciado |
@@ -191,3 +192,28 @@ Duas regras saem daí, e valem para toda onda de remoção:
   falha).
 - Item novo entra no arquivo da onda que faz sentido, e na tabela de estado. Onda nova só se
   realmente não couber em nenhuma.
+
+### E depois de abrir, alguém tem de INSTALAR e usar
+
+A [Onda 4](04-runtime-composicao.md#o-que-só-apareceu-quando-a-onda-foi-instalada) fechou com suíte
+verde, refutação 20/20 e bancadas rodando os scripts de verdade contra árvores de mentira. Aí a
+galeria foi instalada num servidor, e **cinco defeitos apareceram em três rodadas** — nenhum deles
+alcançável daqui:
+
+- um `MemoryHigh` **cem vezes acima** do `MemoryMax` (precisava de uma máquina com RAM de verdade);
+- uma GPU virtual dada como física (a virtio reporta o driver do **barramento**, coisa que nenhuma
+  árvore de mentira minha tinha imaginado);
+- um cofre que podia gravar em `/root` (depende do sudoers **daquele** servidor);
+- um erro que devolvia a linha de comando em vez do motivo (só um `ffmpeg` real falhando mostrou);
+- um diagnóstico que hesitava com a resposta em mãos.
+
+**As três camadas acharam defeitos disjuntos.** O Windows achou guardas que não mediam nada; o CI
+achou testes que mediam a *plataforma* (`systemd-run` existe no runner e não no Windows — o caso
+passava por acidente); o servidor achou o que só o mundo sabe. Nenhuma era dispensável, e um teste
+verde na máquina de quem o escreveu não mediu nada além daquela máquina.
+
+E os cinco têm a mesma assinatura: **duas informações que existiam e não se encontravam.** O padrão
+do ambiente não conhecia o teto do app; a lista de drivers virtuais não conhecia o id do fabricante;
+o diagnóstico da falha não conhecia a descoberta. Não é falta de dado — é dado que não atravessa a
+fronteira entre duas funções, e é o tipo de defeito que revisão de código não pega porque cada lado,
+sozinho, está certo.

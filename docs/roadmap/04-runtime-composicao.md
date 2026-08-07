@@ -3,8 +3,11 @@
 > **Estado:** 🟢 **Onda 4 concluída** · 🟡 Onda 5 não iniciada — **healthcheck ✅** (verdadeiro **e**
 > assíncrono) · **`kind:"service"` com janela ✅** (medido: era um teste) · **múltiplas janelas ✅**
 > (a cópia e a extra) · **`requiredPackages` ✅** (a metade que verifica) · **limites de recurso ✅**
-> (e o pré-requisito que a roadmap dizia pago **não estava**) · **GPU ✅** (o padrão é não ver a
-> placa) · **cofre de segredos ✅** (o portal grava e não guarda) ·
+> (e o pré-requisito que a roadmap dizia pago **não estava**) · **GPU ✅** (descoberta genérica pelo
+> kernel + benchmark; o portão é só de CUDA) · **cofre de segredos ✅** (o app pede, o portal grava e
+> não guarda) ·
+> **Instalada e usada num servidor real**, que achou cinco defeitos que nenhuma bancada alcançava —
+> [o que só apareceu ao instalar](#o-que-só-apareceu-quando-a-onda-foi-instalada). ·
 > **Atualizado:** 2026-08-07 · **Repos:** `vssh-sso` + toolkit + `vssh-repo`
 >
 > Revisado contra o código em 2026-08-05, junto com a [Onda 3](03-toolkit.md). O que mudou: a
@@ -335,13 +338,35 @@ há teto para quem não disser o contrário, e a escolha do que ganha padrão sa
 
 | Recurso | Padrão | Por quê |
 |---|---|---|
-| `MemoryHigh` | 70% | pressiona antes de matar — o primeiro sintoma de um teto apertado é lentidão, não um app morto sem explicação |
+| `MemoryHigh` | 70%, **ou 90% do `memoryMax` declarado** | pressiona antes de matar — o primeiro sintoma de um teto apertado tem de ser lentidão, não um app morto sem explicação |
 | `MemoryMax` | 85% | é o que **derruba**; o teto duro é o que impede o OOM killer de escolher a sessão no lugar |
 | `TasksMax` | 25% | bomba de fork esgota PID, e aí a sessão inteira para de conseguir criar processo |
 | `CPUQuota` | **nenhum** | CPU disputada deixa **lento**, não derruba, e o escalonador já reparte. Um teto padrão cobraria de todo app um preço por um sintoma que ninguém relatou |
 
 `"none"` desliga um teto de propósito — um app que precisa da máquina inteira tem de poder dizer
 isso, senão contorna o mecanismo por fora e aí ninguém sabe de nada.
+
+> ### ⚠ Esta linha do `MemoryHigh` estava ERRADA, e o servidor real desmentiu
+>
+> Ela dizia "70%" e ponto. Num servidor de 77 GB rodando um app que declara
+> `memoryMax: "512M"`, o resultado medido foi:
+>
+> ```
+> memoryMax:  536870912   (512 MiB — o que o app pediu)
+> memoryHigh: 58097594368 (54 GiB — 70% da máquina)
+> ```
+>
+> **O teto de pressão ficou cem vezes ACIMA do teto duro.** A pressão nunca chega, e o app morre de
+> OOM sem a fase de lentidão que esta mesma tabela prometia como *"o primeiro sintoma"*. A frase
+> descrevia o oposto do que acontecia — e só no caso comum, que é o app escolher o próprio teto.
+>
+> Quando o autor declara o teto duro e cala sobre o de pressão, o padrão do ambiente perde o
+> sentido: o que vale é a **relação** entre os dois. Agora o de pressão é derivado — 90% do que ele
+> pediu —, preservando a intenção sem inventar um número. **Quem declara os dois é obedecido**: um
+> ambiente que "corrige" o que o autor escreveu torna o manifesto uma sugestão.
+>
+> A resolução dos padrões saiu do bash para o mesmo bloco Python que lê o manifesto, porque derivar
+> exige aritmética com sufixos (`512M`) e porcentagens que o shell não faz sem outro processo.
 
 > **Isto contém UM app desgovernado, não a soma deles.** Dois apps no teto ainda somam mais que a
 > máquina. É a diferença entre uma guarda e uma cota, e prometer a segunda seria mentira.
@@ -384,6 +409,29 @@ verde e os 20 ataques foram refeitos sobre uma linha de base de verdade. **Toda 
 diante começa medindo o verde.** Um roteiro que só pergunta *"ficou vermelho?"* não distingue guarda
 que segura de teste que já estava caído.
 
+#### E o CI cobrou dois testes que mediam a PLATAFORMA
+
+O caso *"sem systemd-run"* passava no Windows e falhou no runner — porque o `ubuntu-24.04` **tem**
+`systemd-run`, e o `command -v` do script encontrava o real. O teste supunha o ambiente, e o
+ambiente onde ele era escrito confirmava a suposição.
+
+Não dá para simular a ausência: `systemd-run` mora em `/usr/bin` junto do `python3` de que o script
+precisa, e esconder um esconde o outro. A resposta foi a mesma que `pacotes-do-app` já registrava
+para o `dpkg-query` — **pular dizendo por quê**, em vez de passar por acidente.
+
+Mas o buraco virou cobertura melhor: o ramo ***"systemd-run RECUSOU as propriedades"*** não era
+medido por bancada nenhuma, e é o mais importante do item — é onde a decisão mora. Um `MemoryMax`
+que aquele systemd não aceita não pode transformar *"app com limite"* em *"app que não sobe"*. Agora
+há um impostor que recusa, e o caso roda **no CI** justamente por depender do socket que o Windows
+não tem.
+
+O teste de GPU tinha a mesma fragilidade em espelho — supunha que a máquina não tem `nvidia-smi`,
+verdade no Windows e no runner, falso na primeira máquina com placa, que é onde o item importa.
+
+> **A moral não é "escreva testes melhores".** É que **um teste verde na máquina de quem o escreveu
+> não mediu nada além daquela máquina** — e as três camadas (Windows, CI Linux, servidor real)
+> acharam defeitos *disjuntos*. Nenhuma delas era dispensável.
+
 ### GPU como conceito de runtime — ✅ CONCLUÍDO
 
 GPU existia só no provisionamento. Não havia API de runtime, nem pedido por app, nem visibilidade
@@ -417,9 +465,20 @@ que não existe fisicamente:
 |---|---|---|
 | quem é a placa | id de fabricante do PCI (`device/vendor`) | vem do barramento, não de um driver proprietário instalado |
 | qual driver assumiu | `device/uevent` (`DRIVER=`), com o symlink `device/driver` de reserva | arquivo de texto é legível em qualquer lugar — e **mensurável numa bancada que não pode criar symlink** |
-| é virtual? | nome do driver (`virtio_gpu`, `vmwgfx`, `bochs-drm`, `vgem`…) | uma virtual serve para desenhar tela e não para computar; sem essa marca, "tem GPU e está lento" não tem explicação |
+| é virtual? | **id do fabricante** (`0x1af4` virtio, `0x1234` QEMU, `0x15ad` VMware…), com o driver de segunda via | uma virtual serve para desenhar tela e não para computar; sem essa marca, "tem GPU e está lento" não tem explicação |
 | **consigo abrir?** | `os.access` no render node | **é o modo de falha mais comum**, e não é ausência de placa: é o usuário fora do grupo `render`. Dizer "sem GPU" ali manda procurar driver quando o conserto é `usermod -aG render` |
 | que pilhas existem | presença de `nvidia-smi`, `rocm-smi`, `vulkaninfo`, `clinfo`, `vainfo` | **presença, sem executar**: `vulkaninfo` num servidor sem driver custa segundos e às vezes trava |
+
+> **O fabricante decide, e não o driver — e essa linha também foi corrigida pelo servidor real.**
+> A primeira versão marcava virtual só pelo nome do driver. A virtio de teste reportou
+> `DRIVER=virtio-pci` — o driver do **barramento**, não o do DRM —, que não estava na lista, e a
+> placa virtual passou por física. O id do fabricante não erra: `0x1af4` é virtio venha o
+> dispositivo pendurado onde vier. O driver ficou como segunda via, para o DRM virtual sob
+> barramento comum (`vgem`, `vkms`, `simpledrm`).
+
+`vssh-gpu-info` entrou no `infra/binaries.json` — **um mecanismo que não viaja é um mecanismo que
+não existe**, e quem distribui os scripts de infra aos servidores é aquele manifesto. É a mesma
+lição da tag `v2` do toolkit, num repositório diferente.
 
 **O portão continua sendo só de CUDA**, e agora isso está dito em vez de implícito: é a única API com
 uma variável padrão que o runtime respeita. Quem não declara `gpu: true` não enumera dispositivo
@@ -452,8 +511,23 @@ Três decisões, e a última é a que importa:
 - **um lado que falha não vira número.** Calcular a razão com um lado ausente daria algo com cara de
   medição; `null` e o motivo são melhores que um número inventado.
 
-A resposta mais útil que ele dá é a desagradável: **uma GPU virtual costuma sair mais lenta que a
-CPU**, e descobrir isso agora custa um clique — depois de projetar em cima dela, custa a onda.
+A resposta mais útil que ele dá é a desagradável, e ela já veio: **a GPU do servidor de teste não
+codifica vídeo.** É uma virtio, `vaInitialize` devolve `2 (resource allocation failed)`, e **nenhum
+pacote resolve** — ela existe para desenhar tela, não para computar. Custou dois cliques; depois de
+projetar inferência em cima, custaria a onda.
+
+**A falha é CLASSIFICADA, porque as causas pedem ações opostas** — ffmpeg sem VAAPI, permissão, sem
+motor de vídeo, driver ausente —, e o que não se reconhece devolve `null`: diagnóstico errado custa
+mais que nenhum. E o diagnóstico recebe **o dispositivo**, não só o texto do erro: a mesma saída
+produz *"nenhum pacote resolve, troque de servidor"* numa placa virtual e *"instale o driver"* numa
+física. A primeira versão hesitava (*"se ela for física"*) tendo a resposta a uma função de
+distância — o mesmo defeito de duas informações que não se encontram.
+
+O template declara `gpu: true`, e essa decisão **mudou** depois do teste-drive: a primeira versão não
+declarava, para demonstrar o padrão (quem não pede não vê). Só que o padrão se demonstra com uma
+variável vazia — indistinguível de "não há placa" — enquanto o benchmark precisa da placa para
+rodar. Uma galeria existe para ser exercitada; preferir a demonstração conceitual à utilizável era
+preferir a explicação ao experimento.
 
 > **Uma frase desta seção foi corrigida no lugar duas vezes.** Primeiro a de que `--gpu` "delega a
 > config de Xorg", que envelheceu na 2.7. Depois a premissa inteira do item — "GPU é CUDA" —, que
@@ -513,8 +587,29 @@ ambiente de um processo é fixado no start, e sem esse aviso a frase seguinte se
 funcionou"*.
 
 O que sobra em Configurações é o que só um inventário responde, e por isso a seção se chama
-**Cofre**: o que já está guardado, em que app, e o que falta — mais trocar e apagar, que são
-manutenção. Ninguém abre um app só para substituir uma chave vencida.
+**Cofre**: o que já está guardado, em que app, e o que falta. **Ela não tem "Guardar"** — só quem já
+está guardado ganha botão, e os dois são manutenção (trocar uma chave vencida, apagar). Ninguém abre
+um app só para substituir uma credencial; mas um "Guardar" ali convidaria de novo a preencher uma
+variável cujo significado só o app conhece.
+
+#### Dois defeitos que a instalação achou, e um deles não era do cofre
+
+**O caminho podia terminar em `/root`.** O script usava `expanduser("~")`, e sob `sudo -u <user>` o
+`$HOME` que chega depende do sudoers (`always_set_home`, `env_keep`). Num servidor que não o
+reescreva, o cofre era gravado **com sucesso** em `/root/.vssh-apps/…` e ficava invisível para o app,
+que lê a home de verdade. A home agora vem de `pwd.getpwuid(os.getuid())`, que não depende de
+ambiente nenhum.
+
+**E o que pareceu defeito do cofre era do relato.** Guardar o segredo, reabrir a janela, e a peça
+dizer que não havia nada. Reabrir a janela **não reinicia o processo** — a janela é uma view, o
+backend continua o mesmo —, e o ambiente de um processo é fixado no `exec`. Olhando só
+`process.env`, *"nunca guardado"* e *"guardado depois deste processo subir"* davam a **mesma
+resposta** — e a segunda é a única em que a pessoa fez tudo certo, o que a torna a mais cara: ela
+conclui que o mecanismo não funciona.
+
+São três estados, então, e o do meio é o que responde *"por que não funcionou?"*. A galeria passou a
+ler também as **chaves** do `secrets.json` — só as chaves; o valor já chega pelo ambiente, e relê-lo
+ensinaria o hábito errado a quem copia o template.
 
 #### O que a refutação mudou no desenho
 
@@ -530,6 +625,33 @@ ser escapado** — e a guarda virou estrutural e mensurável, em vez de um escap
 hipotético.
 
 ---
+
+### O que só apareceu quando a onda foi INSTALADA
+
+Os três itens fecharam com suíte verde, refutação 20/20 e bancadas rodando os scripts de verdade.
+Aí a galeria foi instalada num servidor, e **cinco defeitos apareceram em três rodadas** — nenhum
+deles alcançável por bancada nenhuma daqui.
+
+| O que a bancada não podia ver | Por que |
+|---|---|
+| `MemoryHigh` 100× acima do `MemoryMax` | precisava de uma máquina com RAM de verdade para o `70%` virar 54 GB ao lado de um `512M` |
+| GPU virtual dada como física | a virtio reporta `DRIVER=virtio-pci` — o driver do **barramento**. Nenhuma árvore de mentira minha tinha imaginado isso |
+| cofre possivelmente indo para `/root` | `expanduser("~")` sob `sudo -u` depende do sudoers do servidor |
+| o erro do benchmark não dizia nada | `stdio: 'ignore'` descartava o stderr — e só um ffmpeg de verdade falhando mostrou que sobrava a linha de comando |
+| o diagnóstico hesitava com a resposta em mãos | *"instale o driver, se ela for física"* — numa placa que a descoberta já sabia ser virtual |
+
+**A regra da roadmap tinha duas etapas e agora tem três.** *Conferir contra o código* achou premissas
+erradas; *tentar refutar* achou guardas fracas; **instalar e usar** achou o que as duas anteriores não
+tinham como achar — porque os cinco defeitos são sobre o mundo, não sobre o código.
+
+E os cinco têm a mesma assinatura: **duas informações que existiam e não se encontravam.** O padrão
+do ambiente não conhecia o teto do app. A lista de drivers virtuais não conhecia o id do fabricante.
+O diagnóstico da falha não conhecia a descoberta. Não é falta de dado — é dado que não atravessa a
+fronteira entre duas funções.
+
+> **A resposta mais valiosa da onda inteira foi um "não".** O benchmark disse que a GPU daquele
+> servidor não codifica vídeo, que é virtual, e que **nenhum pacote resolve**. Custou dois cliques.
+> Descobrir isso depois de projetar inferência em cima teria custado a onda.
 
 ## Onda 5 — Composição do ecossistema
 
