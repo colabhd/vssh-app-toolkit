@@ -103,6 +103,21 @@ test('toda rota que a galeria chama existe no backend', () => {
   }
 });
 
+test('a janela extra abre a rota que o próprio app sabe atender', () => {
+  // A junção mais fácil de quebrar sem sinal: o botão pede uma rota, e é o MESMO arquivo que
+  // decide o que fazer com ela. Renomeie um dos dois e a janela extra abre… a galeria inteira de
+  // novo. Nada falha, nada avisa, e a demonstração passa a provar o contrário do que afirma —
+  // porque uma cópia é exatamente o que ela existe para NÃO ser.
+  const pedido = JS.match(/vssh\.window\.abrir\('\?([a-z]+)=/)?.[1];
+  assert.ok(pedido, 'ninguém mais pede a janela extra — o botão perdeu o que demonstrar');
+  assert.match(JS, new RegExp(`URLSearchParams\\(location\\.search\\)\\.has\\('${pedido}'\\)`),
+    `a galeria pede '?${pedido}=' e não trata esse parâmetro: a janela extra abriria uma cópia`);
+
+  // E o painel tem de ser OUTRA coisa: se ele montasse a galeria, o parâmetro seria decorativo.
+  assert.match(JS, /return montarPainel\(\)/);
+  assert.match(JS, /function montarPainel\(\)/);
+});
+
 test('a demonstração de duas janelas prova o que diz: um backend só', () => {
   // O contador vive no processo e a mudança é DIFUNDIDA para todos os streams abertos. Sem a
   // difusão, cada janela veria só o próprio clique — e a peça provaria o contrário do que afirma.

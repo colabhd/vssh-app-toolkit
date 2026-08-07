@@ -24,7 +24,7 @@
   // Fica como literal, e não lida do `package.json`, porque isto roda no NAVEGADOR — não há de
   // onde ler. Quem impede a divergência é `tests/lib-version.test.js`, que compara este número com
   // o do `package.json` e falha quando alguém bumpa um sem o outro.
-  const LIB_VERSION = '2.0.0';
+  const LIB_VERSION = '2.1.0';
 
   const inDesktop = window.parent !== window;
   const pending = new Map();
@@ -544,6 +544,37 @@
       restore()  { return post('window', { op: 'restore'  }); },
       focus()    { return post('window', { op: 'focus'    }); },
       close()    { return post('window', { op: 'close'    }); },
+
+      /**
+       * Outra janela DESTE app — e a graça está em `rota`, que decide o que vai dentro dela.
+       *
+       *   vssh.window.abrir('?painel=notas', { title: 'Notas', width: 380, height: 520 });
+       *
+       * Sem `rota`, a janela nova abre a mesma página: uma cópia, útil para ver dois pedaços do
+       * mesmo documento lado a lado. Com `rota`, ela é uma janela **extra** — um painel, uma
+       * prévia, um segundo documento —, e é aí que isto deixa de ser um `window.open` pobre.
+       *
+       * O que ela NÃO é: uma instância nova. Continua sendo o mesmo backend, o mesmo token e o
+       * mesmo `VSSH_APP_DATA_DIR` — N janelas, um processo. Estado de UI que você guardar no
+       * backend passa a ter mais de um cliente, e isso é sua conta.
+       *
+       * `rota` é um caminho DENTRO do app, relativo, como todo fetch que você escreve. URL
+       * absoluta, `javascript:` e `..` são recusados pelo shell — a janela leva o título e o
+       * ícone do seu app, e servir outra coisa ali seria o material de uma tela falsa.
+       *
+       * Devolve `false` num shell que ainda não sabe abrir janela extra (versão dessincronizada é
+       * a regra) e fora do desktop cai no `window.open` do navegador, que é o equivalente honesto.
+       */
+      abrir(rota = '', opts = {}) {
+        if (!inDesktop) return Promise.resolve(!!window.open(String(rota || ''), '_blank', 'noopener'));
+        return call('window', {
+          op: 'open',
+          rota: String(rota || ''),
+          title: opts.title,
+          width: opts.width,
+          height: opts.height,
+        }).then((v) => v !== false).catch(() => false);
+      },
     },
 
     // Menu de contexto do desktop, com os itens que VOCÊ descreve — em vez de o app desenhar um

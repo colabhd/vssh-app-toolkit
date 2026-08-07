@@ -32,6 +32,14 @@ if (document.readyState === 'loading') {
 }
 
 function montarGaleria() {
+  // ── O painel: a MESMA página servindo outra coisa ──────────────────────────
+  //
+  // A janela extra abre `?painel=1`, e é aqui que ela deixa de ser uma cópia. Um app real teria
+  // uma rota própria (ou o roteador da SPA dele); num template de um arquivo, um parâmetro basta
+  // para o ponto: o que muda entre as duas janelas é a VISÃO, não o processo — o contador abaixo
+  // é o mesmo do backend, e mexer nele daqui mexe na janela grande.
+  if (new URLSearchParams(location.search).has('painel')) return montarPainel();
+
   const $ = (id) => document.getElementById(id);
   const escrever = (id, texto) => { $(id).textContent = texto; };
   const falhar = (id, err) => { $(id).textContent = 'erro: ' + (err?.message || err); };
@@ -115,6 +123,23 @@ function montarGaleria() {
       const r = await fetch('api/estado');
       mostrarEstado(await r.json());
     } catch (e) { falhar('estado', e); }
+  });
+
+  // A janela EXTRA — o app pedindo, e escolhendo o que vai dentro. Fica aqui, e não no bloco da
+  // ponte lá embaixo, porque é desta peça que ela fala; o `vssh` ausente é tratado na hora do
+  // clique, com a explicação no lugar onde a pessoa está olhando.
+  $('extra').addEventListener('click', async () => {
+    if (typeof vssh === 'undefined') {
+      escrever('estado', 'sem o shim não há a quem pedir a janela — veja a peça "Ambiente".');
+      return;
+    }
+    const ok = await vssh.window.abrir('?painel=1', {
+      title: 'Painel — Hello World', width: 380, height: 330,
+    });
+    escrever('estado', ok
+      ? 'painel aberto: outra janela, do MESMO backend. Some 1 aqui e olhe lá — e vice-versa.'
+      : 'este shell ainda não sabe abrir janela extra (é anterior a esta capacidade). '
+        + 'O menu de contexto da janela → "Nova janela" abre uma CÓPIA, que é o que existe nele.');
   });
 
   // ── Daqui para baixo tudo depende da ponte ───────────────────────────────────
@@ -468,4 +493,56 @@ function montarGaleria() {
     if (temAudio) vssh.audio.onChange(relatarSom);
     relatarSom();
   }
+}
+
+/**
+ * A janela extra: pequena, com uma coisa só, e ligada ao mesmo processo.
+ *
+ * Ela não usa os helpers da galeria de propósito — não há `#ping` nem `#fsa` aqui, e procurar por
+ * eles devolveria null. Um app de verdade teria rota e componentes próprios; o que importa para a
+ * demonstração é que esta janela mostra OUTRA COISA e mesmo assim compartilha o backend.
+ */
+function montarPainel() {
+  document.title = 'Painel — Hello World';
+  document.body.innerHTML = `
+    <section style="border:1px solid rgba(127,127,127,.35);border-radius:10px;padding:1rem;
+                    display:flex;flex-direction:column;gap:.6rem">
+      <h2 style="margin:0;font-size:1.05rem">Painel</h2>
+      <p style="margin:0;opacity:.75;font-size:.92em">
+        Esta janela é <strong>outra</strong>, não uma cópia — e o contador abaixo é o mesmo
+        processo da janela grande. Some aqui e olhe lá.
+      </p>
+      <div style="font:600 2.4rem/1 system-ui;letter-spacing:-.02em" id="p-contador">—</div>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+        <button id="p-somar" style="font:inherit;padding:.4rem .8rem;border-radius:6px;
+                border:1px solid currentColor;background:transparent;color:inherit;cursor:pointer">somar 1</button>
+        <button id="p-fechar" style="font:inherit;padding:.4rem .8rem;border-radius:6px;
+                border:1px solid currentColor;background:transparent;color:inherit;cursor:pointer">fechar</button>
+      </div>
+      <pre id="p-estado" style="margin:0;padding:.6rem .8rem;border-radius:6px;font-size:.85em;
+           background:rgba(127,127,127,.12);white-space:pre-wrap">conectando…</pre>
+    </section>`;
+
+  const num = document.getElementById('p-contador');
+  const nota = document.getElementById('p-estado');
+  const pintar = (s) => {
+    num.textContent = s.contador;
+    nota.textContent = `janelas conectadas: ${s.conexoes}\nbackend subiu em: ${s.subiuEm}`;
+  };
+
+  // O mesmo stream da janela grande. É ele que faz o número mudar aqui quando o clique foi lá.
+  const src = new EventSource('api/events');
+  src.addEventListener('estado', (m) => pintar(JSON.parse(m.data)));
+  src.onerror = () => { nota.textContent = 'conexão SSE caiu'; };
+
+  document.getElementById('p-somar').addEventListener('click', async () => {
+    try { pintar(await (await fetch('api/estado/incrementar', { method: 'POST' })).json()); }
+    catch (e) { nota.textContent = 'erro: ' + e.message; }
+  });
+
+  // Fechar a janela é pedido ao shell — a janela é dele. Fora do desktop degrada para nada, e é
+  // por isso que o botão não some: `close()` num shell ausente não lança.
+  document.getElementById('p-fechar').addEventListener('click', () => {
+    if (typeof vssh !== 'undefined') vssh.window.close(); else window.close();
+  });
 }

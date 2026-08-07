@@ -91,9 +91,18 @@
         mesmo token e o mesmo <code>VSSH_APP_DATA_DIR</code>. É a consequência que vale para quem
         escreve o app: estado de UI guardado no backend passa a ter mais de um cliente.
       </p>
+      <p class="porque">
+        O app também pode <strong>pedir</strong> a janela, e aí ele escolhe o que vai dentro:
+        <code>vssh.window.abrir('?painel=1', …)</code> abre uma janela <strong>extra</strong> — um
+        painel, uma prévia, um segundo documento — e não uma cópia desta página. O botão abaixo
+        abre o painel compacto deste app, ligado ao mesmo contador. URL absoluta e
+        <code>javascript:</code> são recusados pelo shell: a janela leva o título e o ícone do seu
+        app, e servir outra coisa ali seria material de tela falsa.
+      </p>
       <div class="acoes">
         <button id="somar">somar 1 no backend</button>
         <button id="reler">reler api/estado</button>
+        <button id="extra">abrir uma janela extra (painel)</button>
       </div>
       <pre id="estado">— (assine o SSE acima para receber as mudanças da outra janela)</pre>
     </section>

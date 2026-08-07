@@ -138,6 +138,12 @@ interface VsshJanela {
   restore(): void;
   focus(): void;
   close(): void;
+  /**
+   * Outra janela deste mesmo app. `rota` é um caminho relativo DENTRO do app — é ela que faz a
+   * janela ser **extra** (um painel, uma prévia) em vez de uma cópia da mesma página. Continua
+   * sendo um backend só. `false` num shell que ainda não sabe abrir.
+   */
+  abrir(rota?: string, opts?: { title?: string; width?: number; height?: number }): Promise<boolean>;
 }
 
 interface VsshDialogo {

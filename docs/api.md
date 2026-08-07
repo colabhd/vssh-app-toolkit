@@ -815,7 +815,7 @@ Ser honesto aqui vale mais que a lista de cima, porque é o que decide se o seu 
 | Atalho global, `powerMonitor` | Sem equivalente; normalmente dá para remover |
 | `setSize`/`setPosition` da janela | Tamanho inicial pelo manifest; depois é do usuário |
 | Badge/progresso na taskbar | — |
-| Abrir uma janela nova **pelo app** (`window.open`, `new BrowserWindow`) | Quem abre é o usuário — "Nova janela" no menu de contexto da janela. Ver a nota abaixo |
+| Abrir uma janela com **conteúdo de fora** (URL arbitrária, `new BrowserWindow` de outra origem) | `vssh.window.abrir(rota)` abre outra janela **do seu app**, num caminho relativo. Ver a nota abaixo |
 | `child_process`, binário nativo, FTS server-side | **Backend do seu app** — é para isso que ele existe |
 | `ipcRenderer.invoke('<comando seu>')` | Idem: vira uma rota HTTP no seu backend |
 
@@ -823,15 +823,32 @@ A última linha é a fronteira real de um port de Electron/Tauri: o shim cobre a
 do framework, não o que aquele app inventou. Como medir isso antes de começar está em
 [porting.md](porting.md).
 
-> **Várias janelas do mesmo app existem** — o usuário pede em **Nova janela**, no menu de contexto
-> da janela. O que muda para quem escreve o app: **o backend continua sendo um só**. As duas
-> janelas são duas visões do mesmo processo, como duas abas do navegador no mesmo servidor —
-> mesma porta, mesmo token, mesmo `VSSH_APP_DATA_DIR`. Um app que guarda estado de UI no backend
-> como se houvesse um cliente só vai ver as duas janelas disputando esse estado; guarde por
-> conexão (ou no `localStorage` do próprio frontend, que é por origem e vale para as duas).
+> **Várias janelas do mesmo app existem, e há dois caminhos até elas.** O usuário pede uma cópia
+> em **Nova janela**, no menu de contexto da janela. O app pede a sua com
+> `vssh.window.abrir(rota, { title, width, height })`:
+>
+> ```js
+> await vssh.window.abrir('?painel=notas', { title: 'Notas', width: 380, height: 520 });
+> ```
+>
+> **É a `rota` que separa a janela EXTRA da cópia.** Sem ela, a janela nova abre a mesma página —
+> útil para ver dois pedaços do mesmo documento lado a lado. Com ela, o app escolhe o que vai
+> dentro: um painel, uma prévia, um segundo documento. `rota` é um caminho **dentro do seu app**,
+> relativo, como todo `fetch` que você escreve; URL absoluta, `javascript:` e `..` são recusados
+> pelo shell, porque a janela leva o título e o ícone do seu app e servir outra coisa ali seria o
+> material de uma tela falsa.
+>
+> O que muda para quem escreve o app: **o backend continua sendo um só**. As janelas são visões do
+> mesmo processo, como abas do navegador no mesmo servidor — mesma porta, mesmo token, mesmo
+> `VSSH_APP_DATA_DIR`. Um app que guarda estado de UI no backend como se houvesse um cliente só vai
+> ver as janelas disputando esse estado; guarde por conexão (ou no `localStorage` do próprio
+> frontend, que é por origem e vale para todas).
 >
 > Notificação com ação e o veredito do healthcheck vão para **uma** janela — a última que teve
 > foco. É deliberado: entregar às duas faria a ação acontecer duas vezes.
+>
+> `abrir()` devolve `false` num shell anterior a esta capacidade — versão dessincronizada é a
+> regra, não a exceção. Trate como "aqui não dá" e siga; não é erro.
 
 ---
 
