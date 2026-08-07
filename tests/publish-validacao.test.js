@@ -100,6 +100,49 @@ test('requiredPackages tem de ser lista', seNaoTem, () => {
   assert.match(validar({ ...BASE, requiredPackages: [42] }), /^ERROR=pacote_invalido:/m);
 });
 
+// ─── `resources`: o mesmo motivo, não a simetria ──────────────────────────────
+//
+// Cada valor daqui vira um `-p Propriedade=<valor>` numa linha de comando de `systemd-run` rodando
+// como o usuário no servidor. É a mesma classe de destino do `requiredPackages`, e por isso o mesmo
+// gate — não porque ficaria bonito ter os dois validados.
+
+test('resources aceita o que systemd entende', seNaoTem, () => {
+  for (const bom of [
+    { memoryMax: '2G' }, { memoryMax: '85%' }, { memoryHigh: '512M' }, { memoryMax: '1073741824' },
+    { cpuQuota: '150%' }, { tasksMax: '512' }, { tasksMax: '25%' },
+    { memoryMax: 'none', cpuQuota: 'none' },
+  ]) {
+    assert.match(validar({ ...BASE, resources: bom }), /^ID=x$/m, `recusou: ${JSON.stringify(bom)}`);
+  }
+});
+
+test('resources recusa o que viraria injeção na linha de comando', seNaoTem, () => {
+  for (const veneno of ['1G; rm -rf /', '$(id)', '`id`', '2G && curl evil', '85%; echo', '--property=X']) {
+    assert.match(validar({ ...BASE, resources: { memoryMax: veneno } }),
+      /^ERROR=resource_invalido:memoryMax=/m, `passou: ${veneno}`);
+  }
+});
+
+test('resources recusa campo desconhecido, e diz QUAL', seNaoTem, () => {
+  // Um `memoryLimit` escrito por engano seria silenciosamente ignorado, e o autor acharia que
+  // declarou um teto. Recusar nomeando é a diferença entre um erro de digitação e uma surpresa
+  // no servidor de outra pessoa.
+  assert.match(validar({ ...BASE, resources: { memoryLimit: '2G' } }),
+    /^ERROR=resource_desconhecido:'memoryLimit'$/m);
+});
+
+test('resources tem de ser objeto', seNaoTem, () => {
+  assert.match(validar({ ...BASE, resources: '2G' }), /^ERROR=resources_nao_e_objeto$/m);
+  assert.match(validar({ ...BASE, resources: { memoryMax: 2 } }), /^ERROR=resource_invalido:memoryMax=/m);
+});
+
+test('cpuQuota só aceita porcentagem — "2" não é dois núcleos', seNaoTem, () => {
+  // O erro que alguém vai cometer: `cpuQuota: "2"` pensando em dois núcleos. O systemd leria como
+  // 2%, e o app ficaria absurdamente lento por um motivo que ninguém relacionaria ao manifesto.
+  assert.match(validar({ ...BASE, resources: { cpuQuota: '2' } }), /^ERROR=resource_invalido:cpuQuota=/m);
+  assert.match(validar({ ...BASE, resources: { cpuQuota: '200%' } }), /^ID=x$/m);
+});
+
 test('as recusas que já existiam continuam recusando', seNaoTem, () => {
   // Uma rede nova não pode afrouxar as antigas — é o mesmo arquivo, e um `sys.exit(0)` no lugar
   // errado desligaria as de baixo sem sinal nenhum.

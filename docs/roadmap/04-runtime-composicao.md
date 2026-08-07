@@ -2,8 +2,8 @@
 
 > **Estado:** 🟡 em andamento — **healthcheck ✅** (verdadeiro **e** assíncrono) ·
 > **`kind:"service"` com janela ✅** (medido: era um teste) · **múltiplas janelas ✅** (a cópia e a
-> extra) · **`requiredPackages` ✅** (a metade que verifica) · **faltam:** limites de recurso, GPU,
-> cofre de segredos ·
+> extra) · **`requiredPackages` ✅** (a metade que verifica) · **limites de recurso ✅** (e o
+> pré-requisito que a roadmap dizia pago **não estava**) · **faltam:** GPU, cofre de segredos ·
 > **Atualizado:** 2026-08-07 · **Repos:** `vssh-sso` + toolkit + `vssh-repo`
 >
 > Revisado contra o código em 2026-08-05, junto com a [Onda 3](03-toolkit.md). O que mudou: a
@@ -27,10 +27,11 @@ O que falta para um app ser um cidadão de primeira classe do ambiente, e não u
 > ficaram sem bloqueio estrutural.** Em seguida o `requiredPackages`, que era o menor dos que
 > restavam e o único que ainda travava alguém hoje.
 >
-> **O que sobra tem outra natureza.** Limites de recurso, GPU e cofre de segredos são maiores, e
-> nenhum deles desbloqueia um arquétipo sozinho — mas **limites de recurso é o único item desta
-> onda cujo modo de falha derruba a sessão inteira do usuário**, e não só o app. É por isso que ele
-> vem antes dos outros dois.
+> **Limites de recurso veio em seguida por ser o único item desta onda cujo modo de falha derrubava
+> a sessão inteira do usuário**, e não só o app — e ele cobrou a conta de uma afirmação escrita aqui
+> mesmo: a de que o grupo de processos "já estava pago". Estava, para um dos dois caminhos de
+> subida. **Sobram GPU e cofre de segredos**, os dois maiores e os dois que não desbloqueiam
+> arquétipo nenhum sozinhos.
 
 ### Healthcheck assíncrono — ✅ CONCLUÍDO
 
@@ -288,24 +289,95 @@ compilado à mão, um pacote com outro nome. Verificação sem saída é verific
 > lacuna foi achada **pela refutação**, quando o ataque que trocava a comparação exata por "houve
 > alguma saída" continuou verde: o oráculo do teste só sabia dizer sim ou não.
 
-### Limites de recurso
+### Limites de recurso — ✅ CONCLUÍDO
 
-Não há cgroup nem `systemd-run` por app. **Um treino desgovernado derruba a sessão inteira do
+Não havia cgroup nem `systemd-run` por app. **Um treino desgovernado derrubava a sessão inteira do
 usuário** — inclusive o shell, o gerenciador de arquivos e os outros apps.
 
-Caminho: `systemd-run --scope --user` com `MemoryMax`/`CPUQuota`, ou cgroup v2 direto no
-`vssh-app-run`. Declarável no manifest, com default generoso.
+Agora todo vssh-app sobe dentro de um escopo transitório (`systemd-run --user --scope`), com teto de
+memória e de tarefas, declarável por app em `resources` no manifesto.
 
-> **Um pré-requisito silencioso já foi pago.** Conter recurso exige um **grupo de processos** —
-> senão o limite alcança o processo declarado e não os filhos que ele gera, que é justamente onde
-> um treino desgoverna. A [Onda 2.7](02b-motores.md) deu um a todo vssh-app ao consertar outra
-> coisa: `nohup setsid vssh-app-run` no spawn e `_killAppTree` na parada, feitos porque o Xpra
-> deixava órfãos os filhos de `--start=`. Com `setsid`, **PGID == PID == `run.pid`** — que é
-> exatamente o identificador que um `systemd-run --scope` ou um cgroup v2 precisa receber.
+#### O pré-requisito NÃO estava pago, e essa era a parte perigosa
+
+Este documento afirmava que a [Onda 2.7](02b-motores.md) tinha dado um grupo de processos a **todo**
+vssh-app. **Estava errado, e a frase era verdadeira sobre metade.** Há dois caminhos automáticos de
+subida, e só o do portal lançava com `setsid`:
+
+| Caminho | Lançava com `setsid`? | Consequência |
+|---|---|---|
+| portal (`startApp`) | sim | `PGID == PID == run.pid`, e `_killAppTree` mata a árvore |
+| **`vssh-app-supervisor`** (relançamento após queda) | **não** | o app herdava o grupo do supervisor |
+
+E a falha não aparecia. A guarda de PGID do `_killAppTree` existe por um bom motivo — apps que já
+estavam de pé quando o `setsid` subiu não têm a invariante — e ela faz exatamente o que deve: vendo
+`PGID != PID`, desiste do sinal de grupo e manda para o PID. Ou seja, **o app relançado parava só o
+processo declarado e deixava os filhos órfãos, em silêncio**. O caminho sem grupo era justamente o do
+app que morreu e voltou, isto é, o desgovernado.
+
+*Já existe* de novo: a formulação que esconde trabalho enquanto parece rigorosa. A afirmação tinha
+arquivo e linha, e estava certa sobre o arquivo que citava.
+
+#### Onde o limite é aplicado, e por que não em quem chama
+
+No **`vssh-app-run`**. São três caminhos de subida — portal, supervisor e invocação à mão — e ele é
+o único ponto por onde os três passam. Aplicar no chamador teria deixado de fora o do supervisor,
+repetindo o erro do `setsid` no mesmo item que o conserta.
+
+#### O padrão não é opcional
+
+Um mecanismo só-por-declaração não conteria nada: **ninguém declara "vou comer toda a RAM"**. Então
+há teto para quem não disser o contrário, e a escolha do que ganha padrão saiu do modo de falha:
+
+| Recurso | Padrão | Por quê |
+|---|---|---|
+| `MemoryHigh` | 70% | pressiona antes de matar — o primeiro sintoma de um teto apertado é lentidão, não um app morto sem explicação |
+| `MemoryMax` | 85% | é o que **derruba**; o teto duro é o que impede o OOM killer de escolher a sessão no lugar |
+| `TasksMax` | 25% | bomba de fork esgota PID, e aí a sessão inteira para de conseguir criar processo |
+| `CPUQuota` | **nenhum** | CPU disputada deixa **lento**, não derruba, e o escalonador já reparte. Um teto padrão cobraria de todo app um preço por um sintoma que ninguém relatou |
+
+`"none"` desliga um teto de propósito — um app que precisa da máquina inteira tem de poder dizer
+isso, senão contorna o mecanismo por fora e aí ninguém sabe de nada.
+
+> **Isto contém UM app desgovernado, não a soma deles.** Dois apps no teto ainda somam mais que a
+> máquina. É a diferença entre uma guarda e uma cota, e prometer a segunda seria mentira.
+
+#### Contenção que falha degrada — não derruba
+
+`systemd-run --user` precisa de um gerenciador systemd do usuário, e `loginctl enable-linger`
+**falha em silêncio** em LXC sem nesting (o `infra/server/README.md` já documenta isso como
+incidente conhecido). Então são três respostas, não duas:
+
+- **contido** — com os valores aplicados;
+- **não contido, com o motivo** — `systemd-run` ausente, sem barramento (*"loginctl
+  enable-linger?"*), ou propriedades que este systemd recusou. O app **sobe assim mesmo**;
+- **não sei** — `limits.json` ausente, que é o app que ainda não reiniciou desde a atualização.
+  Pintar isso de "sem limite" seria alarme falso em massa, e a primeira coisa que alguém faria
+  seria desligar o aviso. É o erro que o painel de pacotes já cometeu uma vez.
+
+As propriedades são **ensaiadas** contra o systemd local (`systemd-run … true`) antes de se apostar
+o start do app nelas. Sem o ensaio, um valor que este systemd não aceita transformaria *"app com
+limite"* em *"app que não sobe"* — e **um erro que termina custa sempre mais que um erro que
+aparece**. Configurações → Serviços mostra o estado, porque um app sem limite não é detalhe de
+infraestrutura: é a sessão do usuário exposta, e só se conserta se alguém puder ver.
 
 > A opção de usar unidades systemd para o **lifecycle** já foi avaliada e rejeitada em
-> `vssh-sso/docs/refactor-backlog.md`. Isto aqui é diferente: usar systemd só para **conter**
-> recursos, mantendo o lifecycle onde está.
+> `vssh-sso/docs/refactor-backlog.md`. Isto é diferente: systemd só para **conter** recursos,
+> mantendo o lifecycle onde está.
+
+#### O que a refutação achou, e o que ela achou sobre si mesma
+
+20 ataques, 20 repelidos — mas o achado maior foi no **instrumento**. A refutação do
+[`requiredPackages`](#requiredpackages--a-metade-que-verifica---concluído) tinha reportado "20 de
+20" sem verificar que a suíte estava **verde antes do ataque**. Não estava: no Windows, os
+impostores (`dpkg-query`, `id`) eram escritos com o `mode` do `writeFileSync`, que não liga o bit de
+execução que o Git Bash enxerga, e o diretório deles entrava no `PATH` em formato Windows numa lista
+que o bash lê em POSIX. Os nove testes falhavam antes de medir qualquer coisa — e **um arquivo já
+vermelho dá todo ataque por repelido**.
+
+Consertados os dois (o `chmod` passa pelo bash; o `PATH` é prependido dentro dele), a suíte ficou
+verde e os 20 ataques foram refeitos sobre uma linha de base de verdade. **Toda refutação daqui em
+diante começa medindo o verde.** Um roteiro que só pergunta *"ficou vermelho?"* não distingue guarda
+que segura de teste que já estava caído.
 
 ### GPU como conceito de runtime
 

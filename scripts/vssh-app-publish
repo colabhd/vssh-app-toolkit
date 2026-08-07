@@ -98,6 +98,26 @@ if pkgs is not None:
         if not isinstance(nome, str) or not re.match(r'^[a-z0-9][a-z0-9+.\-]*$', nome):
             print(f'ERROR=pacote_invalido:{nome!r}'); sys.exit(0)
 
+# `resources` pelo MESMO motivo que `requiredPackages`, e não por simetria: cada valor daqui vira
+# um `-p Propriedade=<valor>` numa linha de comando de `systemd-run` rodando como o usuário. O
+# schema já casa o padrão, mas o schema é o gate de forma — este é o gate de destino, e ele nomeia
+# o campo reprovado em vez de mandar conferir o bloco inteiro.
+_RES = {
+    'memoryHigh': r'^(none|[0-9]+(\.[0-9]+)?(K|M|G|T|%)?)$',
+    'memoryMax':  r'^(none|[0-9]+(\.[0-9]+)?(K|M|G|T|%)?)$',
+    'cpuQuota':   r'^(none|[0-9]+%)$',
+    'tasksMax':   r'^(none|[0-9]+%?)$',
+}
+res = m.get('resources')
+if res is not None:
+    if not isinstance(res, dict):
+        print('ERROR=resources_nao_e_objeto'); sys.exit(0)
+    for campo, valor in res.items():
+        if campo not in _RES:
+            print(f'ERROR=resource_desconhecido:{campo!r}'); sys.exit(0)
+        if not isinstance(valor, str) or not re.match(_RES[campo], valor):
+            print(f'ERROR=resource_invalido:{campo}={valor!r}'); sys.exit(0)
+
 # Validação completa contra schema/vssh-app.schema.json, que é a fonte da verdade do manifesto.
 # Este é o gate de ENTRADA no repositório, então vale ser rigoroso aqui — o vssh-app-install, que
 # roda offline no servidor, continua validando só o mínimo (id/runtime/entrypoint).

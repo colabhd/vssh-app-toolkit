@@ -53,6 +53,33 @@
         "description": "Nome de pacote. O padrão é restritivo de propósito: este valor chega a um gerenciador de pacotes no servidor, e um nome com metacaractere de shell seria injeção — o gate de publicação é o lugar certo para recusá-lo."
       }
     },
+    "resources": {
+      "type": "object",
+      "description": "Limites de recurso do processo do app. O ambiente já aplica um teto PADRÃO a todo vssh-app (memória e número de tarefas) — este bloco existe para o app que precisa de outro, para mais ou para menos. Aplicado por `systemd-run --user --scope` no vssh-app-run, sobre o GRUPO de processos do app, então alcança os filhos que ele gerar. O que ele contém é UM app desgovernado, e não a soma deles: dois apps no teto ainda somam mais que a máquina.",
+      "additionalProperties": false,
+      "properties": {
+        "memoryHigh": {
+          "type": "string",
+          "pattern": "^(none|[0-9]+(\\.[0-9]+)?(K|M|G|T|%)?)$",
+          "description": "Onde o kernel começa a PRESSIONAR o app a devolver memória (systemd MemoryHigh). Não mata: reclama. É o limite que se quer ajustar primeiro, porque errar para baixo deixa o app lento, não morto. Aceita '2G', '70%' (do total físico) ou 'none' para não ter."
+        },
+        "memoryMax": {
+          "type": "string",
+          "pattern": "^(none|[0-9]+(\\.[0-9]+)?(K|M|G|T|%)?)$",
+          "description": "Teto duro (systemd MemoryMax): passar daqui é OOM kill do app — e é justamente o que impede que o OOM killer escolha a sessão inteira do usuário no lugar. Aceita '4G', '85%' ou 'none'."
+        },
+        "cpuQuota": {
+          "type": "string",
+          "pattern": "^(none|[0-9]+%)$",
+          "description": "Teto de CPU (systemd CPUQuota), '100%' = um núcleo inteiro. Sem padrão do ambiente de propósito: CPU disputada deixa a sessão LENTA, e o escalonador já reparte; memória esgotada a derruba. Declare quando o app tiver de conviver, não para 'ser bem-comportado'."
+        },
+        "tasksMax": {
+          "type": "string",
+          "pattern": "^(none|[0-9]+%?)$",
+          "description": "Teto de processos E THREADS do app (systemd TasksMax). Conta thread, então um app com pool de workers precisa de folga — e é por isso que o padrão do ambiente é generoso. Aceita '512', '25%' (de kernel.pid_max) ou 'none'."
+        }
+      }
+    },
     "icon": { "type": "string", "description": "Caminho relativo à raiz do pacote (.svg/.png/.jpg)." },
     "category": { "type": "string", "description": "Informativo; a UI agrupa tudo em 'Apps Integrados'." },
     "description": { "type": "string" },

@@ -111,7 +111,8 @@ não se reescreve numa tarde.
 | 4 | [`kind:"service"` com janela](04-runtime-composicao.md#kindservice-com-janela---medido-era-um-teste-e-não-um-mecanismo) — medido rodando os scripts de verdade | vssh-sso | ✅ concluído · era um teste |
 | 4 | [Múltiplas janelas](04-runtime-composicao.md#múltiplas-janelas---n-janelas-um-backend) — a cópia (menu) e a **extra** (`vssh.window.abrir`), com N janelas sobre um backend | vssh-sso + toolkit | ✅ concluído |
 | 4 | [`requiredPackages`](04-runtime-composicao.md#requiredpackages--a-metade-que-verifica---concluído) — a metade que verifica: o instalador recusa, o painel mostra por servidor | vssh-sso + `vssh-repo` | ✅ concluído |
-| 4 | Runtime: limites de recurso, GPU, cofre de segredos | vssh-sso | ⬜ não iniciado |
+| 4 | [Limites de recurso](04-runtime-composicao.md#limites-de-recurso---concluído) — `systemd-run --user --scope` no `vssh-app-run`, `resources` no manifesto; e o grupo de processos que a roadmap dizia pago e não estava | vssh-sso + toolkit | ✅ concluído |
+| 4 | Runtime: GPU, cofre de segredos | vssh-sso | ⬜ não iniciado |
 | 5 | Composição: `provides`, pontos de extensão, mensageria, seção de Configurações por manifesto | vssh-sso + toolkit | ⬜ não iniciado |
 | 6 | Camada de arquivos de rede | vssh-sso | ⬜ não iniciado |
 | 7 | Continuidade entre máquinas | vssh-sso + toolkit | ⬜ não iniciado |

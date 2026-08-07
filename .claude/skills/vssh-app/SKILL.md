@@ -94,6 +94,25 @@ falta num app concreto.
                                        // app — inclusive os ainda NÃO instalados, que é quando a
                                        // pergunta "roda aqui?" vale mais. Num servidor sem
                                        // `dpkg-query` a resposta é "não conferido", não "falta".
+  "resources": {                      // opcional: limites de recurso do PROCESSO do app. Todo
+    "memoryHigh": "70%",               // vssh-app já sobe contido por um teto PADRÃO de memória e
+    "memoryMax":  "85%",               // de tarefas — este bloco é para quem precisa de outro, para
+    "cpuQuota":   "none",              // mais ou para menos. Aplicado por `systemd-run --user
+    "tasksMax":   "25%"                // --scope` no vssh-app-run, sobre o GRUPO de processos, então
+  },                                   // alcança os filhos que o app gerar (que é onde um treino
+                                       // desgoverna). `"none"` desliga aquele teto de propósito —
+                                       // um app que precisa de toda a máquina tem de poder dizer
+                                       // isso, em vez de contornar o mecanismo por fora.
+                                       // `cpuQuota` NÃO tem padrão: CPU disputada deixa lento, e o
+                                       // escalonador já reparte; memória esgotada derruba a sessão.
+                                       // "100%" é UM núcleo — `"2"` não é dois núcleos, é 2%, e o
+                                       // publish recusa para que o engano não chegue ao servidor.
+                                       // Isto contém UM app desgovernado, não a soma deles.
+                                       // Num servidor sem `systemd-run` ou sem gerenciador systemd
+                                       // do usuário (`loginctl enable-linger`), o app SOBE assim
+                                       // mesmo, sem limite — e Configurações → Serviços diz isso,
+                                       // com o motivo. Contenção que falha não pode virar app que
+                                       // não sobe.
   "backend": {
     "runtime": "python3",             // "python3" | "node" | "binary"
     "entrypoint": "backend/main.py",  // relativo à raiz do pacote
