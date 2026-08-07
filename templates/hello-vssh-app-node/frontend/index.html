@@ -81,9 +81,11 @@
           gente — se este processo consegue <strong>abrir</strong> o render node. Vale para NVIDIA,
           AMD, Intel, virtio, o que for; não depende de SDK nem de driver proprietário.
           <br>Ao lado dele vem <code>CUDA_VISIBLE_DEVICES</code>, que é outra coisa: o
-          <em>portão</em>. Este template não declara <code>gpu: true</code>, então o valor é
-          <code>""</code>. Sozinho, esse vazio é ambíguo — é o mesmo para "escondida de mim" e para
-          "não existe" —, e é exatamente por isso que ele aparece <em>junto</em> do inventário.</li>
+          <em>portão</em>. Este template <strong>declara</strong> <code>gpu: true</code> — porque
+          uma galeria existe para ser exercitada, e o benchmark abaixo precisa da placa. Num app que
+          <em>não</em> declara, o valor seria <code>""</code>; e sozinho esse vazio é ambíguo — é o
+          mesmo para "escondida de mim" e para "não existe". É por isso que ele aparece
+          <em>junto</em> do inventário, e nunca no lugar dele.</li>
         <li><strong>Cofre</strong> — o app declara o <em>nome</em> (<code>HELLO_SEGREDO</code>); o
           valor você guarda em <strong>Configurações → Segredos</strong>, e ele mora no
           <em>seu</em> servidor, não no portal. Depois de guardar,

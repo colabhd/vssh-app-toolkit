@@ -162,13 +162,39 @@ test('o backend NUNCA devolve o valor do segredo', () => {
   assert.match(r.sha256, /^[0-9a-f]{12}$/,
     'o prefixo de hash sumiu: sem ele não dá para responder "é o mesmo que eu guardei?"');
 
-  // E a ausência é a outra metade: sem segredo, a peça tem de DIZER o que fazer — inclusive que
-  // guardar não basta, porque o ambiente de um processo é fixado no start.
+  // E a ausência é a outra metade: sem segredo, a peça tem de DIZER o que fazer.
   const vazio = new Function('crypto', 'process', `${corpo}\nreturn segredo;`)(
     require('node:crypto'), { env: {} },
   )();
   assert.equal(vazio.definido, false);
-  assert.match(vazio.leitura, /REINICIE/);
+  assert.match(vazio.leitura, /reinicie/i);
+});
+
+test('guardado no cofre e ausente do ambiente é o TERCEIRO estado — não "nada guardado"', () => {
+  // O caso que pareceu defeito ao testar num servidor: guardar, reabrir a janela, e a peça dizer
+  // que não havia nada. Reabrir a janela não reinicia o processo — a janela é uma view, o backend
+  // continua o mesmo —, e o ambiente de um processo é fixado no start.
+  //
+  // Olhando só `process.env`, "nunca guardado" e "guardado depois deste processo subir" dão a
+  // MESMA resposta. E a segunda é a única em que a pessoa fez tudo certo, o que a torna a mais
+  // cara de diagnosticar: ela conclui que o cofre não funciona.
+  const os = require('node:os'); const fsr = require('node:fs'); const p = require('node:path');
+  const dir = fsr.mkdtempSync(p.join(os.tmpdir(), 'vssh-seg-'));
+  try {
+    fsr.mkdirSync(p.join(dir, 'data'));
+    fsr.writeFileSync(p.join(dir, 'secrets.json'), JSON.stringify({ HELLO_SEGREDO: 'sk-x' }));
+    const i = SERVER.indexOf('function segredo()');
+    const corpo = SERVER.slice(i, SERVER.indexOf('\n}\n', i) + 2);
+    const r = new Function('crypto', 'path', 'require', 'process', `${corpo}\nreturn segredo;`)(
+      require('node:crypto'), p, require, { env: { VSSH_APP_DATA_DIR: p.join(dir, 'data') } },
+    )();
+    assert.equal(r.definido, false);
+    assert.equal(r.noCofre, true, 'a peça não olha o cofre em disco: o estado do meio some');
+    assert.match(r.leitura, /J[ÁA] EST[ÁA] GUARDADO/,
+      'a peça diz "nada guardado" para um segredo que ESTÁ guardado — e a pessoa conclui que o cofre falhou');
+    // E só as chaves: o valor não pode aparecer em lugar nenhum da resposta.
+    assert.ok(!JSON.stringify(r).includes('sk-x'), 'a peça leu o VALOR do cofre em disco');
+  } finally { fsr.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('o limite mostrado vem do cgroup, não do manifesto', () => {
@@ -195,10 +221,19 @@ test('o manifesto do template declara os três, e o `secrets` sem valor', () => 
       assert.ok(!(proibido in s), `o template traz o VALOR do segredo no manifesto (${proibido})`);
     }
   }
-  // `gpu` fica de FORA de propósito: o que a peça demonstra é o PADRÃO — quem não pede não vê a
-  // placa. Um template que declarasse `gpu: true` ensinaria o contrário do que o ambiente decide.
-  assert.ok(!('gpu' in mf),
-    'o template passou a pedir GPU: a peça deixa de demonstrar o padrão, que é não enxergar');
+  // `gpu: true`, e a decisão MUDOU depois de rodar num servidor de verdade.
+  //
+  // A primeira versão não declarava, para demonstrar o padrão (quem não pede não vê). Só que o
+  // padrão se demonstra com uma variável vazia — que é indistinguível de "não há placa" — enquanto
+  // o benchmark, que é a peça que responde algo, precisa da placa para rodar. Uma galeria existe
+  // para ser EXERCITADA num servidor; escolher a demonstração conceitual sobre a utilizável era
+  // preferir a explicação ao experimento.
+  //
+  // O padrão continua guardado onde ele é mensurável: em gpu-e-cofre.test.js, contra um manifesto
+  // que não declara nada.
+  assert.strictEqual(mf.gpu, true,
+    'o template parou de pedir GPU: o benchmark não teria placa para medir, e a peça volta a ser ' +
+    'uma explicação em vez de um experimento');
 });
 
 // ─── O benchmark ──────────────────────────────────────────────────────────────

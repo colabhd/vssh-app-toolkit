@@ -144,8 +144,12 @@ function gpuDoServidor() {
     '0x10de': 'NVIDIA', '0x1002': 'AMD', '0x1022': 'AMD', '0x8086': 'Intel',
     '0x1af4': 'virtio', '0x1234': 'QEMU', '0x15ad': 'VMware', '0x5853': 'Xen', '0x1414': 'Microsoft',
   };
-  const VIRTUAIS = new Set(['virtio_gpu', 'bochs-drm', 'bochs', 'vmwgfx', 'qxl', 'vboxvideo',
-                            'simpledrm', 'vgem', 'vkms', 'hyperv_drm']);
+  // Por FABRICANTE primeiro. Um servidor real mostrou uma virtio-gpu reportando
+  // `DRIVER=virtio-pci` — o driver do BARRAMENTO, não o do DRM —, e a placa virtual passou por
+  // física. O id do fabricante não erra: 0x1af4 é virtio venha o dispositivo pendurado onde vier.
+  const VIRT_FAB = new Set(['0x1af4', '0x1234', '0x15ad', '0x5853', '0x1414']);
+  const VIRTUAIS = new Set(['virtio_gpu', 'virtio-pci', 'bochs-drm', 'bochs', 'vmwgfx', 'qxl',
+                            'vboxvideo', 'simpledrm', 'vgem', 'vkms', 'hyperv_drm']);
   const ler = (p) => { try { return fs.readFileSync(p, 'utf8').trim(); } catch { return null; } };
 
   let cartoes;
@@ -178,9 +182,11 @@ function gpuDoServidor() {
       try { fs.accessSync(node, fs.constants.R_OK | fs.constants.W_OK); acesso = 'ok'; }
       catch { acesso = fs.existsSync(node) ? 'negado' : 'ausente'; }
     }
+    const v = (vendor || '').toLowerCase();
+    const virtual = VIRT_FAB.has(v) ? true : VIRTUAIS.has(driver) ? true : (v || driver) ? false : null;
     return {
-      card: cartao, fabricante: FABRICANTES[(vendor || '').toLowerCase()] || 'desconhecido',
-      vendor, driver, virtual: driver ? VIRTUAIS.has(driver) : null, renderNode: node, acesso,
+      card: cartao, fabricante: FABRICANTES[v] || 'desconhecido',
+      vendor, driver, virtual, renderNode: node, acesso,
     };
   });
 
@@ -209,10 +215,38 @@ function gpuDoServidor() {
  */
 function segredo() {
   const v = process.env.HELLO_SEGREDO;
+
+  // O COFRE em disco, lido só pelas CHAVES. Sem isto a peça só sabia olhar `process.env`, e aí
+  // "não guardado" e "guardado depois deste processo subir" davam a MESMA resposta — que foi
+  // exatamente o que se viu ao testar: guardar, reabrir a janela, e o cartão dizer que não há nada.
+  //
+  // Reabrir a janela não reinicia o processo: a janela é uma view, o backend continua o mesmo. E o
+  // ambiente de um processo é fixado no start — então o valor novo só chega no próximo start. Com
+  // as duas fontes a peça distingue os três casos, e o do meio é o que responde "por que não
+  // funcionou?".
+  //
+  // Só as CHAVES. O app já recebe os valores pelo ambiente; reler valores do arquivo não
+  // acrescentaria nada e ensinaria o hábito errado a quem copia este template.
+  let noCofre = null;
+  try {
+    const fs = require('node:fs');
+    const dados = process.env.VSSH_APP_DATA_DIR;
+    if (dados) {
+      const j = JSON.parse(fs.readFileSync(path.join(dados, '..', 'secrets.json'), 'utf8'));
+      noCofre = Object.keys(j || {});
+    }
+  } catch { noCofre = null; }   // ausente ou ilegível é "não sei", não "vazio"
+
   if (!v) {
-    return { definido: false,
-             leitura: 'nada guardado — vá em Configurações → Segredos, guarde HELLO_SEGREDO e ' +
-                      'REINICIE o app (o ambiente de um processo é fixado no start)' };
+    const guardadoAgora = Array.isArray(noCofre) && noCofre.includes('HELLO_SEGREDO');
+    return {
+      definido: false, noCofre: guardadoAgora,
+      leitura: guardadoAgora
+        ? 'JÁ ESTÁ GUARDADO no cofre — este processo é que subiu antes dele. Reabrir a janela não ' +
+          'basta: a janela é uma view, o backend continua o mesmo. Pare e inicie o app (menu de ' +
+          'contexto da janela, ou Configurações → Serviços) para ele receber o valor.'
+        : 'nada guardado — use o botão "guardar HELLO_SEGREDO" aqui em cima, e depois reinicie o app',
+    };
   }
   return {
     definido: true, tamanho: v.length,

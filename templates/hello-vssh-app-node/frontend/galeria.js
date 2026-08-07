@@ -108,6 +108,9 @@ function montarGaleria() {
         `cofre   ${d.segredo?.definido
           ? `HELLO_SEGREDO chegou (${d.segredo.tamanho} caracteres, sha256 ${d.segredo.sha256}…)`
           : d.segredo?.leitura}`,
+        // O caso do meio merece destaque, porque é o que parece defeito e não é: guardado no cofre
+        // e ausente do ambiente significa só que o processo é mais velho que o segredo.
+        d.segredo?.noCofre ? '        ↑ o cofre TEM o valor; falta este processo reiniciar' : null,
         '',
         JSON.stringify(d, null, 2),
       ].filter((l) => l !== null);
