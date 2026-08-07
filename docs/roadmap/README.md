@@ -107,7 +107,11 @@ não se reescreve numa tarde.
 | 3 | Primeiros testes de `electron-shim` e `tauri-shim` — 3 defeitos achados | toolkit | ✅ concluído |
 | 3 | [`requiredPackages`](03-toolkit.md#requiredpackages--o-app-declara-de-que-pacote-linux-ele-precisa) — a metade declarativa (schema + publish) | toolkit | ✅ concluído |
 | 3 | [A cópia vendorizada se declara](03-toolkit.md#a-cópia-vendorizada-não-sabe-a-idade-que-tem) — `libVersion` e o publish conferindo | toolkit | ✅ concluído |
-| 4 | Runtime: cgroups, GPU, múltiplas instâncias, segredos | vssh-sso | ⬜ não iniciado |
+| 4 | [Healthcheck](04-runtime-composicao.md#healthcheck-assíncrono---concluído) — verdadeiro (leva o token) **e** assíncrono; a janela abre coberta e espera | vssh-sso | ✅ concluído |
+| 4 | [`kind:"service"` com janela](04-runtime-composicao.md#kindservice-com-janela---medido-era-um-teste-e-não-um-mecanismo) — medido rodando os scripts de verdade | vssh-sso | ✅ concluído · era um teste |
+| 4 | [Múltiplas janelas](04-runtime-composicao.md#múltiplas-janelas---n-janelas-um-backend) — a cópia (menu) e a **extra** (`vssh.window.abrir`), com N janelas sobre um backend | vssh-sso + toolkit | ✅ concluído |
+| 4 | [`requiredPackages`](04-runtime-composicao.md#requiredpackages--a-metade-que-verifica---concluído) — a metade que verifica: o instalador recusa, o painel mostra por servidor | vssh-sso + `vssh-repo` | ✅ concluído |
+| 4 | Runtime: limites de recurso, GPU, cofre de segredos | vssh-sso | ⬜ não iniciado |
 | 5 | Composição: `provides`, pontos de extensão, mensageria, seção de Configurações por manifesto | vssh-sso + toolkit | ⬜ não iniciado |
 | 6 | Camada de arquivos de rede | vssh-sso | ⬜ não iniciado |
 | 7 | Continuidade entre máquinas | vssh-sso + toolkit | ⬜ não iniciado |

@@ -87,8 +87,13 @@ falta num app concreto.
                                        // qualquer coisa fora de `^[a-z0-9][a-z0-9+.-]*$`, porque
                                        // este valor chega a um gerenciador de pacotes no servidor
                                        // e um metacaractere de shell ali seria injeção.
-                                       // Quem VERIFICA é o portal (Onda 4): o vssh-app-install
-                                       // recusa antes de instalar, com o nome do pacote que falta.
+                                       // Quem VERIFICA é o servidor: o `vssh-app-install` RECUSA
+                                       // antes de copiar nada, nomeando o que falta e a linha de
+                                       // `apt-get` que resolve (escape: --sem-checar-pacotes). E o
+                                       // painel admin mostra, por servidor, o que falta para cada
+                                       // app — inclusive os ainda NÃO instalados, que é quando a
+                                       // pergunta "roda aqui?" vale mais. Num servidor sem
+                                       // `dpkg-query` a resposta é "não conferido", não "falta".
   "backend": {
     "runtime": "python3",             // "python3" | "node" | "binary"
     "entrypoint": "backend/main.py",  // relativo à raiz do pacote

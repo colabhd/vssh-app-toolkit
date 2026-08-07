@@ -246,23 +246,39 @@ antigo ou em reinício. Este texto dizia que o conserto era o healthcheck assín
 síncrono "continua lá" — **não continua**: ele saiu, a janela abre coberta e sai da cobertura no
 veredito, seja ele qual for. O que era mitigação do sintoma virou o caminho normal.
 
-### `requiredPackages` — a metade que verifica
+### `requiredPackages` — a metade que verifica · ✅ **CONCLUÍDO**
 
 O campo no manifesto e a validação no publish são da
-[Onda 3](03-toolkit.md#requiredpackages--o-app-declara-de-que-pacote-linux-ele-precisa). **A
-verificação é daqui**, porque quem sabe o que existe num servidor é o portal:
+[Onda 3](03-toolkit.md#requiredpackages--o-app-declara-de-que-pacote-linux-ele-precisa). A
+verificação é daqui, porque quem sabe o que existe num servidor é quem está nele:
 
-1. **`vssh-app-install` recusa antes de instalar**, com o nome do pacote que falta — em vez de
-   instalar um app que nunca vai subir. O instalador já falha alto por outros motivos e o motivo
-   já chega à aba admin desde a [Onda 2c](02c-interludio.md#r6--a-resposta-estava-no-código-e-o-erro-morria-na-última-linha),
-   então isto entra num caminho que já funciona;
-2. **o painel admin mostra o que falta por servidor** — é a mesma pergunta que o provisionamento já
-   responde para os grupos de pacotes (`provision-base.sh --print-packages`, com fixture em
-   `tests/unit/provision-packages.test.js`), agora por app.
+1. **`vssh-app-install` recusa antes de copiar nada**, nomeando o que falta e a linha de `apt-get`
+   que resolve. A recusa vem **antes do `installCommand`**, que roda como root e pode fazer
+   qualquer coisa, e antes da cópia, que deixa o app visível no menu — recusar não é desfazer;
+2. **o painel admin mostra o que falta por servidor**, inclusive para os apps **ainda não
+   instalados** — que é quando *"este app roda aqui?"* vale mais. Para isso o índice do
+   `vssh-repo` passou a declarar `requiredPackages`: campo acrescentado, nunca renomeado, e um
+   Worker anterior a ele simplesmente não responde.
 
-> **Herda a pergunta do [registro de capabilities](#registro-de-capabilities), e a resposta é uma
-> só para os dois:** o que fazer quando falta — recusar, avisar, ou instalar. Decidir isso duas
-> vezes é como se acaba com dois comportamentos para a mesma frustração.
+**A pergunta herdada do [registro de capabilities](#registro-de-capabilities) — recusar, avisar ou
+instalar — foi respondida, e a resposta vale para os dois:** *recusar* onde a ação é irreversível
+(o instalador), *avisar* onde ela é informativa (o painel), e **nunca instalar sozinho**. Instalar
+seria disparar `apt-get` como root a partir de um campo de manifesto; isso é outra decisão, com
+outra superfície, e não se toma de passagem. O escape existe e é explícito:
+`--sem-checar-pacotes`, para quando quem opera sabe algo que o `dpkg` não sabe — um binário
+compilado à mão, um pacote com outro nome. Verificação sem saída é verificação que alguém arranca.
+
+> **Três respostas, não duas — e é a terceira que este item quase perdeu.** "Não está instalado" e
+> "não consegui conferir" pedem ações opostas. Num servidor que não é Debian não há `dpkg-query`:
+> se a ausência do oráculo virasse ausência dos pacotes, o instalador recusaria tudo e o painel
+> pintaria de vermelho **todos** os apps de um servidor saudável. Ali o instalador avisa e segue, e
+> o painel diz *"não conferido"* — que não é a mesma cor de *"ok"*.
+>
+> **E o `dpkg` tem mais de dois estados.** Um pacote removido sem purgar continua no banco, com
+> `deinstall ok config-files` e saída zero: quem pergunta *"o dpkg conhece?"* em vez de *"está
+> instalado?"* conta um binário que não existe mais. Só `install ok installed` passa — e essa
+> lacuna foi achada **pela refutação**, quando o ataque que trocava a comparação exata por "houve
+> alguma saída" continuou verde: o oráculo do teste só sabia dizer sim ou não.
 
 ### Limites de recurso
 
@@ -311,7 +327,7 @@ Vem primeiro porque **três ondas escrevem no mesmo arquivo** e nenhuma era dona
 | Onda | Campos |
 |---|---|
 | [3](03-toolkit.md) | `requiredPackages` |
-| [4](#requiredpackages--a-metade-que-verifica) | limites de recurso, `gpu: true` |
+| [4](#requiredpackages--a-metade-que-verifica---concluído) | limites de recurso, `gpu: true` |
 | 5 (aqui) | `provides: [...]`, `minShellVersion` / `targetShellVersion`, a seção de Configurações |
 
 Todos precisam das mesmas três coisas: entrada no `schema/vssh-app.schema.json`, validação no

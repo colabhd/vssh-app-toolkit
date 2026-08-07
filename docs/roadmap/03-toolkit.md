@@ -534,7 +534,7 @@ impossível responder *"este app roda neste servidor?"* sem executá-lo.
 > `vssh-app-publish` o valida. **Quem verifica é o portal**, e por isso a outra metade — o
 > `vssh-app-install` recusando antes de instalar, e o painel admin mostrando o que falta por
 > servidor — está na
-> [Onda 4](04-runtime-composicao.md#requiredpackages--a-metade-que-verifica). O corte não é
+> [Onda 4](04-runtime-composicao.md#requiredpackages--a-metade-que-verifica---concluído). O corte não é
 > burocrático: o portal já responde essa pergunta para os grupos de pacotes do provisionamento
 > (`provision-base.sh --print-packages`, com fixture em `tests/unit/provision-packages.test.js`), e
 > a verificação por app nasce ao lado daquilo, não aqui.
