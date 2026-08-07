@@ -48,6 +48,27 @@ jobs:
         with:
           # O glob de `node --test` exige runner >= 22; as libs em si rodam em bem menos.
           node-version: '24'
+      # Parte de lib/web/ roda num Chrome de verdade, e o cabeçalho deste arquivo afirmava que "o
+      # runner ubuntu-latest traz Chrome" — afirmação que nunca foi medida aqui. Ela virou dívida
+      # no dia em que o navegador não subiu: os testes falharam com um timeout que não dizia QUAL
+      # binário tinha sido escolhido nem o que ele havia escrito no stderr.
+      #
+      # Este passo é a medição, e ele não falha o job de propósito: o que interessa é o registro,
+      # ao lado do erro, na mesma página. `readlink -f` porque um `/snap/bin/*` é um invólucro com
+      # confinamento próprio — ele não enxerga um `--user-data-dir` em /tmp, e o sintoma disso é
+      # exatamente um processo que sobe e nunca anuncia o DevTools.
+      - name: Que navegador este runner tem
+        shell: bash
+        run: |
+          for c in /usr/bin/google-chrome /usr/bin/google-chrome-stable /usr/bin/chromium \
+                   /usr/bin/chromium-browser /snap/bin/chromium /usr/bin/microsoft-edge; do
+            if [ -e "$c" ]; then
+              echo "$c -> $(readlink -f "$c" 2>/dev/null) :: $("$c" --version 2>&1 | head -1)"
+            else
+              echo "$c: ausente"
+            fi
+          done
+
       - name: Testes das libs
         shell: bash
         run: npm test

@@ -249,15 +249,33 @@ class Navegador {
     // Esperar a saída antes de apagar o perfil: no Windows o diretório fica travado enquanto o
     // processo vive, e o rm falharia com EBUSY.
     await new Promise((ok) => { this._proc.once('exit', ok); setTimeout(ok, 3000).unref?.(); });
-    try { fs.rmSync(this._dirTemp, { recursive: true, force: true }); } catch { /* melhor esforço */ }
+    await apagarPerfil(this._dirTemp);
+  }
+}
+
+/**
+ * Apaga o perfil temporário, com três tentativas.
+ *
+ * O `exit` do processo pai não garante que os filhos dele já soltaram os arquivos, e no Windows um
+ * handle ainda aberto faz o `rm` falhar. Uma tentativa só deixava um perfil de dezenas de MB no
+ * TEMP a cada execução — foram nove antes de alguém reparar.
+ */
+async function apagarPerfil(dir) {
+  for (let i = 0; i < 3; i++) {
+    try { fs.rmSync(dir, { recursive: true, force: true }); return; } catch { /* ainda travado */ }
+    await new Promise((ok) => { setTimeout(ok, 200).unref?.(); });
   }
 }
 
 /**
  * Sobe um navegador headless. Lança se não houver nenhum instalado — quem quer pular em vez de
  * falhar deve checar `caminhoDoNavegador()` antes.
+ *
+ * O prazo é generoso e configurável por `VSSH_TEST_CHROME_TIMEOUT` porque a máquina onde isto mais
+ * aperta é a que menos se controla: num runner compartilhado, com os arquivos de teste rodando em
+ * paralelo, um Chrome frio pode levar mais que os 20 s que este número já foi.
  */
-async function abrirNavegador({ timeoutMs = 20000 } = {}) {
+async function abrirNavegador({ timeoutMs = Number(process.env.VSSH_TEST_CHROME_TIMEOUT) || 45000 } = {}) {
   const exe = caminhoDoNavegador();
   if (!exe) throw new Error(motivoDoSkip());
 
@@ -266,11 +284,28 @@ async function abrirNavegador({ timeoutMs = 20000 } = {}) {
     stdio: ['ignore', 'ignore', 'pipe'],
   });
 
+  // Falhar aqui NÃO pode deixar o processo vivo. Isto já custou uma investigação: no CI o Chrome
+  // não anunciou o DevTools, a promessa abaixo rejeitou, e o processo continuou de pé segurando o
+  // event loop — o job não falhou, FICOU RODANDO até o teto do Actions. Um erro que não termina é
+  // pior que um erro: ele não diz nem que houve erro.
+  const encerrar = async () => {
+    const vivo = proc.exitCode === null && proc.signalCode === null;
+    try { proc.kill('SIGKILL'); } catch { /* já morreu */ }
+    // Esperar a saída antes de apagar o perfil, pelo mesmo motivo de `fechar()`: no Windows o
+    // diretório fica travado enquanto o processo vive, e o rm falha com EBUSY deixando lixo no
+    // TEMP a cada falha. Se ele já saiu, não há o que esperar.
+    if (vivo) await new Promise((ok) => { proc.once('exit', ok); setTimeout(ok, 3000).unref?.(); });
+    await apagarPerfil(dirTemp);
+  };
+
   // A porta efêmera só é conhecida por uma linha no stderr: `DevTools listening on ws://...`.
   const wsUrl = await new Promise((resolver, rejeitar) => {
     let buffer = '';
+    // Quem lê a falha precisa saber QUAL binário não subiu: a lista de candidatos tem quatro
+    // caminhos, e "o Chrome não subiu" sem o caminho manda a pessoa investigar o Chrome errado.
+    const comContexto = (msg) => new Error(`${msg}\nbinário: ${exe}\nstderr:\n${buffer.slice(-1500) || '(vazio)'}`);
     const prazo = setTimeout(() => {
-      rejeitar(new Error(`o navegador não anunciou o DevTools em ${timeoutMs}ms:\n${buffer.slice(0, 500)}`));
+      rejeitar(comContexto(`o navegador não anunciou o DevTools em ${timeoutMs}ms`));
     }, timeoutMs);
 
     proc.stderr.setEncoding('utf8');
@@ -281,12 +316,12 @@ async function abrirNavegador({ timeoutMs = 20000 } = {}) {
       clearTimeout(prazo);
       resolver(m[1]);
     });
-    proc.once('error', (e) => { clearTimeout(prazo); rejeitar(e); });
-    proc.once('exit', (code) => {
+    proc.once('error', (e) => { clearTimeout(prazo); rejeitar(comContexto(`falha ao lançar: ${e.message}`)); });
+    proc.once('exit', (code, sinal) => {
       clearTimeout(prazo);
-      rejeitar(new Error(`o navegador saiu com código ${code} antes de subir:\n${buffer.slice(0, 500)}`));
+      rejeitar(comContexto(`o navegador saiu (código ${code}, sinal ${sinal}) antes de subir`));
     });
-  });
+  }).catch(async (err) => { await encerrar(); throw err; });
 
   return new Navegador(proc, dirTemp, wsUrl);
 }
