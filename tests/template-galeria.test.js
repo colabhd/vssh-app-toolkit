@@ -250,10 +250,16 @@ function comBenchmark(execFake, gpuFake) {
   const i = SERVER.indexOf('function benchmarkGpu');
   assert.ok(i > 0, 'não achei benchmarkGpu — o teste ficou obsoleto');
   const corpo = SERVER.slice(i, SERVER.indexOf('\n}\n', i) + 2);
-  const fn = new Function('require', 'process', 'gpuDoServidor', `${corpo}\nreturn benchmarkGpu;`)(
+  // `_porQueVaapiFalhou` e `_oQueAPlacaSabe` são injetados: eles moram fora do recorte, e sem eles
+  // o corpo estoura com ReferenceError — que o teste leria como "o benchmark quebrou" em vez de
+  // "o recorte não trouxe os vizinhos".
+  const fn = new Function('require', 'process', 'gpuDoServidor', '_porQueVaapiFalhou',
+    '_oQueAPlacaSabe', `${corpo}\nreturn benchmarkGpu;`)(
     (m) => (m === 'node:child_process' ? { execFileSync: execFake } : require(m)),
     { hrtime: process.hrtime, env: {} },
     () => gpuFake,
+    (s) => (s ? 'diagnóstico de mentira' : null),
+    () => ({ tem: false, motivo: 'vainfo de mentira' }),
   );
   return fn();
 }
@@ -287,6 +293,44 @@ test('GPU mais LENTA é dita como tal — é o caso da placa virtual', () => {
   }, COM_PLACA);
   assert.ok(r.ganho < 0.8, `esperava a GPU mais lenta, veio ${r.ganho}`);
   assert.match(r.leitura, /MAIS LENTA/);
+});
+
+test('o stderr do ffmpeg é CAPTURADO — sem ele o erro não dá o que procurar', () => {
+  // Num servidor de verdade a mensagem foi: "Command failed: ffmpeg -hide_banner …". A linha de
+  // comando truncada, e nenhuma palavra sobre o que houve. A causa era `stdio: 'ignore'`, que
+  // descarta o stderr: `err.stderr` vinha nulo e sobrava o `err.message` do Node.
+  const i = SERVER.indexOf('function benchmarkGpu');
+  const corpo = SERVER.slice(i, SERVER.indexOf('\n}\n', i));
+  // Recortado no `medir`, e não no `benchmarkGpu` inteiro: a sonda `ffmpeg -version` ao lado
+  // IGNORA a saída de propósito — ali não há o que ler. Uma guarda que proibisse `stdio: 'ignore'`
+  // no bloco todo estaria medindo a vizinhança em vez da decisão.
+  const j = corpo.indexOf('const medir =');
+  const medir = corpo.slice(j, corpo.indexOf('\n  };', j));
+  assert.ok(j > 0, 'não achei o `medir` — o teste ficou obsoleto');
+  assert.match(medir, /stdio: \['ignore', 'ignore', 'pipe'\]/,
+    'o stderr do ffmpeg voltou a ser descartado: o erro vira a linha de comando, que não diz nada');
+  assert.ok(!/stdio: 'ignore'/.test(medir));
+  // E sem `-hwaccel vaapi`: aquilo acelera DECODE, e a fonte é gerada pelo próprio ffmpeg. Pedi-lo
+  // faz o erro falar do decode em vez do encode que se queria medir.
+  assert.ok(!/'-hwaccel'/.test(corpo),
+    'o -hwaccel voltou: ele é para decode, e o erro passa a descrever o caminho errado');
+});
+
+test('a falha da GPU é CLASSIFICADA — as causas pedem ações opostas', () => {
+  const i = SERVER.indexOf('function _porQueVaapiFalhou');
+  const corpo = SERVER.slice(i, SERVER.indexOf('\n}\n', i) + 2);
+  const fn = new Function(`${corpo}\nreturn _porQueVaapiFalhou;`)();
+
+  // A mais comum, e a que não se conserta: a placa abre e não tem motor de vídeo. É o caso de
+  // praticamente toda GPU virtual — e sem esta frase a pessoa caça driver por horas para descobrir
+  // que a resposta era "esta placa não faz isso, e isso é normal".
+  assert.match(fn('No usable encoding entrypoint found for profile'), /GPU virtual/);
+  assert.match(fn('Unknown encoder \'h264_vaapi\''), /compilado SEM VAAPI/);
+  assert.match(fn('Failed to open /dev/dri/renderD128: Permission denied'), /grupo `render`/);
+  assert.match(fn('Failed to initialise VAAPI connection: -1'), /driver/);
+  assert.strictEqual(fn(''), null, 'inventou diagnóstico a partir de stderr vazio');
+  assert.strictEqual(fn('algo que ninguém previu'), null,
+    'classificou o que não conhece: um diagnóstico errado custa mais que nenhum');
 });
 
 test('um lado que FALHA não vira um número inventado', () => {

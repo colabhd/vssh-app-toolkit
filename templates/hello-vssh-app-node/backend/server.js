@@ -271,6 +271,53 @@ function segredo() {
  *
  * Timeboxed e não-fatal: um encoder que trava não pode segurar a requisição nem derrubar o app.
  */
+/**
+ * Traduz o stderr do ffmpeg no motivo, em português, de a GPU não ter codificado.
+ *
+ * Existe porque as causas pedem ações OPOSTAS e chegam parecidas: uma se conserta instalando um
+ * driver, outra dando permissão, e a mais comum não se conserta de jeito nenhum — a placa
+ * simplesmente não tem encoder de vídeo, que é o caso de praticamente toda GPU virtual. Sem
+ * separá-las, "a GPU não codificou" manda a pessoa caçar driver por horas para descobrir que a
+ * resposta era "esta placa não faz isso, e isso é normal".
+ */
+function _porQueVaapiFalhou(stderr) {
+  const s = (stderr || '').toLowerCase();
+  if (!s) return null;
+  if (s.includes('unknown encoder')) {
+    return 'este ffmpeg foi compilado SEM VAAPI — é do pacote, não do servidor nem da placa';
+  }
+  if (s.includes('permission denied')) {
+    return 'sem permissão no render node — falta o grupo `render` (usermod -aG render <usuario>)';
+  }
+  if (s.includes('entrypoint') || s.includes('not supported') || s.includes('unsupported')) {
+    return 'a placa abre, mas NÃO tem motor de codificação de vídeo. É o normal numa GPU virtual: ' +
+           'ela serve para desenhar tela, não para computar — e é exatamente o que esta peça ' +
+           'existe para descobrir antes de alguém projetar em cima dela';
+  }
+  if (s.includes('vainitialize') || s.includes('no va display') || s.includes('failed to initialise') ||
+      s.includes('failed to create') || s.includes('not implemented')) {
+    return 'o VAAPI não inicializou nesta placa — driver ausente, ou uma GPU que não implementa ' +
+           'a interface (típico de virtio/bochs). Instalar o pacote do driver do fabricante ' +
+           '(mesa-va-drivers, intel-media-va-driver, nvidia) é o caminho, se ela for física';
+  }
+  return null;
+}
+
+/** O que a placa DIZ que sabe fazer, quando `vainfo` existe. É a resposta, não um consolo. */
+function _oQueAPlacaSabe(node) {
+  const { execFileSync } = require('node:child_process');
+  try {
+    const saida = execFileSync('vainfo', ['--display', 'drm', '--device', node],
+      { encoding: 'utf8', timeout: 15000, stdio: ['ignore', 'pipe', 'pipe'] });
+    const perfis = saida.split('\n').filter((l) => l.includes('VAEntrypoint')).map((l) => l.trim());
+    return { tem: true, entrypoints: perfis.slice(0, 40),
+             codifica: perfis.some((l) => /VAEntrypointEnc/.test(l)) };
+  } catch (err) {
+    // `vainfo` ausente é o caso comum e não é erro: ele não vem instalado por padrão.
+    return { tem: false, motivo: (err.stderr?.toString() || err.message || '').split('\n')[0].slice(0, 200) };
+  }
+}
+
 function benchmarkGpu({ frames = 300 } = {}) {
   const { execFileSync } = require('node:child_process');
   const gpu = gpuDoServidor();
@@ -287,14 +334,27 @@ function benchmarkGpu({ frames = 300 } = {}) {
 
   // `testsrc` é gerado pelo próprio ffmpeg: sem arquivo de entrada, sem download, sem depender de
   // nada em disco. Saída para /dev/null — o que se mede é o encode, não o I/O.
+  //
+  // **stderr é CAPTURADO.** A primeira versão usava `stdio: 'ignore'`, e o `err.stderr` vinha nulo:
+  // o que sobrava era `err.message`, ou seja, "Command failed: ffmpeg …" — a linha de comando
+  // truncada, que não diz absolutamente nada sobre o que houve. Num servidor real isso virou "a
+  // GPU não codificou" sem uma pista de por quê. Erro que não dá o que procurar é quase tão ruim
+  // quanto erro nenhum.
   const medir = (args, rotulo) => {
     const t0 = process.hrtime.bigint();
     try {
       execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', ...args], {
-        stdio: 'ignore', timeout: 60000,
+        stdio: ['ignore', 'ignore', 'pipe'], timeout: 60000,
       });
     } catch (err) {
-      return { rotulo, ok: false, erro: (err.stderr?.toString() || err.message || '').slice(0, 200) };
+      const saida = (err.stderr?.toString() || '').trim();
+      return {
+        rotulo, ok: false,
+        // As ÚLTIMAS linhas: o ffmpeg põe a causa no fim, e o começo costuma ser ruído de init.
+        erro: saida ? saida.split('\n').slice(-4).join(' · ').slice(0, 400)
+                    : (err.message || '').slice(0, 200),
+        diagnostico: _porQueVaapiFalhou(saida),
+      };
     }
     const ms = Number(process.hrtime.bigint() - t0) / 1e6;
     return { rotulo, ok: true, ms: Math.round(ms), fps: Math.round((frames / ms) * 1000) };
@@ -302,18 +362,27 @@ function benchmarkGpu({ frames = 300 } = {}) {
 
   const fonte = ['-f', 'lavfi', '-i', `testsrc=size=1280x720:rate=30:duration=${frames / 30}`];
   const cpu = medir([...fonte, '-c:v', 'libx264', '-preset', 'veryfast', '-f', 'null', '-'], 'cpu');
+  // Sem `-hwaccel vaapi`: aquilo é para DECODIFICAR em hardware, e a fonte aqui é gerada pelo
+  // próprio ffmpeg. Pedir aceleração de decode de um `lavfi` faz o ffmpeg tentar inicializar um
+  // caminho que não existe — e o erro que sai daí fala do decode, não do encode que se queria medir.
   const gpuRes = node
-    ? medir(['-hwaccel', 'vaapi', '-vaapi_device', node, ...fonte,
+    ? medir(['-vaapi_device', node, ...fonte,
              '-vf', 'format=nv12,hwupload', '-c:v', 'h264_vaapi', '-f', 'null', '-'], 'gpu')
     : { rotulo: 'gpu', ok: false, erro: 'nenhum render node acessível — ver o inventário acima' };
 
   // A razão só existe quando os DOIS lados mediram. Inventar um número a partir de um lado que
   // falhou seria pior que não ter número nenhum.
   const ganho = cpu.ok && gpuRes.ok && gpuRes.ms > 0 ? +(cpu.ms / gpuRes.ms).toFixed(2) : null;
+  // Só quando falhou, e só quando há placa: perguntar "o que você sabe fazer?" a uma placa que
+  // acabou de codificar seria gastar segundos para confirmar o óbvio.
+  const capacidades = !gpuRes.ok && node ? _oQueAPlacaSabe(node) : null;
   return {
-    rodou: true, frames, renderNode: node, cpu, gpu: gpuRes, ganho,
+    rodou: true, frames, renderNode: node, cpu, gpu: gpuRes, ganho, capacidades,
     leitura: ganho === null
-      ? (gpuRes.ok ? 'não deu para comparar' : `a GPU não codificou: ${gpuRes.erro}`)
+      ? (gpuRes.ok ? 'não deu para comparar'
+         // O diagnóstico primeiro, o stderr depois. Quem lê quer saber o que FAZER; o texto do
+         // ffmpeg é a prova, e ela vem embaixo para quem for atrás.
+         : `a GPU não codificou — ${gpuRes.diagnostico || gpuRes.erro}`)
       : ganho >= 1.2 ? `a GPU deste servidor é ${ganho}× mais rápida que a CPU neste trabalho`
       : ganho <= 0.8 ? `a GPU é MAIS LENTA que a CPU aqui (${ganho}×) — é o que costuma acontecer ` +
                        'com placa virtual, e é bom saber antes de projetar em cima dela'

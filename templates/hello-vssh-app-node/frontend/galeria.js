@@ -136,7 +136,13 @@ function montarGaleria() {
             `cpu   ${d.cpu.ok ? `${d.cpu.ms} ms · ${d.cpu.fps} fps` : `falhou: ${d.cpu.erro}`}`,
             `gpu   ${d.gpu.ok ? `${d.gpu.ms} ms · ${d.gpu.fps} fps` : `falhou: ${d.gpu.erro}`}`,
             `nó    ${d.renderNode || '—'}`,
-          ].join('\n')
+            // O que a placa DIZ que sabe fazer, quando o encode falhou e o `vainfo` existe. É a
+            // resposta à pergunta seguinte — "então ela serve para quê?" — em vez de um beco.
+            d.capacidades?.tem
+              ? `\nvainfo (codifica: ${d.capacidades.codifica ? 'sim' : 'NÃO'}):\n` +
+                d.capacidades.entrypoints.map((l) => `      ${l}`).join('\n')
+              : d.capacidades ? `\nvainfo não respondeu: ${d.capacidades.motivo}` : null,
+          ].filter((l) => l !== null).join('\n')
         : `não deu para medir — ${d.motivo}`);
     } catch (e) { falhar('runtimeout', e); }
     b.disabled = false; b.textContent = antes;
