@@ -143,6 +143,44 @@ test('cpuQuota só aceita porcentagem — "2" não é dois núcleos', seNaoTem, 
   assert.match(validar({ ...BASE, resources: { cpuQuota: '200%' } }), /^ID=x$/m);
 });
 
+// ─── `gpu` e `secrets` ────────────────────────────────────────────────────────
+
+test('gpu é booleano e só booleano', seNaoTem, () => {
+  // O servidor trata só `true` como pedido. Um `"true"` em texto rodaria SEM GPU, e o autor
+  // procuraria o problema no driver — não no manifesto.
+  assert.match(validar({ ...BASE, gpu: true }), /^ID=x$/m);
+  assert.match(validar({ ...BASE, gpu: false }), /^ID=x$/m);
+  assert.match(validar({ ...BASE, gpu: 'true' }), /^ERROR=gpu_nao_e_booleano:/m);
+  assert.match(validar({ ...BASE, gpu: 1 }), /^ERROR=gpu_nao_e_booleano:/m);
+});
+
+test('secrets declara nome, e o nome vira export no shell do servidor', seNaoTem, () => {
+  assert.match(validar({ ...BASE, secrets: [{ name: 'OPENAI_API_KEY', description: 'chave' }] }), /^ID=x$/m);
+  for (const veneno of ['openai_key', 'A B', 'X;rm -rf /', '$(id)', '1KEY', '']) {
+    assert.match(validar({ ...BASE, secrets: [{ name: veneno }] }),
+      /^ERROR=secret_invalido:/m, `passou: ${veneno}`);
+  }
+});
+
+test('secrets NÃO pode trazer o valor — é o erro que o campo existe para tornar impossível', seNaoTem, () => {
+  // Um valor aqui seria commitado, publicado, e distribuído a todo servidor que instalasse o app.
+  for (const campo of ['value', 'valor', 'default']) {
+    assert.match(validar({ ...BASE, secrets: [{ name: 'TOKEN', [campo]: 'sk-abc123' }] }),
+      /^ERROR=secret_com_valor:/m, `passou com ${campo}`);
+  }
+});
+
+test('secrets recusa nome repetido', seNaoTem, () => {
+  // Dois campos para uma variável só, e o segundo apagando o primeiro sem dizer nada.
+  assert.match(validar({ ...BASE, secrets: [{ name: 'TOKEN' }, { name: 'TOKEN' }] }),
+    /^ERROR=secret_duplicado:/m);
+});
+
+test('secrets tem de ser lista de objetos', seNaoTem, () => {
+  assert.match(validar({ ...BASE, secrets: 'TOKEN' }), /^ERROR=secrets_nao_e_lista$/m);
+  assert.match(validar({ ...BASE, secrets: ['TOKEN'] }), /^ERROR=secret_nao_e_objeto:/m);
+});
+
 test('as recusas que já existiam continuam recusando', seNaoTem, () => {
   // Uma rede nova não pode afrouxar as antigas — é o mesmo arquivo, e um `sys.exit(0)` no lugar
   // errado desligaria as de baixo sem sinal nenhum.

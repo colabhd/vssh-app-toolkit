@@ -113,6 +113,33 @@ falta num app concreto.
                                        // mesmo, sem limite — e Configurações → Serviços diz isso,
                                        // com o motivo. Contenção que falha não pode virar app que
                                        // não sobe.
+  "gpu": false,                       // opcional (padrão false): o app precisa enxergar a GPU
+                                       // NVIDIA. Quem NÃO declara recebe `CUDA_VISIBLE_DEVICES=""`
+                                       // e o runtime CUDA dele não enumera dispositivo nenhum — é
+                                       // o que permite a um app de inferência conviver com os
+                                       // outros consumidores da mesma placa. **Arbitragem por
+                                       // convenção, não isolamento:** a variável não fecha
+                                       // /dev/nvidia*, e um processo determinado a ignorá-la ainda
+                                       // alcança a placa. Declarar num servidor sem GPU não impede
+                                       // o app de subir — GPU ausente costuma significar "mais
+                                       // lento", e quem decide se dá para seguir em CPU é o app —,
+                                       // mas fica dito no run.log e em Configurações → Serviços.
+  "secrets": [                        // opcional: credenciais que o app recebe pelo AMBIENTE.
+    { "name": "OPENAI_API_KEY",        // Declarar é o ponto: sem isto cada app inventa o seu,
+      "description": "Chave da API.",  // normalmente um arquivo em texto plano no
+      "required": true }               // VSSH_APP_DATA_DIR, e o usuário não tem onde pôr a chave.
+  ],                                   //
+                                       // O VALOR NUNCA VEM DAQUI — o publish RECUSA um manifesto
+                                       // com `value`/`valor`/`default`, porque isso seria commitado
+                                       // e distribuído a todo servidor que instalasse o app.
+                                       // Quem guarda é o usuário, em Configurações → Segredos, e o
+                                       // valor mora em ~/.vssh-apps/<id>/secrets.json (modo 0600)
+                                       // no servidor DELE. O portal grava e esquece: não há coluna
+                                       // de segredo no portal, e a tela nunca relê o valor.
+                                       //
+                                       // No app é `process.env.OPENAI_API_KEY` — variável de
+                                       // ambiente comum. O ambiente de um processo é fixado no
+                                       // start, então guardar um segredo exige REINICIAR o app.
   "backend": {
     "runtime": "python3",             // "python3" | "node" | "binary"
     "entrypoint": "backend/main.py",  // relativo à raiz do pacote

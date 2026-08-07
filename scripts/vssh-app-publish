@@ -118,6 +118,37 @@ if res is not None:
         if not isinstance(valor, str) or not re.match(_RES[campo], valor):
             print(f'ERROR=resource_invalido:{campo}={valor!r}'); sys.exit(0)
 
+# `gpu` é booleano e SÓ booleano. Um `"true"` em texto passaria pelo schema como tipo errado, mas o
+# erro genérico não diria o que está errado — e o servidor trata só `True` como pedido, então um
+# manifesto com `"true"` rodaria SEM GPU e o autor não saberia por quê.
+gpu = m.get('gpu')
+if gpu is not None and not isinstance(gpu, bool):
+    print(f'ERROR=gpu_nao_e_booleano:{gpu!r}'); sys.exit(0)
+
+# `secrets` declara NOMES, nunca valores. O nome vira um `export <nome>=` avaliado pelo shell no
+# servidor do usuário — é a mesma classe de destino do `requiredPackages`, e por isso o mesmo gate.
+segredos = m.get('secrets')
+if segredos is not None:
+    if not isinstance(segredos, list):
+        print('ERROR=secrets_nao_e_lista'); sys.exit(0)
+    vistos = set()
+    for s in segredos:
+        if not isinstance(s, dict):
+            print(f'ERROR=secret_nao_e_objeto:{s!r}'); sys.exit(0)
+        nome = s.get('name')
+        if not isinstance(nome, str) or not re.match(r'^[A-Z][A-Z0-9_]{0,63}$', nome):
+            print(f'ERROR=secret_invalido:{nome!r}'); sys.exit(0)
+        # Declarar o mesmo nome duas vezes não é erro de forma, é erro de sentido: a tela mostraria
+        # dois campos para uma variável só, e o segundo apagaria o primeiro sem dizer nada.
+        if nome in vistos:
+            print(f'ERROR=secret_duplicado:{nome!r}'); sys.exit(0)
+        vistos.add(nome)
+        # Um manifesto com o VALOR dentro é o erro que este campo existe para tornar impossível:
+        # ele seria commitado, publicado e distribuído a todo servidor que instalasse o app.
+        for proibido in ('value', 'valor', 'default'):
+            if proibido in s:
+                print(f'ERROR=secret_com_valor:{nome!r}'); sys.exit(0)
+
 # Validação completa contra schema/vssh-app.schema.json, que é a fonte da verdade do manifesto.
 # Este é o gate de ENTRADA no repositório, então vale ser rigoroso aqui — o vssh-app-install, que
 # roda offline no servidor, continua validando só o mínimo (id/runtime/entrypoint).

@@ -80,6 +80,36 @@
         }
       }
     },
+    "gpu": {
+      "type": "boolean",
+      "description": "O app precisa enxergar a GPU NVIDIA do servidor. O PADRÃO é não: um app que não declara recebe `CUDA_VISIBLE_DEVICES=\"\"` e o runtime CUDA dele não enumera dispositivo nenhum — é o que permite a um app de inferência conviver com os outros consumidores da mesma placa. Isto é arbitragem por CONVENÇÃO, não isolamento: a variável não fecha /dev/nvidia*, e um processo determinado a ignorá-la ainda alcança a placa. Declarar num servidor sem GPU não impede o app de subir (ao contrário de um pacote que falta, GPU ausente costuma significar 'mais lento'), mas fica dito no log e em Configurações.",
+      "default": false
+    },
+    "secrets": {
+      "type": "array",
+      "description": "Credenciais que o app precisa receber pelo ambiente (chave de API, senha de banco, token de S3). Declarar é o ponto: sem isto, cada app inventa o próprio jeito — normalmente um arquivo em texto plano no VSSH_APP_DATA_DIR — e o usuário não tem onde colocar a credencial. O valor NUNCA vem do manifesto: quem o guarda é o usuário, pelo shell, e ele mora em ~/.vssh-apps/<id>/secrets.json (modo 0600) no servidor do próprio usuário. O portal escreve e esquece — não há coluna de segredo no portal. O app lê como variável de ambiente comum.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+            "description": "Nome da variável de ambiente. Maiúsculas por convenção e por segurança: este nome vira um `export <nome>=` avaliado pelo shell no servidor."
+          },
+          "description": {
+            "type": "string",
+            "description": "O que é, e onde consegui-la. Aparece na tela onde o usuário digita — e é a diferença entre um campo que ele preenche e um campo que ele ignora."
+          },
+          "required": {
+            "type": "boolean",
+            "description": "Sem este segredo o app não funciona. Informativo: o ambiente não recusa subir por falta dele, porque quem sabe degradar é o app.",
+            "default": false
+          }
+        }
+      }
+    },
     "icon": { "type": "string", "description": "Caminho relativo à raiz do pacote (.svg/.png/.jpg)." },
     "category": { "type": "string", "description": "Informativo; a UI agrupa tudo em 'Apps Integrados'." },
     "description": { "type": "string" },

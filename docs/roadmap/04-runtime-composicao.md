@@ -1,9 +1,10 @@
 # Ondas 4 e 5 — Runtime de apps e composição do ecossistema
 
-> **Estado:** 🟡 em andamento — **healthcheck ✅** (verdadeiro **e** assíncrono) ·
-> **`kind:"service"` com janela ✅** (medido: era um teste) · **múltiplas janelas ✅** (a cópia e a
-> extra) · **`requiredPackages` ✅** (a metade que verifica) · **limites de recurso ✅** (e o
-> pré-requisito que a roadmap dizia pago **não estava**) · **faltam:** GPU, cofre de segredos ·
+> **Estado:** 🟢 **Onda 4 concluída** · 🟡 Onda 5 não iniciada — **healthcheck ✅** (verdadeiro **e**
+> assíncrono) · **`kind:"service"` com janela ✅** (medido: era um teste) · **múltiplas janelas ✅**
+> (a cópia e a extra) · **`requiredPackages` ✅** (a metade que verifica) · **limites de recurso ✅**
+> (e o pré-requisito que a roadmap dizia pago **não estava**) · **GPU ✅** (o padrão é não ver a
+> placa) · **cofre de segredos ✅** (o portal grava e não guarda) ·
 > **Atualizado:** 2026-08-07 · **Repos:** `vssh-sso` + toolkit + `vssh-repo`
 >
 > Revisado contra o código em 2026-08-05, junto com a [Onda 3](03-toolkit.md). O que mudou: a
@@ -30,8 +31,12 @@ O que falta para um app ser um cidadão de primeira classe do ambiente, e não u
 > **Limites de recurso veio em seguida por ser o único item desta onda cujo modo de falha derrubava
 > a sessão inteira do usuário**, e não só o app — e ele cobrou a conta de uma afirmação escrita aqui
 > mesmo: a de que o grupo de processos "já estava pago". Estava, para um dos dois caminhos de
-> subida. **Sobram GPU e cofre de segredos**, os dois maiores e os dois que não desbloqueiam
-> arquétipo nenhum sozinhos.
+> subida.
+>
+> **GPU e cofre fecharam juntos, e a ordem entre eles não importou** — nenhum dos dois desbloqueia
+> arquétipo sozinho, e os dois são a mesma frase: *o app declara, o ambiente decide, e o padrão é o
+> seguro*. Um app que não pede GPU não a enxerga; um segredo que o usuário não guardou não existe.
+> A simetria não foi buscada: ela apareceu porque a pergunta era a mesma.
 
 ### Healthcheck assíncrono — ✅ CONCLUÍDO
 
@@ -379,20 +384,84 @@ verde e os 20 ataques foram refeitos sobre uma linha de base de verdade. **Toda 
 diante começa medindo o verde.** Um roteiro que só pergunta *"ficou vermelho?"* não distingue guarda
 que segura de teste que já estava caído.
 
-### GPU como conceito de runtime
+### GPU como conceito de runtime — ✅ CONCLUÍDO
 
-Hoje GPU existe só no provisionamento (`vssh-provision.sh --gpu`, que passa o passthrough ao host e
-delega a config de Xorg ao `provision-base.sh --gpu` dentro do guest). Não há API de runtime, nem
-agendamento, nem pedido por app, nem visibilidade no portal.
+GPU existia só no provisionamento. Não havia API de runtime, nem pedido por app, nem visibilidade
+no portal — qualquer processo do usuário podia tomar a placa do app de inferência, e o sintoma era
+lentidão, que ninguém liga a uma decisão de manifesto.
 
-Mínimo viável: `gpu: true` no manifest, `CUDA_VISIBLE_DEVICES` injetado no processo, e o estado
-visível em Configurações. Sem isso, o arquétipo B3 (inferência) não tem como conviver com outros
-consumidores da mesma placa.
+> **Uma frase desta seção envelheceu e foi corrigida.** Ela dizia que `vssh-provision.sh --gpu`
+> "delega a config de Xorg ao `provision-base.sh --gpu`". O `provision-base.sh:72-74` já responde
+> outra coisa desde a [Onda 2.7](02b-motores.md): *"a GPU continua útil sem X (CUDA), mas não há
+> Xorg para configurar"*. Xorg é assunto do **motor**, não do ambiente — e é justamente por isso que
+> GPU precisava virar conceito de **runtime**, e não continuar sendo um detalhe de quem monta X11.
 
-### Cofre de segredos
+**O padrão é NÃO ver a placa.** Um app que não declara `gpu: true` recebe `CUDA_VISIBLE_DEVICES=""`.
+É a decisão simétrica à dos limites de recurso: quem não pediu, não pega — e é isso que deixa B3
+(inferência) conviver com os outros consumidores.
 
-Um app que fala com banco, com S3 ou com uma API externa não tem onde guardar credencial. Cada app
-inventa o seu — normalmente um arquivo em texto plano no `VSSH_APP_DATA_DIR`.
+> **É arbitragem por convenção, não isolamento, e a diferença está dita no código, no schema e na
+> tela.** A variável é respeitada pelo runtime CUDA; ela não fecha `/dev/nvidia*`, e um processo
+> determinado a ignorá-la ainda alcança a placa. A fronteira de verdade seria controle de
+> dispositivo no cgroup, e no v2 isso é eBPF — só root, e o `vssh-app-run` roda como o usuário.
+> Chamar isto de "isolamento" seria repetir o `ready` que dizia pronto sem ter visto resposta.
+
+Três estados, e só um pede atenção: **negada** (não pediu — quase todo app, e não se escreve nada,
+senão a seção vira uma coluna de ruído), **concedida**, e **pediu e este servidor não tem** — que
+não impede o app de subir, porque GPU ausente costuma significar "mais lento" e quem sabe degradar é
+o app, mas aparece no `run.log` e em Configurações. Sem essa linha, *"está lento"* não tem a quem ser
+atribuído.
+
+### Cofre de segredos — ✅ CONCLUÍDO
+
+Um app que fala com banco, com S3 ou com uma API externa não tinha onde guardar credencial. Cada app
+inventava o seu — normalmente um arquivo em texto plano no `VSSH_APP_DATA_DIR`.
+
+O app **declara** (`secrets: [{name, description, required}]`), o usuário **guarda** (Configurações
+→ Segredos), e o valor chega como variável de ambiente comum.
+
+#### O portal não guarda o segredo
+
+Ele escreve `~/.vssh-apps/<id>/secrets.json` (modo 0600) no servidor do próprio usuário e esquece.
+Três razões, e a terceira decide:
+
+1. é a estrela-guia — o segredo viaja com o **ambiente**, não com a máquina de onde se acessa;
+2. o modelo de confiança já é *"roda como o usuário Linux dono da sessão"*: a credencial não fica
+   menos protegida no home dele do que fica o resto do trabalho dele;
+3. **o portal não vira o lugar onde estão as credenciais de todo mundo.** A medição confirmou que
+   hoje ele não guarda segredo de longa vida nenhum — a chave privada só existe num *setup token*,
+   com `expires_at` e `used_at`. Criar a primeira coluna de segredo permanente seria uma decisão de
+   segurança grande escondida dentro de uma conveniência pequena.
+
+#### Três coisas que a medição decidiu, e que não eram óbvias
+
+- **Arquivo à parte do `env`, e essa é a razão de o item existir num arquivo só dele.** O `startApp`
+  reescreve o `env` com `printf … > "$d/env"` a cada subida. Um segredo ali seria apagado na
+  próxima vez que o usuário abrisse o app — sem erro e sem log, com a falha aparecendo depois como
+  "credencial inválida" numa hora sem relação com quem a apagou.
+- **JSON, e não um arquivo de shell.** A forma óbvia (`NOME='valor'` + `source`) quebra no primeiro
+  segredo de verdade: uma chave privada tem quebras de linha e uma senha tem aspa mais vezes do que
+  se supõe. Guardando JSON, quem gera o shell é o `shlex.quote` do Python, na mesma máquina.
+- **O valor nunca vai por linha de comando.** Linha de comando aparece em `ps` para qualquer
+  processo do mesmo usuário, e costuma parar no log do servidor SSH. Vai por stdin. Pelo mesmo
+  motivo ele não passa pelo canal `_envDoPortal`: aquele é uma format string de `printf` com
+  alfabeto de preferência (`^[A-Za-z0-9_.:,+-]{1,64}$`), onde um segredo em base64 nem caberia.
+
+O cofre **não tem porta de leitura**: a rota devolve nomes, a tela mostra nomes, e o campo de
+entrada é de senha. Ninguém precisa reler um segredo, e uma porta a menos é uma porta a menos.
+
+#### O que a refutação mudou no desenho
+
+Um ataque continuou verde e **não era guarda fraca — era guarda infalseável**. O aviso de "cofre
+ilegível" era emitido como shell (um `echo` gerado pelo Python) e passava por um `eval`; a defesa
+era escapar as aspas da mensagem de erro. Não havia como construir o ataque: as mensagens do
+`JSONDecodeError` não contêm aspa dupla. Ou seja, a defesa protegia contra um caso que ninguém sabia
+produzir enquanto o risco estrutural continuava lá.
+
+A resposta não foi escapar melhor: foi **a mensagem parar de ser código**. O aviso agora sai por
+stderr, e o stdout avaliado carrega só linhas `export`. **Texto que nunca vira código não precisa
+ser escapado** — e a guarda virou estrutural e mensurável, em vez de um escape sobre um caso
+hipotético.
 
 ---
 
