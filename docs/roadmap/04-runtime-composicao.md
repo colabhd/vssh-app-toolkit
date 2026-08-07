@@ -1,8 +1,10 @@
 # Ondas 4 e 5 — Runtime de apps e composição do ecossistema
 
 > **Estado:** 🟡 em andamento — **healthcheck ✅** (verdadeiro **e** assíncrono) ·
-> **`kind:"service"` com janela ✅** (medido: era um teste) · **múltiplas janelas ✅** ·
-> **Atualizado:** 2026-08-06 · **Repos:** `vssh-sso` + toolkit
+> **`kind:"service"` com janela ✅** (medido: era um teste) · **múltiplas janelas ✅** (a cópia e a
+> extra) · **`requiredPackages` ✅** (a metade que verifica) · **faltam:** limites de recurso, GPU,
+> cofre de segredos ·
+> **Atualizado:** 2026-08-07 · **Repos:** `vssh-sso` + toolkit + `vssh-repo`
 >
 > Revisado contra o código em 2026-08-05, junto com a [Onda 3](03-toolkit.md). O que mudou: a
 > **Onda 4 começa pelo healthcheck**, que absorveu o que a
@@ -17,12 +19,18 @@
 
 O que falta para um app ser um cidadão de primeira classe do ambiente, e não um processo solto.
 
-> **A ordem daqui não é a ordem de tamanho — é a de razão.** O healthcheck vem primeiro: ele
-> destrava A2 (que o [`casos-de-uso.md`](casos-de-uso.md) já chama de *"quase pronto"*), fecha o
-> suspeito B de *"atualizei o app e nada mudou"*, e o canal por onde a resposta chega **já existe**
-> desde a Onda 1. Depois vêm as duas coisas que decidem se A1 precisa de mecanismo novo ou de um
-> teste — e a primeira delas, `kind:"service"` **com** janela, já respondeu **teste**. Limites de
-> recurso, GPU e cofre de segredos são maiores, e nenhum deles desbloqueia um arquétipo sozinho.
+> **A ordem daqui não é a ordem de tamanho — é a de razão**, e ela já se cumpriu na primeira
+> metade. O healthcheck veio primeiro: destravou A2, fechou o suspeito B de *"atualizei o app e
+> nada mudou"*, e o canal por onde a resposta chega **já existia** desde a Onda 1. Depois, as duas
+> coisas que decidiam se A1 precisava de mecanismo novo ou de um teste — `kind:"service"` **com**
+> janela respondeu *teste*, e as múltiplas janelas responderam *janelas, não instâncias*. **A1 e A4
+> ficaram sem bloqueio estrutural.** Em seguida o `requiredPackages`, que era o menor dos que
+> restavam e o único que ainda travava alguém hoje.
+>
+> **O que sobra tem outra natureza.** Limites de recurso, GPU e cofre de segredos são maiores, e
+> nenhum deles desbloqueia um arquétipo sozinho — mas **limites de recurso é o único item desta
+> onda cujo modo de falha derruba a sessão inteira do usuário**, e não só o app. É por isso que ele
+> vem antes dos outros dois.
 
 ### Healthcheck assíncrono — ✅ CONCLUÍDO
 
