@@ -200,6 +200,18 @@ sincronizador de grants por texto aprovava um `findWindows(appId).slice(0, 1)`, 
 janela só e mantém intacta a palavra que a guarda procurava. Virou execução do mecanismo extraído
 do fonte.
 
+> **O teste com as mãos acrescentou a metade que faltava: a janela EXTRA.** Abrir a segunda janela
+> pelo menu de contexto abre uma **cópia** da mesma página — bom para ver dois pedaços de um
+> documento, e incapaz de demonstrar qualquer outra coisa. `vssh.window.abrir(rota, opts)` dá o
+> outro caminho: o app pede, e a `rota` decide o que vai dentro — um painel, uma prévia, um segundo
+> documento. É a mesma janela do mesmo app, e continua sendo **um backend só**.
+>
+> `rota` é a única entrada vinda do app nessa superfície, e a janela leva o título e o ícone dele:
+> esquema (`javascript:`, `data:`, `http:`), protocolo relativo, caminho absoluto e `..` são
+> recusados, e o resto é concatenado à URL que o portal já resolveu. Servir conteúdo de fora ali
+> seria o material de uma tela de login falsa — e é isso, e não "abrir janela", que continua não
+> existindo. A galeria do template demonstra os dois casos lado a lado.
+
 Interage com `Window Management (getScreenDetails)` do [critério do navegador](criterios.md#31--o-navegador-já-faz-isso)
 para o caso multi-monitor.
 
@@ -228,12 +240,11 @@ cache do usuário sobrevive.
 > `vssh-app-lib-sync` de novo. O sintoma que este parágrafo descreve pode reaparecer num app
 > desatualizado, e a causa será a versão da lib — não o mecanismo.
 
-**B — o backend ainda subindo. ⬜ Continua aberto.** `startApp` mata e reinicia o processo quando o
-hash do código muda; a primeira abertura depois de um reinstall pode pegar o processo antigo ou em
-reinício. **O conserto é o healthcheck assíncrono acima** — o poll síncrono de 15×1 s
-(`vssh-apps.ts:569`) continua lá. O que mudou desde que este texto foi escrito é que a resposta
-passou a reportar `ready`/`lastCode` (`routes/apps.ts:166`), então o cliente **avisa** em vez de
-mostrar um iframe branco. É mitigação do sintoma, não a saída do bloqueio.
+**B — o backend ainda subindo. ✅ Fechado pelo healthcheck assíncrono.** `startApp` mata e reinicia
+o processo quando o hash do código muda; a primeira abertura depois de um reinstall pega o processo
+antigo ou em reinício. Este texto dizia que o conserto era o healthcheck assíncrono e que o poll
+síncrono "continua lá" — **não continua**: ele saiu, a janela abre coberta e sai da cobertura no
+veredito, seja ele qual for. O que era mitigação do sintoma virou o caminho normal.
 
 ### `requiredPackages` — a metade que verifica
 
