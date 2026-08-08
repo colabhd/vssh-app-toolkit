@@ -1,313 +1,257 @@
-# Onda 6 — Camada de arquivos de rede
+# Onda 6 — Pastas de rede do usuário
 
 > **Estado:** não iniciado · **Atualizado:** 2026-08-08 · **Repo:** `vssh-sso`
 > **Independente das Ondas 1–2** — pode correr em paralelo.
 
-> ### ⚠ Esta onda foi escrita antes de metade do sistema existir
+> ### ⚠ Esta onda foi reescrita duas vezes no mesmo dia, e a segunda foi um erro meu de leitura
 >
-> O texto original é de 2026-08-01, **antes** das Ondas 2.6, 2.7, 2c, 4 e 5. Ele descrevia um portal
-> que não existe mais. A revisão de 08-08 conferiu cada afirmação contra o código, como o
-> [README manda fazer antes de executar uma onda](README.md#antes-de-executar-uma-onda-confira-as-afirmações-dela-contra-o-código)
-> — e **sete delas estavam erradas ou vencidas**. Elas estão corrigidas no lugar, dizendo que
-> estavam erradas, porque o histórico do erro vale mais que a aparência de acerto.
+> **A primeira revisão** (manhã de 08-08) conferiu o texto de 01-08 contra o código e derrubou sete
+> afirmações. **A segunda** — esta — conserta algo mais grave: eu tinha entendido a onda como
+> *"otimizar a navegação de datasets tirando-a do SSH"*, e não é isso.
 >
-> O resumo, para quem não vai ler o resto: **o desenho continua certo e o tamanho estava errado**.
-> A extração é maior do que se dizia, o mecanismo de URL assinada já existe, o gargalo já tem
-> instrumento de medida, e a tela que faltava agora tem casa e precedente.
+> O que ela é: **o usuário monta as pastas de rede DELE**, além das que o servidor oferece, num
+> protocolo moderno em vez de NFS no Linux, e o ambiente fala com elas **direto** — sem o salto pelo
+> host. Storage próprio, trazido por quem usa.
+>
+> A diferença não é de ênfase. O desenho que eu tinha escrito era "extrair um provider de
+> `system.ts` para acelerar o catálogo de datasets"; o desenho certo é **"um lugar onde eu registro
+> o meu armazenamento e ele aparece no gerenciador de arquivos"** — com credencial minha, escolha
+> minha, e me acompanhando para outra máquina.
+>
+> **O que sobreviveu das duas revisões, porque foi medido e não presumido:** a seção
+> [Medido: o gargalo não é o que a onda dizia](#medido-o-gargalo-não-é-o-que-a-onda-dizia). Ela
+> mudou de dono — deixou de ser a justificativa desta onda e virou uma onda própria —, mas os
+> números continuam valendo.
 
-## O problema, com número
+## O que se quer
 
-Hoje o caminho de um dataset de rede é:
+Hoje, um pesquisador alcança exatamente o que está montado **no servidor Linux dele**, e o caminho
+é sempre o mesmo:
 
 ```
 navegador → portal → canal SSH → host Linux → cliente NFS → storage
 ```
 
-Dois saltos de rede, e o do meio disputa um orçamento de **~8 canais concorrentes para o servidor
-inteiro** ([diagnostico](diagnostico.md#-teto-de-canais-ssh-8-por-servidor-não-por-usuário)).
+Duas coisas erradas nisso, e a segunda é a desta onda:
 
-### ⚠ Corrigido: o NFS **não** multiplica canais — ele alonga a ocupação de um
+1. **dois saltos de rede** para ler um byte que já está na rede;
+2. **o que existe é o que o administrador montou.** Um pesquisador com um bucket próprio, um
+   SeaweedFS do grupo dele, um WebDAV da instituição — não tem por onde trazer. E montar no host
+   exige `root`, exige ticket, e prende aquele dado àquele servidor.
 
-O texto original dizia: *"operações de metadado (`readdir`, `stat`) são conversadas por natureza, e
-cada uma vai embrulhada num `exec` por SSH. Num diretório de dataset com milhares de arquivos, isso
-é sentido como travamento"*. **É falso, e era a justificativa central da onda.**
+O que a onda entrega:
 
-`GET /api/fs/list` é **UM** `exec`: um script Python que faz `os.scandir(p)` e `e.stat()` de todas
-as entradas **dentro do processo remoto**, e devolve um JSON. Um diretório com 30 mil arquivos custa
-**um canal**, igual a um com três. A conversa do NFS acontece do lado de lá, dentro daquele único
-canal. E o pré-carregamento do gerenciador de arquivos é **um de cada vez**, com prioridade
-`background` e abortado ao mover o mouse — então um usuário navegando custa no máximo dois execs
-concorrentes.
+> **"Adicionar pasta de rede"**, em Configurações. Eu digo onde está o meu armazenamento, o portal
+> confere que responde, e ele passa a aparecer no gerenciador de arquivos como uma raiz ao lado da
+> minha home — **sem tocar no host Linux**, e me acompanhando para qualquer máquina.
 
-O que o NFS faz é outra coisa, e é mais simples de raciocinar:
+É a estrela-guia aplicada ao dado: o armazenamento deixa de ser propriedade do servidor e passa a
+ser do usuário.
 
-> **Ele segura aquele canal por muito mais tempo.** Com teto de 8 por servidor, a capacidade é de
-> aproximadamente **8 ÷ T** operações por segundo, onde T é quanto tempo uma listagem leva.
+## O protocolo: padronizar em UM, e qual
 
-E é isso que troca a medição. Não é preciso um dia de tráfego para saber o tamanho desta onda —
-basta **T**, que se mede abrindo uma pasta grande **uma vez**:
+Esta é a decisão que a onda tem de tomar primeiro, porque tudo depende dela. As candidatas, e o que
+cada uma custa:
 
-| T de uma listagem | Capacidade do servidor inteiro | Leitura |
-|---|---|---|
-| 50 ms | 160 op/s | ninguém nunca vai encostar no teto; a onda é sobre latência |
-| 400 ms | 20 op/s | folgado, mas a navegação já *parece* lenta a quem usa |
-| 3 s | 2,6 op/s | **três pesquisadores navegando ao mesmo tempo já formam fila** |
+| | Semântica de arquivo | Range | Ecossistema | SeaweedFS | Veredito |
+|---|---|---|---|---|---|
+| **WebDAV** | completa — `MOVE`, `COPY`, `MKCOL`, `PROPFIND`, `DELETE` | sim (HTTP) | universal: Nextcloud, ownCloud, SharePoint, Apache, nginx | **fala nativo** | **o padrão da onda** |
+| **S3** | de objeto: sem `rename` (é copiar+apagar), sem escrita parcial, "pasta" é prefixo | sim | enorme | fala nativo | **o segundo provider**, para bucket de verdade |
+| **NFS/SMB no host** | POSIX | — | — | — | é o que se está saindo |
+| Filer HTTP do SeaweedFS | boa | sim | só SeaweedFS | nativo | não: amarra a onda a um produto |
 
-**O medidor foi feito para exatamente isso:** o campo `execDuracaoMs` do pico é a maior ocupação de
-canal, e o painel divide o teto por ela e mostra a capacidade. Zere os picos, abra a pasta de
-dataset mais pesada que existir, e leia. É uma navegação, não um dia.
+**A escolha é WebDAV como padrão, e S3 como o segundo.** O motivo não é gosto — é que o consumidor
+desta onda é um **gerenciador de arquivos**, e um gerenciador precisa de renomear, mover, criar
+pasta e apagar. Em S3, renomear uma pasta de 10 mil objetos é 10 mil cópias e 10 mil deleções, e
+qualquer UI que finja o contrário está mentindo sobre o que vai acontecer.
 
-Contado ainda que a operação **falhe** — uma listagem que estoura o timeout do NFS é o caso mais
-interessante de todos, e medi-la só no caminho feliz deixaria justamente a mais longa de fora.
+E o SeaweedFS de vocês fala os dois — então ele é o primeiro alvo de teste sem que a onda precise
+escolher entre "o padrão" e "o que a gente tem".
 
-**Tirar a navegação de dados do SSH continua valendo** — mas o argumento correto é *"a ocupação de
-canal por operação de metadado é o gargalo, e ela é proporcional à lentidão do NFS"*, e não
-*"cada metadado gasta um canal"*.
+> **A régua que já usamos duas vezes:** o `provides` da Onda 5 e o `RemoteDesktopEngines` da 2.7
+> dizem a mesma coisa — *não se escolhe o produto, se declara a capacidade e se aceita quem a
+> ofereça*. Aqui: o ambiente não conhece SeaweedFS, conhece **WebDAV**; o SeaweedFS é um servidor
+> WebDAV que por acaso é o de vocês. No dia em que alguém apontar para um Nextcloud, nada muda.
 
-### ⚠ Corrigido: o gargalo continua real, mas deixou de ser invisível — e o primeiro passo é MEDI-LO
+## A tela: e ela já foi construída uma vez
 
-Quando isto foi escrito, o teto de ~8 era uma constante do `sshd` que ninguém no portal enxergava.
-Não é mais. O `services/ssh-exec.ts` hoje tem um **semáforo explícito** por conexão
-(`SSH_MAX_CONCURRENT_CHANNELS`, padrão 8), com **duas prioridades** — `interactive` (listar, `stat`,
-criar) na frente de `background` (gravar lock de janela, poll de job) —, uma **segunda fila** só para
-streams longos (`acquireReadSlot`, teto por usuário e abortável), e `sshSlotStats()` publicando
-fila, `inFlight` e espera mais antiga.
+**Não há nada a inventar aqui**, e isso é resultado da Onda 5. A seção **Dispositivos** entregou,
+para impressora, exatamente a anatomia que uma pasta de rede pede:
 
-E a [Onda 2.7](02b-motores.md) tirou o desktop inteiro desse orçamento: abrir o ambiente deixou de
-gastar canal.
-
-Isso muda o primeiro passo da onda, e a mudança é de método, não de detalhe. **A frase "isso é
-sentido como travamento" era hipótese quando foi escrita e continua sendo até alguém olhar
-`sshSlotStats()` num servidor com uso real.** Se a fila `interactive` estiver curta e a espera mais
-antiga em dezenas de milissegundos, a justificativa desta onda muda de "o SSH está estrangulando a
-navegação" para "o salto extra custa latência", que é uma onda menor e com outra prioridade.
-
-> ### ⚠ Corrigido de novo (08-08, mesma tarde): medir NÃO custava uma requisição — não havia requisição
->
-> A revisão da manhã escreveu que este passo *"custa uma requisição: a rota de estatística já
-> existe"*. **Não existia.** `sshSlotStats()`, `sessionStats()` e `serverCollectorStats()` estavam
-> exportados e **nenhum tinha leitor** — sem rota, sem log, sem painel. Três funções escritas, cada
-> uma, com a justificativa por extenso de que *"sem isto o gargalo é invisível"*, e invisíveis.
->
-> É a assinatura de sempre — duas informações que existem e não se encontram —, e é o caso mais
-> puro dela até agora: nenhum dos lados está errado, e um deles simplesmente não é chamado. Revisão
-> de código nunca pegaria: `sshSlotStats()` é impecável.
->
-> **Feito, e o passo 1 agora é executável:** `GET /api/admin/pressao` devolve os três, e o painel de
-> administração tem o bloco **Pressão no SSH**. Três decisões que valem registro:
->
-> - **o que se lê é o PICO, não o instantâneo.** As filas esvaziam em milissegundos; um `GET` num
->   momento qualquer pega o servidor ocioso quase sempre e responde "não há gargalo" com toda a
->   autoridade. A marca d'água é registrada na ENTRADA da fila, porque quem desiste — a aba fechou,
->   o mouse saiu da pasta — some sem ser atendido, e é justamente a fila que fez desistir que
->   interessa;
-> - **o teto sai junto do número.** `inFlight: 6` não quer dizer nada sem saber contra o quê, e os
->   limites moravam só dentro do módulo;
-> - **não há veredito.** Um campo `apertado: true` seria uma segunda noção de aperto, livre para
->   divergir da que o operador forma olhando os mesmos números — e as duas discordando é o pior
->   caso possível, que é a lição do `shellVersionOk` do painel de apps.
->
-> No caminho apareceu um irmão: o dashboard reportava **`activeSessions: 0`** — o literal —, com
-> `sessionStats()` sabendo a resposta no módulo ao lado desde a Onda 1. Um zero fixo é pior que
-> métrica nenhuma: diz "ninguém está usando" com a autoridade de um número.
-
-Sondar antes de implementar já mudou três itens da Onda 3 e três afirmações da Onda 5. **O que
-falta agora é olhar**: abrir o painel de administração num servidor com uso real, deixar rodar, e
-ler o pico. É esse número que decide se esta onda é grande ou pequena.
-
-## O desenho: providers por ponto de montagem
-
-Extrair de `src/routes/system.ts` um contrato de provider e rotear por prefixo de montagem:
-
-| Provider | Serve | Toca o host Linux? |
-|---|---|---|
-| `ssh` | home do usuário e tudo que precisa do host | sim (é o de hoje) |
-| `s3` / `webdav` / `http-index` | datasets de rede | **não** |
-
-### ⚠ Corrigido: a lista de operações estava curta por um fator de três
-
-O texto original dizia *"`list`, `stat`, `read` com Range, `write`, `mkdir`, `rename`, `copy`,
-`delete`"* — oito operações. **São 29 rotas `/fs/*` em 26 operações distintas**, num arquivo de
-2349 linhas:
-
-| Grupo | Operações |
+| Impressora (feito) | Pasta de rede (esta onda) |
 |---|---|
-| Leitura e travessia | `list` `stat` `read` `open` `watch` |
-| Escrita | `write` `mkdir` `rename` `copy` `delete` `upload` |
-| Trabalho longo | `transfer` `jobs/:id` `jobs/:id/cancel` `fetch-url` |
-| Lixeira | `trash` `trash/list` `trash/restore` `trash/delete` `trash/empty` `purge` |
-| Arquivos compactados | `archive/list` `archive/extract` `archive/create` `archive/delete-entries` |
-| Acesso sem sessão | `file-token` `file/:token/*` |
+| **dois escopos que não podem virar uma lista só** — fila da máquina × impressora minha | montagem do servidor × **pasta minha**. Numa lista só, alguém remove "a pasta dela" e desmonta a de todos |
+| **assistente que não guarda o que não respondeu** — sonda com `ipptool` e só então libera "Guardar" | um `PROPFIND` no endereço antes de gravar. Guardar uma URL sem conferir é guardar um texto, e o erro só aparece quando alguém precisa do dado |
+| **`userPrinters`** — lista com teto, validada por módulo folha, em `/api/user/settings` | `userMounts`, mesma forma, mesmo lugar |
+| *"só você vê estas, e elas acompanham você para outra máquina"* | é literalmente a mesma frase |
 
-Um contrato de oito operações deixaria **dois terços da superfície de fora**, e a pergunta que o
-desenho precisa responder não é "quais operações o provider tem" e sim **"o que é do provider e o
-que é do portal"**:
+A única peça nova é a **credencial**, e ela também tem precedente: o **cofre de segredos** da
+Onda 4 — o portal grava no servidor do usuário, com modo `0600`, e **não guarda cópia**. Uma senha
+de WebDAV é a mesma classe de valor que um token de app, e tratá-la de outro jeito seria criar a
+segunda noção de segredo no sistema.
 
-- **do provider**, porque cada backend responde diferente: `list`, `stat`, `read`, `write`, `mkdir`,
-  `rename`, `copy`, `delete`, `watch`;
-- **do portal, sobre qualquer provider**: a lixeira (é convenção nossa, não do storage), os jobs de
-  transferência com progresso e cancelamento, o `fetch-url`, e o token de acesso sem sessão;
-- **em aberto**: os arquivos compactados. Ler um `.zip` remoto por Range é possível e é exatamente o
-  tipo de coisa que fica lenta sem o provider saber.
+> **Uma decisão que precisa ser tomada e não é técnica:** o cofre de hoje mora no **host Linux** do
+> usuário (`~/.vssh-apps/<id>/secrets.json`). Uma credencial de pasta de rede que viva ali herda
+> exatamente o que esta onda quer desfazer — ela para de acompanhar o usuário entre servidores.
+> Guardá-la no portal, cifrada, é o que torna a montagem verdadeiramente portátil, e é uma
+> mudança de modelo, não uma escolha de biblioteca.
+
+## Quem fala com o storage: o portal, e por quê
+
+Duas topologias possíveis, e a escolha tem consequência:
+
+**Navegador → storage direto.** Mais rápido, tira o portal do caminho por completo. Exige CORS
+configurado em cada storage que alguém registrar, e a credencial teria de chegar ao navegador — o
+que a coloca no `localStorage` de toda máquina em que a pessoa sentar. **Recusada por isso.**
+
+**Portal → storage, com redirect assinado para leitura em massa.** O portal fala WebDAV com a
+credencial guardada, e a navegação (`PROPFIND`, `MKCOL`, `MOVE`) passa por ele. Para *ler bytes* —
+um TIFF de 40 GB — ele devolve **302 para uma URL pré-assinada** e o navegador puxa direto do
+storage. É o melhor dos dois: a credencial nunca sai do servidor, e os bytes não atravessam o
+portal.
+
+> **E este mecanismo já existe.** `POST /api/fs/file-token` emite um JWT com `{ linuxUser,
+> serverId, root, exp }`, servido por `GET|HEAD /api/fs/file/:token/<path>` **sem cookie de
+> sessão**, com ETag, `If-Range`, 206 e 416. O que muda é o destino: hoje ele aponta para o
+> portal; com um provider que saiba assinar, aponta para o storage.
+
+## O contrato do provider
+
+Um provider responde por uma raiz montada. A lista **não** é a de oito operações que a versão
+anterior deste arquivo dizia — são 26 no `system.ts` de hoje —, mas nem todas são do provider:
+
+| | Operações | Quem responde |
+|---|---|---|
+| **do provider** | `list` `stat` `read` `write` `mkdir` `rename` `copy` `delete` `watch` | cada backend, do seu jeito |
+| **do portal, sobre qualquer provider** | lixeira, jobs de transferência com progresso e cancelamento, `fetch-url`, token de acesso | é convenção nossa, não do storage |
+| **em aberto** | arquivos compactados (`archive/*`) | ler um `.zip` remoto por Range é possível, e é o tipo de coisa que fica lenta sem o provider saber |
 
 Sem essa separação escrita, a extração vira uma reescrita de 2349 linhas — que é o tamanho que
 transforma uma onda paralela em uma onda que trava o repositório.
 
-## As duas otimizações que são o ganho real
+### Três armadilhas de contrato, e a terceira é a que a Onda 5 ensinou a procurar
 
-### ⚠ Corrigido: a URL assinada não é para construir. Ela existe, e falta apontá-la para outro lugar
+**`watch` não existe em WebDAV nem em S3.** `vssh.fs.watch` promete algo que nem toda raiz pode
+cumprir, e a resposta certa não é silêncio. A Onda 5 entregou o mecanismo: **`provides` declara, e
+um endpoint responde se de fato consegue** — o `print-engine` declara `print/v1` no manifesto *e*
+responde `GET /capabilities`, porque um servidor onde alguém desinstalou o chromium continua com o
+manifesto declarando. **Declarar não é provar.** E valem as três respostas: *"vigiando"*, *"esta
+raiz não sabe vigiar"* e *"não consegui perguntar"* — colapsar as duas últimas manda procurar
+defeito onde há limitação.
 
-O texto dizia que `GET /api/fs/read` passaria a devolver 302 para uma URL pré-assinada, como se o
-mecanismo fosse novo. **`POST /api/fs/file-token` já emite exatamente isso**: um JWT com
-`{ linuxUser, serverId, root, exp }`, TTL próprio, servido por `GET|HEAD /api/fs/file/:token/<path>`
-**sem cookie de sessão** — com ETag, `If-Range`, 206, 416 e `Accept-Ranges`.
+> Nota medida: o `watch` de hoje é multiplexado por `(servidor, usuário)` num supervisor
+> `inotifywait` cujo canal SSH é **longo e não passa pelo semáforo**. Ele é a única coisa que segura
+> canal fora do orçamento — então uma raiz WebDAV, que não vigia, é a única que sai **mais barata**.
 
-O que falta não é assinar: é a URL **apontar para outra origem** quando o provider souber emitir uma.
-E isso reduz o item, mas move o risco para o outro lado — ver a armadilha do `urlFor()` abaixo, que
-deixou de ser hipotética por causa disto.
+**`vssh.fs.urlFor()` é síncrono e virou contrato público.** Ele devolve URL do portal; com redirect
+assinado passa a apontar para **outra origem**: funciona em `<img>`/`<video>`, quebra `fetch` que
+espere mesma origem, e conta como taint em canvas. A Onda 5 entregou `minShellVersion` e a Onda 3
+expôs a versão do shell ao app — então isso é mudança **versionada e anunciada**, não só
+documentada em [`../api.md`](../api.md). O `fsa-polyfill` é o consumidor que prova o ponto: ele
+chama `urlFor()` para fatiar por Range e já tem um caminho de baixo para quando ela falha; é esse
+caminho que precisa continuar correto quando a URL mudar de origem.
 
-**Cache de metadado em Redis.** Datasets de pesquisa são majoritariamente imutáveis, então
-`readdir`/`stat` cacheiam muito bem — ao contrário da home do usuário.
-
-## As montagens são uma preferência, e a tela delas já tem precedente
-
-As montagens são declaradas por servidor/usuário e alimentadas pelo catálogo que o
-`dataset-management` já publica (`indices.json` em `bases.colabh.org`), hoje consumido pelo Recoll.
-
-> **O consumo do catálogo mudou de forma, e o novo é o molde certo para as montagens.** Ele já foi
-> injetado como `--start-env=RECOLL_EXTRA_DBS` — uma constante de 300 linhas
-> (`utils/recoll-dbs.js`) despejada no ambiente da sessão X11, igual para todo mundo. Isso morreu
-> com o caminho antigo do desktop na [Onda 2.7](02b-motores.md). Hoje a seleção é **preferência de
-> usuário**, guardada em `recoll_user_active` e servida por `routes/recoll.ts`, com a distinção que
-> importa preservada: `null` = *"nunca escolhi"* (liga tudo) é diferente de `[]` = *"desliguei
-> tudo"*. Montagem por servidor/usuário tem exatamente a mesma forma, e o mesmo par de estados.
-
-**E a tela deixou de ser um problema em aberto.** Quando isto foi escrito, não havia onde pôr uma
-lista de montagens: a janela de Configurações eram seis abas fixas num `innerHTML`. A
-[Onda 2.6](02-apis-de-shell.md#26--a-janela-de-configurações-refeita---feito) trocou isso por um
-registro, e a **seção Dispositivos** entregou, por acidente feliz, o molde exato de que esta onda
-precisa:
-
-- **dois escopos que não podem virar uma lista só.** Fila de impressão *da máquina* (todo mundo vê,
-  só o admin mexe) × impressora *minha* (preferência, me acompanha para outra máquina). Montagem tem
-  o mesmo par, com o mesmo risco: numa lista só, alguém remove "a montagem dela" e desmonta a de
-  todos;
-- **um assistente que não guarda o que não respondeu.** O de impressora sonda o endereço com
-  `ipptool` e só libera o "Guardar" depois da resposta. Uma montagem tem a mesma armadilha e é
-  pior: um endereço S3 guardado sem verificação vira um dataset vazio que a pessoa só descobre no
-  meio de um treino;
-- **`userPrinters` é o precedente de forma**: lista curta, com teto, validada por um módulo folha e
-  gravada em `/api/user/settings`. Uma lista de montagens é a mesma coisa com outro validador.
-
-Isso não é reuso de código — é reuso de decisão. As três já foram tomadas e testadas.
-
-## Três armadilhas de contrato que precisam ser declaradas
-
-### `watch` é dependente de provider — e agora existe o mecanismo certo para dizer isso
-
-Não há inotify em S3 nem em WebDAV. `vssh.fs.watch` promete algo que nem todo caminho pode cumprir.
-
-> **Corrigido: "capability opcional por montagem" era um conceito sem mecanismo quando foi escrito,
-> e virou um mecanismo com nome.** A [Onda 5](04-runtime-composicao.md#registro-de-capabilities)
-> entregou `provides: "nome/vN"` e a resolução por capacidade — e, com ela, a lição que importa
-> aqui: **declarar não é provar.** O `print-engine` declara `print/v1` no manifesto *e* responde
-> `GET /capabilities` dizendo se consegue de fato, porque um servidor onde alguém desinstalou o
-> chromium continua com o manifesto declarando. Uma montagem que declara `watch` e não entrega tem
-> a mesma forma de mentira.
->
-> E a régua das **três respostas** vale inteira: "vigiando", "esta montagem não sabe vigiar" e "não
-> consegui perguntar" são três, não duas — colapsar as duas últimas manda a pessoa procurar defeito
-> onde há limitação, que é o erro que a seção de pacotes e a de GPU já cometeram uma vez cada.
-
-**E o `watch` de hoje tem um custo que o texto original não sabia:** ele é multiplexado por
-`(servidor, usuário)` num supervisor `inotifywait`, cujo canal SSH é **longo e não passa pelo
-semáforo**. Ou seja, o watch já é a única coisa que segura canal fora do orçamento. Um provider sem
-inotify não é só uma degradação de funcionalidade — é o único caso em que ele fica **mais barato**.
-
-### `vssh.fs.urlFor()` é síncrono, e agora é contrato PÚBLICO
-
-Ele devolve URL do portal. Com redirect assinado ela passa a apontar para **outra origem**: funciona
-em `<img>`/`<video>`, mas quebra `fetch` que espere mesma origem e conta como taint em canvas.
-
-> **Corrigido: isto deixou de ser "documentar antes" e passou a ser "versionar".** Quando foi
-> escrito, o toolkit não tinha como um app dizer de que shell ele precisa. Tem: a
-> [Onda 5](04-runtime-composicao.md#registro-de-capabilities) entregou `minShellVersion`, e a
-> [Onda 3](03-toolkit.md#t6-e-t7--as-duas-dívidas-que-não-tinham-onda) entregou a versão do shell
-> exposta ao app. Mudar o que `urlFor()` devolve é mudança de comportamento em API publicada, para
-> gente de fora do repositório — então ela **é versionada e anunciada**, não só documentada em
-> [`../api.md`](../api.md).
->
-> O `fsa-polyfill` é o consumidor que prova o ponto: ele chama `fs.urlFor()` para fatiar por Range e
-> **já tem um caminho de baixo** para quando ela não existe ou a rede falha. Esse caminho de baixo é
-> o que precisa continuar correto quando a URL passa a ser de outra origem.
-
-### A terceira, que é a que a Onda 5 ensinou a procurar
-
-Um contrato de provider tem **dois lados em arquivos que não se leem**: quem implementa e quem
-consome. É a assinatura exata do defeito que a Onda 2c achou três vezes e que a Onda 5 acabou
-cercando com uma guarda de junção — os cinco consumidores do manifesto medidos contra o schema, com
-piso mínimo por consumidor para que uma extração quebrada não fique verde medindo vazio.
-
-**Esta onda nasce com o mesmo risco e deve nascer com a mesma guarda:** a lista de operações do
-contrato, medida contra cada provider e contra cada chamador, com piso. Sem isso, um provider que
-não implementa `rename` é descoberto pelo usuário que tentou renomear.
+**Um contrato de provider tem dois lados em arquivos que não se leem.** É a assinatura do defeito
+que a Onda 2c achou três vezes e que a Onda 5 cercou com uma guarda de junção — os cinco
+consumidores do manifesto medidos contra o schema, com piso por consumidor para que uma extração
+quebrada não fique verde medindo vazio. **Esta onda nasce com o mesmo risco e deve nascer com a
+mesma guarda.** Sem ela, um provider que não implementa `rename` é descoberto pelo usuário que
+tentou renomear.
 
 ## Três consumidores com necessidades diferentes
 
-> Corrigido: a tabela se chamava "Dois consumidores" e tinha três linhas desde o começo.
-
-Este é o limite honesto do desenho, e precisa estar dito:
+O limite honesto do desenho, e ele precisa estar dito:
 
 | Consumidor | Quer | Solução |
 |---|---|---|
-| **Navegador** (gerenciador, viewers, polyfill FSA) | HTTP com Range | VFS do portal — estritamente melhor que hoje |
-| **Backend de um vssh-app** (kernel Jupyter, script Python, job de treino) | **POSIX**: `open()`, `seek`, `mmap` | montagem no host — o VFS não substitui. Caminho: avaliar `mountpoint-s3`/`rclone mount` no lugar do NFS, que costumam ganhar em dataset imutável dominado por leitura |
+| **Navegador** (gerenciador, viewers, polyfill FSA) | HTTP com Range | **é o que esta onda entrega** |
+| **Backend de um vssh-app** (kernel Jupyter, script Python, job de treino) | **POSIX**: `open()`, `seek`, `mmap` | precisa de montagem no host. Uma raiz WebDAV registrada no portal **não** aparece para o processo do app — e essa assimetria tem de estar na documentação antes de alguém descobri-la debugando |
 | **App que só precisa dos bytes** | HTTP | consome o mesmo endpoint do próprio backend e **dispensa montagem** — opção que hoje não existe e que o toolkit deveria documentar |
 
-### A home do usuário montada por rede — e por que ela é a linha do meio
+> **A ponte entre a linha 1 e a linha 2, se algum dia valer:** `rclone mount` sabe montar WebDAV e
+> S3 como FUSE, no espaço do usuário, **sem root**. Uma mesma raiz registrada poderia ser servida ao
+> navegador pelo provider e ao backend do app por um FUSE — a mesma credencial, os dois consumidores.
+> Registrado como caminho, não como plano: exige medir latência de metadado em uso interativo.
+
+### A home do usuário montada por rede
 
 Ideia registrada na [Onda 1](01-sessao-sem-xpra.md): se a home vier de armazenamento de rede,
 `(servidor, usuário)` deixa de ser ao mesmo tempo *onde o usuário é* e *onde o dado dele está* — e a
-sessão vira relocável entre servidores. É a estrela-guia levada ao limite: o ambiente quase
-serverless.
+sessão vira relocável entre servidores.
 
-**Ela pertence à linha de montagem POSIX da tabela acima, não à do VFS.** A distinção não é
-detalhe: a home é o oposto do dataset — mutável, dominada por arquivos pequenos, e o backend de
-**todo** vssh-app precisa de `open()`/`seek`/`mmap` nela. Servir a home pelo VFS do portal quebraria
-todos eles de uma vez. O caminho é o mesmo do dataset POSIX (`rclone mount` e similares), com um
-requisito extra que o dataset não tem: **semântica de escrita e de lock que aguente uso
-interativo**.
+**Ela é a linha 2 da tabela, não a 1**, e a distinção não é detalhe: a home é o oposto do dataset —
+mutável, dominada por arquivos pequenos, e o backend de **todo** vssh-app precisa de
+`open()`/`seek`/`mmap` nela. Servi-la pelo provider quebraria todos de uma vez.
 
-A lista do que vive ali cresceu desde que isto foi escrito, e cada item é um requisito: os lock
-files de estado de janela (`~/.vssh/psd/*.lock`, gravados com debounce a cada movimento),
-`VSSH_APP_DATA_DIR` de todo app, o **journal de notificações** e o **cofre de segredos** — este
-último com modo `0600` reescrito a cada operação, que é justamente o tipo de coisa que uma montagem
-de rede trata mal.
+O que vive ali cresceu desde 01-08, e cada item é um requisito de semântica de escrita e de lock:
+os lock files de janela (gravados com debounce a cada movimento), `VSSH_APP_DATA_DIR` de todo app,
+o journal de notificações e o cofre de segredos — este último com modo `0600` reescrito a cada
+operação, que é justamente o que uma montagem de rede trata mal.
 
-Registrado, não planejado: exige medir latência de metadado em uso interativo antes de virar
-proposta.
+Registrado, não planejado.
+
+## Medido: o gargalo não é o que a onda dizia
+
+Esta seção **mudou de dono**. Ela era a justificativa desta onda; a medição mostrou que ela é outra
+onda, e que os números não têm nada a ver com armazenamento de rede.
+
+**A premissa original era falsa.** O texto de 01-08 dizia: *"operações de metadado são conversadas
+por natureza, e cada uma vai embrulhada num `exec` por SSH; num diretório com milhares de arquivos
+isso é sentido como travamento"*. `GET /api/fs/list` é **UM** `exec` — um `os.scandir` + `stat` de
+tudo dentro do processo remoto. Um diretório com 30 mil arquivos custa **um canal**, igual a um com
+três. E o pré-carregamento do gerenciador é um de cada vez, `background`, abortado ao mover o mouse.
+
+**E a medição, feita em 08-08 num servidor real, com diretórios sintéticos em disco local:**
+
+| Pasta | Portal entrega | `ls -la` no servidor | **Nosso** |
+|---|---|---|---|
+| 100 arquivos | 226 ms | ~1 ms | ~225 ms |
+| 5.000 arquivos | 822 ms | **44 ms** | **778 ms — 95%** |
+
+Com **fila 0 e espera 0** nos dois casos: o teto de 8 canais não foi arranhado. Não é contenção
+entre usuários; é a latência de cada clique, e ela é nossa.
+
+**Os três achados, e nenhum se resolve trocando de storage:**
+
+1. **um `python3` por listagem.** A cadeia é `ssh exec → sudo -H -u → bash -c → echo → base64 -d →
+   python3 → scandir`. Cinco processos e um interpretador subindo, por pasta aberta. É o piso de
+   226 ms que toda navegação paga, inclusive na home local;
+2. **a listagem inteira num JSON só.** 50 mil entradas com caminho absoluto viram megabytes, que
+   atravessam o canal, o portal e o `JSON.parse` do navegador;
+3. **a lista do gerenciador não virtualiza.** `_patch()` cria um nó DOM por item, para todos os
+   itens — 50 mil `.fm-item` com ícone, nome, tamanho e data. É a RAM que apareceu no uso.
+
+> **E a medição achou um bug vivo**, que nenhuma leitura de código tinha achado: `stdout +=
+> d.toString()` decodificava cada `Buffer` isoladamente, então um caractere multibyte partido na
+> fronteira de dois chunks virava `�`. Precisa de saída maior que um chunk para acontecer — ou
+> seja, **listagem de pasta grande**, com nomes em português. Corrigido com `StringDecoder`; a
+> refutação usa o código anterior como ataque, e ele produz 5 vermelhos.
+>
+> É o argumento inteiro a favor de gerar carga em vez de raciocinar sobre ela.
+
+**Estes três itens saíram desta onda e viraram a
+[Onda 6b](05b-navegacao-de-arquivos.md).** Eles melhoram a navegação hoje,
+inclusive na home local, e não dependem de nenhuma decisão de protocolo — enquanto esta onda
+depende de uma que ainda não foi tomada.
 
 ## Por que isso serve à estrela-guia
 
-Navegar e ler dados deixa de exigir o host Linux — mais uma capacidade que passa a funcionar sem
-sessão. E como as montagens são declaradas no servidor, **elas seguem o pesquisador entre máquinas
-de graça** ([critério 3.2](criterios.md#32--isso-sobrevive-à-troca-de-máquina)).
+O armazenamento deixa de ser propriedade do servidor. Um pesquisador registra o dado dele uma vez e
+o encontra em qualquer máquina, em qualquer servidor — porque a montagem é preferência de usuário,
+como a impressora de rede já é
+([critério 3.2](criterios.md#32--isso-sobrevive-à-troca-de-máquina)).
 
-## Ordem sugerida, depois da revisão
+## Ordem sugerida
 
-0. ~~**Dar leitor aos medidores.**~~ ✅ **feito** — `GET /api/admin/pressao` e o bloco "Pressão no
-   SSH" no painel. Este passo não estava na lista porque a revisão da manhã presumiu que a rota
-   existia; ela não existia.
-1. **Medir T**, e isso é UMA navegação: zerar os picos no painel, abrir a pasta de dataset mais
-   pesada que existir, e ler "Operação mais longa" e "Capacidade nesse ritmo". Era um dia de
-   tráfego enquanto a premissa dizia que cada metadado gastava um canal; com a premissa corrigida,
-   é um clique.
-2. **Escrever a separação** provider × portal das 26 operações. É desenho, não código, e é o que
-   impede a extração de virar reescrita.
-3. **A guarda de junção**, antes do primeiro provider — no molde da Onda 5, com piso.
-4. **Um provider de leitura só** (`http-index` ou `s3`), com `watch` declarado como ausente e
-   respondendo honestamente. Um provider que só lê já serve o arquétipo A3 e não toca escrita
-   nenhuma.
-5. **A tela**, no molde da seção Dispositivos: dois escopos, assistente que sonda antes de guardar.
-6. **A URL assinada apontando para fora** — por último, porque é a única que quebra contrato
+1. **Decidir o protocolo padrão.** A recomendação é WebDAV; a decisão não está tomada, e nada anda
+   antes dela porque o contrato do provider tem a forma do protocolo.
+2. **Decidir onde mora a credencial** — cofre no host (o que existe) ou no portal, cifrada (o que
+   torna a montagem portátil de verdade). É mudança de modelo.
+3. **Escrever a separação provider × portal** das 26 operações. É desenho, não código.
+4. **A guarda de junção**, antes do primeiro provider — no molde da Onda 5, com piso.
+5. **Um provider WebDAV só de leitura**, contra o SeaweedFS de vocês, com `watch` declarado ausente
+   e respondendo honestamente. Só-leitura já serve o arquétipo A3 e não toca escrita nenhuma.
+6. **A tela**, no molde de Dispositivos: dois escopos, assistente que sonda (`PROPFIND`) antes de
+   guardar.
+7. **A URL assinada apontando para fora** — por último, porque é a única que quebra contrato
    publicado e por isso precisa de `minShellVersion` e anúncio.

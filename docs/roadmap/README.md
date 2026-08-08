@@ -39,7 +39,8 @@ Duas consequências que precisam estar ditas antes de qualquer tabela:
 | [02c-interludio.md](02c-interludio.md) | Onda 2c — recolher o que a inversão deixou: deploys mortos, fingerprint do cliente, sessão que expira em uso |
 | [03-toolkit.md](03-toolkit.md) | Ondas 0 e 3 — higiene do toolkit e a FSA de verdade |
 | [04-runtime-composicao.md](04-runtime-composicao.md) | Ondas 4 e 5 — limites de recurso, GPU, composição entre apps |
-| [05-arquivos-de-rede.md](05-arquivos-de-rede.md) | Onda 6 — camada de arquivos de rede sem salto pelo Linux |
+| [05-arquivos-de-rede.md](05-arquivos-de-rede.md) | Onda 6 — o usuário monta as pastas de rede DELE, em WebDAV/S3, sem passar pelo host |
+| [05b-navegacao-de-arquivos.md](05b-navegacao-de-arquivos.md) | Onda 6b — a navegação de arquivos, medida: 95% da latência é nossa |
 | [06-portabilidade.md](06-portabilidade.md) | Onda 7 — continuidade entre máquinas |
 
 **A numeração não é sequência total.** Ondas 0, 6 e 7 não dependem das outras e podem correr em
@@ -121,8 +122,10 @@ não se reescreve numa tarde.
 | 5 | [Mensageria entre apps](04-runtime-composicao.md#mensageria-entre-apps---medida-escrita-e-cercada) — nada a construir; medida, escrita e cercada, com o limite junto | vssh-sso + toolkit | ✅ concluído |
 | 5 | [Seção de Configurações por manifesto](04-runtime-composicao.md#seção-de-configurações-declarada-por-manifesto) — resolvida por `engine.loader` para app de admin; falta a **decisão de confiança** para terceiro | — | 🔵 decisão, não tarefa |
 | 5 | [Extensão do `FileOpener`](04-runtime-composicao.md#ponto-de-extensão-no-fileopener---desenhado-falta-um-produtor-e-é-isso-que-falta) — desenhado sobre `provides`; falta um **produtor** (thumbnail/OCR/transcode) | — | 🔵 sem consumidor |
-| 6 | [Camada de arquivos de rede](05-arquivos-de-rede.md) — passo 0: os medidores ganham leitor | vssh-sso | ✅ concluído · `sshSlotStats`, `sessionStats` e o coletor estavam **exportados e sem nenhum leitor**; e o dashboard reportava `activeSessions: 0` literal |
-| 6 | [Camada de arquivos de rede](05-arquivos-de-rede.md) — o resto | vssh-sso | ⬜ não iniciado · **revisada 08-08**: 7 afirmações caíram, e o passo 1 é *medir o pico num servidor real* |
+| 6 | [Pastas de rede do usuário](05-arquivos-de-rede.md) | vssh-sso | ⬜ não iniciado · **reescrita 08-08** — eu tinha entendido a onda errado. Ela é *"o usuário monta o armazenamento dele, em protocolo moderno, sem tocar no host"*, e trava numa **decisão de protocolo** (recomendado: WebDAV, com S3 como segundo) |
+| 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — os medidores ganham leitor | vssh-sso | ✅ concluído · `sshSlotStats`, `sessionStats` e o coletor estavam **exportados e sem nenhum leitor**; e o dashboard reportava `activeSessions: 0` literal |
+| 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — UTF-8 partido na fronteira do chunk | vssh-sso | ✅ concluído · bug vivo, achado **gerando carga**; a refutação usa o código anterior como ataque |
+| 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — virtualizar a lista, encolher o payload, o piso de 226 ms | vssh-sso | ⬜ em execução · medido: **95% da latência de uma listagem é nossa**, e em disco local |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — item 3 (OPFS é cache) | vssh-sso + toolkit | ✅ concluído (saiu com a Onda 3) |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — item 4 (artefatos nascem no ambiente) | vssh-sso | ✅ em grande parte · download e PDF já nascem no servidor; o relatório de bug **não nasceu em lugar nenhum — foi deletado**, e o `FileSaver.js` com ele. Sobra o log do app |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — itens 1 e 2 | vssh-sso + toolkit | ⬜ não iniciado · o item 2 trava numa **decisão de produto** |
