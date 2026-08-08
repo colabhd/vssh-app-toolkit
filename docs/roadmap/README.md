@@ -127,7 +127,7 @@ não se reescreve numa tarde.
 | 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — UTF-8 partido na fronteira do chunk | vssh-sso | ✅ concluído · bug vivo, achado **gerando carga**; a refutação usa o código anterior como ataque |
 | 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — virtualizar a lista do gerenciador | vssh-sso | ✅ concluído · a RAM apareceu **em uso**; os 4 dependentes da geometria conferidos um a um, e um deles quebrava |
 | 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — encolher o payload da listagem | vssh-sso | ✅ concluído · o `path` absoluto saiu do fio (−40% de bytes) e voltou como **getter**, não como campo — reconstruir e guardar tinha ganho **zero** de RAM, e o corte real foi de 10,3 para 5,0 MB |
-| 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — decompor a latência da listagem | vssh-sso | ⚠️ **medido, e as três hipóteses da onda caíram**: o processo remoto inteiro custa **34 ms de 874** — 4%. O gargalo estava no vão entre abrir o canal e ler o último byte, onde não havia número nenhum. As três fases do exec entraram no painel; falta **ler** numa navegação |
+| 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — decompor a latência da listagem | vssh-sso | ✅ **medido, e não havia gargalo nenhum.** Uma listagem de 5.000 arquivos custa **157 ms** (51 abrir · 64 remoto · 42 receber). Os 874 ms que a onda perseguia eram do **coletor por servidor**, que roda a cada 5 s: "Operação mais longa" era um pico sobre TUDO e não dizia de quem. Caíram junto os "95% da latência é nossa", os "9,7 op/s", o piso de 226 e a inclinação de 596 |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — item 3 (OPFS é cache) | vssh-sso + toolkit | ✅ concluído (saiu com a Onda 3) |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — item 4 (artefatos nascem no ambiente) | vssh-sso | ✅ em grande parte · download e PDF já nascem no servidor; o relatório de bug **não nasceu em lugar nenhum — foi deletado**, e o `FileSaver.js` com ele. Sobra o log do app |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — itens 1 e 2 | vssh-sso + toolkit | ⬜ não iniciado · o item 2 trava numa **decisão de produto** |
@@ -293,6 +293,28 @@ instrumento cobria aquele trecho**. O relógio existente começava depois da fil
 fim do exec, medindo um bloco só. Decompor o bloco em fases nomeadas foi mais barato que qualquer
 um dos três consertos propostos — e é o que transforma "eu acho que é o canal" numa pergunta que o
 painel responde.
+
+#### E a pergunta que faltava era mais básica: **de quem é este número?**
+
+A decomposição respondeu na primeira leitura, e a resposta não foi um gargalo. Foi que **não havia
+gargalo**: a listagem custava 157 ms, e os 874 ms que a onda perseguia por semanas pertenciam ao
+**coletor por servidor** — um poller de 5 em 5 segundos que ninguém pede.
+
+"Operação mais longa" era um pico sobre **tudo** que passa pelo limitador de canais, e o painel não
+dizia sobre quem falava. Dele saíram *"95% da latência de uma listagem é nossa"*, *"9,7 operações
+por segundo"*, *"o piso de 226 ms"* e *"a inclinação de 596"* — quatro afirmações precisas,
+publicadas, e sem um dono verificado. O procedimento de medida (*zerar os picos, abrir a pasta, ler
+o pico*) não tinha como funcionar: entre zerar e ler, o poller rodava várias vezes.
+
+É a família do `activeSessions: 0`, com uma diferença que vale guardar: **aquele mentia por não ter
+resposta; este mentia por não dizer sobre quem falava.** Na tela os dois têm a mesma cara — um
+número com autoridade. Daí a regra:
+
+> **Métrica agregada publica o sujeito junto com o valor, ou não publica.** Um pico sobre "tudo" é
+> uma pergunta, não uma resposta — e vira resposta errada no instante em que alguém a lê.
+
+E o conserto certo não é rotular os chamadores um a um: são 32, e a 33ª nasceria anônima. O rótulo
+vem de onde a informação já está — `req.route.path`, o padrão da rota e não a URL preenchida.
 
 ### Depois de executar, alguém tem de tentar ABRIR
 

@@ -41,16 +41,39 @@ E `time ls -la ~/medida/pN > /dev/null` no Terminal dá o custo do filesystem, q
 </details>
 
 
-| Pasta | Portal entrega | `ls -la` no servidor | **Nosso** |
-|---|---|---|---|
-| 100 arquivos | 226 ms | ~1 ms | ~225 ms |
-| 5.000 arquivos | 822 ms | **44 ms** | **778 ms — 95%** |
-
-**Fila 0 e espera 0** nos dois casos: o teto de 8 canais SSH não foi arranhado. Não é contenção
-entre usuários — é a latência de cada clique, e 95% dela é nossa.
-
-Uma pasta de 5 mil arquivos, que não tem nada de excepcional, põe a capacidade do servidor inteiro
-em **9,7 operações por segundo**.
+> ## ⚠️ OS NÚMEROS DESTA SEÇÃO ESTAVAM ERRADOS, E O ERRO ERA DE ATRIBUIÇÃO
+>
+> Ela dizia:
+>
+> | Pasta | Portal entrega | `ls -la` | "Nosso" |
+> |---|---|---|---|
+> | 100 arquivos | 226 ms | ~1 ms | ~225 ms |
+> | 5.000 arquivos | 822 ms | 44 ms | **778 ms — 95%** |
+>
+> **Nenhum desses números era de uma listagem.** Eles saíam de "Operação mais longa", que é um pico
+> sobre **tudo** que passa pelo limitador de canais — e o painel não dizia de quem.
+>
+> Quando a decomposição por fase entrou, a mesma navegação mostrou **493 ms no total e 157 ms na
+> listagem**, com os 336 KB de stdout batendo exatamente com o que o python mediu no servidor. Os
+> 493 eram de outra coisa: o **coletor por servidor**, que roda a cada 5 s, não foi pedido por
+> ninguém, e nem sequer passa pelo caminho decomposto.
+>
+> O procedimento — *zerar picos, abrir a pasta, ler o pico* — não tinha como funcionar: entre zerar
+> e ler, o coletor rodava várias vezes.
+>
+> **Uma listagem de 5.000 arquivos custa ~157 ms**, assim:
+>
+> | Fase | | |
+> |---|---|---|
+> | abrir o canal | 51 ms | 33% |
+> | esperar o remoto | 64 ms | 41% — contra 34 ms medidos na própria máquina |
+> | receber 336 KB | 42 ms | 27% — ~8 MB/s |
+>
+> E o que caiu junto: **"95% da latência é nossa"** e **"9,7 operações por segundo"**. A capacidade
+> pelo mesmo cálculo, com o número certo, é ~51 op/s — e o que come canal de verdade é o coletor,
+> ocupando ~10% de um dos 8 continuamente sem que ninguém tenha pedido.
+>
+> A correção do instrumento está em "O pico que não dizia de quem era", mais abaixo.
 
 > **A premissa que caiu junto.** A Onda 6 dizia que cada operação de metadado vira um `exec` por
 > SSH e que num diretório grande "isso é sentido como travamento". `GET /api/fs/list` é **UM**
@@ -104,13 +127,60 @@ o stat do Office, a rota de apps). Pendurar ali criaria exatamente a junção fa
 medidores existem para não ter — e os dois totais lado a lado dizem mais do que um: iguais, é o
 mesmo exec; diferentes, o mais longo não foi um comando de usuário.
 
-**A próxima medida é ler essas três linhas.** E cada resultado aponta um lugar diferente:
+**As três linhas foram lidas, e o que elas acharam não foi um gargalo — foi um erro de medição.**
 
-| Se o dominante for | O que isso quer dizer |
+| | |
 |---|---|
-| **abrir o canal** | é round-trip até o host, e o alvo passa a ser manter um canal de pé — a única das três hipóteses antigas que sobreviveria |
-| **esperar o remoto** | contradiz os 34 ms medidos no próprio servidor, e aí o suspeito é o que roda ANTES do python: `sudo`, PAM, `nsswitch`, um `HOME` em rede |
-| **receber os bytes** | 336 KB não deveriam custar centenas de ms — é janela de canal SSH, ou o portal lendo devagar. E aí, sim, encolher e paginar voltam à mesa |
+| Operação mais longa | **493 ms** |
+| Exec mais longo, por fase | **157 ms** · 336 KB |
+
+Os dois totais não batiam, que é precisamente o que a separação deles existia para revelar: **a
+operação mais longa não era a listagem que o usuário tinha acabado de pedir.** E os 336 KB
+identificam o exec decomposto sem ambiguidade — é a p5000, o mesmo número que o python imprimiu no
+servidor.
+
+Dentro dos 157 ms:
+
+| Fase | | Leitura |
+|---|---|---|
+| abrir o canal | 51 ms · 33% | round-trip até o host, por listagem |
+| esperar o remoto | 64 ms · 41% | contra **34 ms** medidos na própria máquina — sobram ~30 ms de `sudo`/PAM/arranque sob `ssh exec` |
+| receber os bytes | 42 ms · 27% | 336 KB a ~8 MB/s — normal, e é o que arquivou a paginação de vez |
+
+Nenhuma das três domina. **Não há gargalo a atacar** — há uma operação de 157 ms razoavelmente
+distribuída, e antes disso havia um número de 874 ms que pertencia a outra coisa.
+
+## O pico que não dizia de quem era
+
+Este é o defeito mais caro da onda, e ele não estava no produto: estava no medidor.
+
+"Operação mais longa" é um pico sobre **tudo** que passa pelo limitador de canais — listagem,
+leitura de arquivo, `stat` do Office, escrita por SFTP e o **coletor por servidor**, que roda a cada
+5 segundos com `getent` + laço + `base64` por usuário e nunca foi pedido por ninguém. O número saía
+sem sujeito, e foi lido a onda inteira como *"quanto custa uma listagem"*.
+
+Dele saíram, e caíram junto: *"95% da latência é nossa"*, *"9,7 operações por segundo"*, *"o piso de
+226 ms"* e a inclinação de 596. Nenhuma dessas frases tinha um dono verificado.
+
+**É a família do `activeSessions: 0`**, e a diferença é instrutiva: aquele mentia por não ter
+resposta; este mentia por não dizer sobre quem falava. Os dois têm a mesma cara na tela — um número
+com autoridade.
+
+O conserto tem três partes:
+
+- **`withSshSlot` aceita um rótulo**, e o pico guarda número e nome **juntos** — se um exec curto
+  gravasse o nome sem gravar o tempo, os dois descolariam e o painel voltaria a mentir com outra
+  cara;
+- **o nome sai da rota, não de 32 rótulos à mão.** Havia 32 chamadas de `execAsUser`; nomear cada
+  uma seria 32 decisões a manter, com a certeza de que a 33ª nasceria anônima — que é o próprio
+  defeito. `req.route.path` já sabe, e é o **padrão** da rota (`/apps/:id/log`), não a URL
+  preenchida: dado de uso não vaza para um painel de administração por causa de um medidor;
+- **o prefetch se separa do clique.** Mesmo caminho, custos diferentes, e o prefetch é justamente o
+  que roda sem ninguém pedir — o mesmo gênero de operação que produziu este erro.
+
+> **E o que o rótulo já entregou de graça:** o coletor segura um canal por ~493 ms a cada 5 s. É
+> ~10% de um dos 8 canais, continuamente, para uma bandeja e um journal. Ninguém tinha olhado
+> porque ninguém sabia que aquele número era dele.
 
 O texto abaixo é o que esta seção dizia antes de medir, e fica **como registro do que a medição
 derrubou** — não como plano.
@@ -351,4 +421,6 @@ Consertado nos 24 lugares, com duas coisas que faltavam:
 | 2 · Encolher o payload da listagem | ✅ concluído · −40% de bytes, −51% de RAM; 11 ataques, 2 verdes na 1ª rodada |
 | 2b · Paginar ou streamar | 🗄️ arquivado · a chegada custa um dígito de milissegundo; volta se as fases apontarem a travessia |
 | 1 · O piso e a inclinação — **decompor o lado remoto** | ✅ medido · o processo remoto é **4%** da operação, e as três hipóteses da seção caíram |
-| 1b · Decompor o que sobrou (as três fases do exec) | 🔵 instrumento no ar · falta **ler** o painel numa navegação |
+| 1b · Decompor o que sobrou (as três fases do exec) | ✅ medido · **não há gargalo**: a listagem custa 157 ms, distribuídos em 51/64/42 |
+| 1c · O pico anônimo | ✅ concluído · o número tinha autoridade e não tinha sujeito, e **os 874 ms eram do coletor** |
+| — | 🔵 **aberto pelo rótulo:** o coletor segura ~10% de um canal, continuamente, sem ninguém pedir |
