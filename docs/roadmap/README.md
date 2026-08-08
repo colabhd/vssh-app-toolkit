@@ -127,7 +127,7 @@ não se reescreve numa tarde.
 | 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — UTF-8 partido na fronteira do chunk | vssh-sso | ✅ concluído · bug vivo, achado **gerando carga**; a refutação usa o código anterior como ataque |
 | 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — virtualizar a lista do gerenciador | vssh-sso | ✅ concluído · a RAM apareceu **em uso**; os 4 dependentes da geometria conferidos um a um, e um deles quebrava |
 | 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — encolher o payload da listagem | vssh-sso | ✅ concluído · o `path` absoluto saiu do fio (−40% de bytes) e voltou como **getter**, não como campo — reconstruir e guardar tinha ganho **zero** de RAM, e o corte real foi de 10,3 para 5,0 MB |
-| 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — o piso de 226 ms e a inclinação de 596 | vssh-sso | ⬜ não iniciado · medido: **95% da latência de uma listagem é nossa**, e em disco local. **Duas decomposições antes de escolher o caminho** — a receita das duas está escrita |
+| 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — decompor a latência da listagem | vssh-sso | ⚠️ **medido, e as três hipóteses da onda caíram**: o processo remoto inteiro custa **34 ms de 874** — 4%. O gargalo estava no vão entre abrir o canal e ler o último byte, onde não havia número nenhum. As três fases do exec entraram no painel; falta **ler** numa navegação |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — item 3 (OPFS é cache) | vssh-sso + toolkit | ✅ concluído (saiu com a Onda 3) |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — item 4 (artefatos nascem no ambiente) | vssh-sso | ✅ em grande parte · download e PDF já nascem no servidor; o relatório de bug **não nasceu em lugar nenhum — foi deletado**, e o `FileSaver.js` com ele. Sobra o log do app |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — itens 1 e 2 | vssh-sso + toolkit | ⬜ não iniciado · o item 2 trava numa **decisão de produto** |
@@ -274,6 +274,25 @@ saíram daí, e a terceira é a que importa:
 
 O teste de "o teste está MEDINDO alguma coisa" existe em vários arquivos desta base por causa disso.
 Ele não é zelo — é o único que percebe quando um regex parou de casar.
+
+#### Ler uma cadeia não é medi-la — e "isso parece caro" é a mesma armadilha de "isso já existe"
+
+A [Onda 6b](05b-navegacao-de-arquivos.md) escreveu, com todo o rigor aparente, que o piso de 226 ms
+de cada listagem era a cadeia `sudo → bash → echo → base64 → python3` — *"cinco processos e um
+interpretador subindo"* — e derivou dali três caminhos de conserto, um deles estrutural.
+
+**A cadeia inteira custa 18 ms.** E listar 5.000 arquivos dentro do python custa 16. O processo
+remoto era **4%** de uma operação de 874 ms; o melhor dos três caminhos economizaria 2%.
+
+O erro não foi de aritmética, foi de gênero: a cadeia foi **lida**, pareceu cara, e a aparência
+entrou no documento como medida. É a irmã de *"já existe"* — as duas produzem frases que soam
+rigorosas porque são verdadeiras sobre o texto do código e mudas sobre o comportamento dele.
+
+E o desfecho é o que dá o método: os 96% restantes não estavam em nenhuma hipótese porque **nenhum
+instrumento cobria aquele trecho**. O relógio existente começava depois da fila e terminava no
+fim do exec, medindo um bloco só. Decompor o bloco em fases nomeadas foi mais barato que qualquer
+um dos três consertos propostos — e é o que transforma "eu acho que é o canal" numa pergunta que o
+painel responde.
 
 ### Depois de executar, alguém tem de tentar ABRIR
 

@@ -59,61 +59,98 @@ em **9,7 operações por segundo**.
 
 ## Os três itens
 
-### 1 · Um `python3` por pasta aberta
+### 1 · O piso e a inclinação — ⚠️ MEDIDO, e as três hipóteses caíram
 
-A cadeia de cada listagem:
+**A decomposição foi feita, e o resultado desmonta esta seção inteira.** No servidor real:
 
-```
-ssh exec → sudo -H -u <user> → bash -c → echo → base64 -d → python3 → os.scandir
-```
+| | Medido |
+|---|---|
+| `python3 -c 'pass'` | 10 ms |
+| `sudo -H -u $USER bash -c true` | 10 ms |
+| a cadeia inteira (`sudo`+`bash`+`base64`+`python3`) | **18 ms** |
+| o trabalho do python em 5.000 arquivos | **16 ms** — scandir 1,6 · stat+dict 13,1 · dumps 1,5 |
+| `ls -la` na mesma pasta | 25 ms |
+| **o que o portal entrega** | **874 ms** |
 
-Cinco processos e um interpretador subindo. **É o piso de 226 ms que toda navegação paga**, e ele
-não depende de quantos arquivos existem: aparece igual na home, numa pasta com três itens.
+**O processo remoto é 4% da operação.** Os três caminhos que esta seção propunha — tirar processos
+da cadeia, um daemon por sessão, reusar o canal — atacavam, juntos, os 18 ms. O melhor deles
+economizaria 2% de uma listagem.
 
-Os caminhos, do mais barato ao mais estrutural:
+E a inclinação também não é do python: de 100 para 5.000 arquivos, o trabalho remoto sobe de 0,3 ms
+para 16 ms. Sobem 16; o portal sobe centenas.
 
-- **tirar processos da cadeia** — `base64 -d | python3` pode virar `python3 -c` com o código já
-  escapado, e o `bash -c` pode sumir se o `sudo` receber o comando direto. Não resolve o arranque
-  do interpretador, mas é medida e barata;
-- **um daemon por sessão.** O ambiente já tem o conceito: a sessão da Onda 1 tem dono, refcount e
-  lease, e o `fs-watch` já mantém um processo longo por `(servidor, usuário)`. Um ajudante que fique
-  de pé e responda listagens por um pipe troca "subir python" por "escrever uma linha";
-- **reusar o canal.** Hoje cada listagem abre um canal SSH novo. O supervisor de `watch` prova que
-  dá para manter um aberto.
+> **Uma previsão minha caiu junto, e vale registrar como caiu.** Antes de medir, escrevi que os 822
+> ms *"ficam entre 780 e 830"* depois do corte do payload. Deram **874**. A tese (o corte de bytes
+> não move a latência) sobreviveu; a faixa estava errada, e faixa errada é previsão errada.
 
-**Nada disso está decidido, e o primeiro passo é decompor os 226 ms.** Sem isso, escolher entre os
-três caminhos é chutar — que é como esta onda inteira nasceu. A decomposição é de três comandos, no
-Terminal do desktop:
+#### Onde os 840 ms restantes estão: ninguém sabia, e agora há um instrumento
+
+O relógio de "Operação mais longa" começa **depois** da fila e cobre só o `_execAbortable`. Então os
+874 ms são canal + execução + travessia — e a execução são 34 ms. **O vão inteiro estava sem
+número.**
+
+Ele passou a ter três, gravados como **conjunto** (as partes de UMA operação, não três marcas d'água
+que não somam nada):
+
+| Fase | O que é |
+|---|---|
+| **abrir o canal** | pedir o canal até o `ssh2` devolver o stream |
+| **esperar o remoto** | canal aberto até o primeiro byte de stdout — deve bater com os 34 ms medidos no servidor |
+| **receber os bytes** | primeiro byte até o `close` — a travessia dos 336 KB |
+
+E o bloco traz o **próprio total**, em vez de pendurar as partes na linha de cima: `execDuracaoMs`
+também é escrito por três chamadores que não passam pelo `_execAbortable` (o coletor por servidor,
+o stat do Office, a rota de apps). Pendurar ali criaria exatamente a junção falsa que estes
+medidores existem para não ter — e os dois totais lado a lado dizem mais do que um: iguais, é o
+mesmo exec; diferentes, o mais longo não foi um comando de usuário.
+
+**A próxima medida é ler essas três linhas.** E cada resultado aponta um lugar diferente:
+
+| Se o dominante for | O que isso quer dizer |
+|---|---|
+| **abrir o canal** | é round-trip até o host, e o alvo passa a ser manter um canal de pé — a única das três hipóteses antigas que sobreviveria |
+| **esperar o remoto** | contradiz os 34 ms medidos no próprio servidor, e aí o suspeito é o que roda ANTES do python: `sudo`, PAM, `nsswitch`, um `HOME` em rede |
+| **receber os bytes** | 336 KB não deveriam custar centenas de ms — é janela de canal SSH, ou o portal lendo devagar. E aí, sim, encolher e paginar voltam à mesa |
+
+O texto abaixo é o que esta seção dizia antes de medir, e fica **como registro do que a medição
+derrubou** — não como plano.
+
+#### O que esta seção propunha, e que a medição descartou
+
+Ela descrevia a cadeia de cada listagem —
+`ssh exec → sudo -H -u <user> → bash -c → echo → base64 -d → python3 → os.scandir` — e concluía:
+*"cinco processos e um interpretador subindo; **é o piso de 226 ms que toda navegação paga**"*.
+Daí saíam os três caminhos: tirar processos da cadeia, um daemon por sessão, reusar o canal.
+
+**A frase em negrito era falsa.** A cadeia inteira custa 18 ms. O piso é de outro dono.
+
+Vale dizer como o erro se produziu, porque é reutilizável: a cadeia foi **lida** e pareceu cara —
+cinco processos! um interpretador! —, e a aparência foi tratada como medida. Nenhum dos três
+caminhos era absurdo; os três eram respostas confiantes a uma pergunta que ninguém tinha feito ao
+sistema. É a mesma assinatura da premissa que abriu esta onda (*"cada metadado vira um exec"*), e
+ela reapareceu **dentro do próprio conserto**.
+
+Dos três, só *reusar o canal* segue de pé como candidato — e não pelo motivo escrito ali, e sim
+porque abrir canal pode ser round-trip. Quem decide agora são as três fases no painel.
+
+<details>
+<summary>As duas receitas, já executadas — ficam para refazer depois de cada mudança</summary>
+
+O bloco do piso roda **duas vezes, usando a segunda**: a primeira paga a autenticação do `sudo` e o
+cache frio, e isso não é o que a rota paga em regime.
 
 ```bash
-time python3 -c 'pass'                      # o arranque do interpretador
-time sudo -H -u "$USER" bash -c 'true'      # o sudo + o bash
-time sudo -H -u "$USER" bash -c 'echo "cGFzcw==" | base64 -d | python3'   # a cadeia inteira, local
+time python3 -c 'pass'                      # o arranque do interpretador       → 10 ms
+time sudo -H -u "$USER" bash -c 'true'      # o sudo + o bash                   → 10 ms
+time sudo -H -u "$USER" bash -c 'echo "cGFzcw==" | base64 -d | python3'   # tudo → 18 ms
 ```
 
-O que **sobrar** dos 226 ms depois de descontar a cadeia local é o custo do canal SSH — abrir e
-fechar por listagem. E é esse resto que decide entre os três caminhos:
-
-| Se o dominante for | O caminho é |
-|---|---|
-| o arranque do `python3` | o daemon por sessão — nenhum dos outros dois toca nisso |
-| `sudo` + `bash` | tirar processos da cadeia, que é a mudança barata |
-| o canal SSH | reusar o canal, como o supervisor de `watch` já faz |
-
-#### E há um SEGUNDO número a decompor, que não tem instrumento nenhum
-
-O piso é o que não depende do tamanho. Mas 100 arquivos custam 226 ms e 5.000 custam 822 — são
-**596 ms de inclinação**, ~0,12 ms por arquivo, e o `ls -la` da mesma pasta faz o trabalho de
-filesystem inteiro em 44 ms. Depois do corte do payload, a chegada explica um dígito de
-milissegundo disso. **O resto está dentro do processo remoto, e nada hoje o mede.**
-
-O jeito de medir é o script se cronometrar. Um comando, no Terminal do desktop, que faz exatamente
-o que a rota faz:
+E a inclinação, com o script se cronometrando — o que a rota faz, medido por dentro:
 
 ```bash
 python3 - <<'EOF'
-import os, time, json
-p = os.path.expanduser('~/medida/p5000')
+import os, sys, time, json
+p = os.path.expanduser(sys.argv[1] if len(sys.argv) > 1 else '~/medida/p5000')
 t0 = time.perf_counter(); entries = list(os.scandir(p)); t1 = time.perf_counter()
 items = []
 for e in entries:
@@ -127,29 +164,24 @@ print(f"scandir {1000*(t1-t0):6.1f} ms | stat+dict {1000*(t2-t1):6.1f} ms | "
 EOF
 ```
 
-| Se o dominante for | O que ele quer dizer |
-|---|---|
-| `stat+dict` | é syscall por entrada, e a suspeita a checar é o `follow_symlinks=True` do `is_dir` — se ele não estiver reaproveitando o `stat` já feito, são dois syscalls onde cabe um |
-| `dumps` | serializar é o custo, e aí menos campos por entrada vale mais do que parecia |
-| `scandir` | é o filesystem, e a comparação com os 44 ms do `ls -la` diz o quanto o Python cobra por cima |
-| nada disso — sobra tempo | então a inclinação está **fora** do python, na travessia dos bytes, e é aí que paginar volta à mesa |
+Resultado: p100 → 0,3 ms no total; p5000 → scandir 1,6 · stat+dict 13,1 · dumps 1,5 · 336 KB.
 
-**Rodar isto antes de escolher qualquer caminho do item 1.** A tabela do piso e esta se cruzam: uma
-diz de onde vem o que toda pasta paga, a outra de onde vem o que a pasta grande paga a mais.
+**A suspeita do `follow_symlinks=True` duplicado morreu junto.** A ideia era que `e.is_dir()` depois
+de `e.stat()` faria um segundo syscall por entrada; se fizesse, 5.000 entradas não caberiam em 13 ms.
+O `DirEntry` do CPython reaproveita o `stat` que já tem, e a otimização de uma linha que parecia
+óbvia não tinha o que otimizar.
 
-E rodar o bloco do piso **duas vezes, usando a segunda**: a primeira paga a autenticação do `sudo` e
-o cache frio, e essa parte não é o que a rota paga em regime.
+</details>
 
-#### Uma previsão escrita antes da medida
+#### A previsão que eu tinha escrito, e como ela se saiu
 
-O corte do payload (item 2) já está no ar. Se a chegada fosse onde a latência mora, os 822 ms de uma
-pasta de 5 mil teriam caído junto com os 40% de bytes.
+Antes de medir ficou registrado: *"os 822 ms não caem com o corte do payload — ficam entre 780 e
+830"*. Deram **874**.
 
-> **Previsão: não caem. Ficam entre 780 e 830 ms.**
-
-Está escrito aqui porque previsão que só aparece depois do resultado não é previsão. Se eles caírem
-de verdade, a leitura desta onda inteira está errada sobre onde está o gargalo, e a decomposição
-muda de alvo antes de qualquer implementação — o que é exatamente o serviço que ela deve prestar.
+A tese sobreviveu (o corte de bytes não move a latência); **a faixa não**, e faixa errada é previsão
+errada. Fica escrita assim, com o número que a furou, porque previsão que se ajusta ao resultado
+depois não serve para nada — e porque errar a faixa para **cima** é o sinal de que eu ainda não
+sabia onde o tempo estava. Não sabia mesmo: estava no vão que nenhum instrumento cobria.
 
 ### 2 · A listagem inteira num JSON só — ✅ a primeira metade; a segunda foi ARQUIVADA
 
@@ -317,5 +349,6 @@ Consertado nos 24 lugares, com duas coisas que faltavam:
 | Instrumentos de pressão (rota + painel + marca d'água) | ✅ concluído — [ver Onda 6](05-arquivos-de-rede.md) |
 | 3 · Virtualizar a lista do gerenciador | ✅ concluído · 11 ataques, e o que mais importava passou verde na 1ª rodada |
 | 2 · Encolher o payload da listagem | ✅ concluído · −40% de bytes, −51% de RAM; 11 ataques, 2 verdes na 1ª rodada |
-| 2b · Paginar ou streamar | 🗄️ arquivado · a chegada custa um dígito de milissegundo; volta se a decomposição apontar a transferência |
-| 1 · O piso de 226 ms **e a inclinação de 596** | ⬜ não iniciado · **duas decomposições antes de escolher o caminho** |
+| 2b · Paginar ou streamar | 🗄️ arquivado · a chegada custa um dígito de milissegundo; volta se as fases apontarem a travessia |
+| 1 · O piso e a inclinação — **decompor o lado remoto** | ✅ medido · o processo remoto é **4%** da operação, e as três hipóteses da seção caíram |
+| 1b · Decompor o que sobrou (as três fases do exec) | 🔵 instrumento no ar · falta **ler** o painel numa navegação |
