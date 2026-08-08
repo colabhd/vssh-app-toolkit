@@ -1,13 +1,14 @@
 # Onda 6 — Pastas de rede do usuário
 
-> **Estado:** em execução · **Atualizado:** 2026-08-08 · **Repo:** `vssh-sso`
+> **Estado:** ✅ **usável ponta a ponta** · **Atualizado:** 2026-08-08 · **Repo:** `vssh-sso`
 > **Independente das Ondas 1–2** — pode correr em paralelo.
 > **Decidido:** WebDAV como padrão, S3 com suporte declaradamente limitado, credencial no portal
 > cifrada.
-> **Feito — o backend inteiro:** guarda de junção · leitor de `multistatus` · provider WebDAV só de
-> leitura · cofre cifrado com rotação · `userMounts` · `//rede/<id>` em `/fs/list` · as rotas de
-> sondar e guardar senha. **O ciclo funciona por `curl`, sem a tela.**
-> **Falta:** a tela (item 7), e a URL assinada apontando para fora (item 8).
+> **Feito:** guarda de junção · leitor de `multistatus` · provider WebDAV só de leitura · cofre
+> cifrado com rotação · `userMounts` · `//rede/<id>` em `/fs/list`, `/fs/read` e `/fs/stat` · as
+> rotas de sondar e guardar senha · **a tela**, no molde de Dispositivos · **a barra lateral**, com
+> cadeado quando falta a senha · **o portão** do que uma raiz ainda não faz, num lugar só.
+> **Falta:** a URL assinada apontando para fora (item 8) — e ela é otimização, não função.
 > **Antes de usar:** `VSSH_MOUNT_KEY` no Secret — `k8s/README.md` §1c.
 
 > ### ⚠ Esta onda foi reescrita duas vezes no mesmo dia, e a segunda foi um erro meu de leitura
@@ -104,10 +105,11 @@ contra o **mesmo** dado.
 > ofereça*. Aqui: o ambiente não conhece SeaweedFS, conhece **WebDAV**; o SeaweedFS é um servidor
 > WebDAV que por acaso é o de vocês. No dia em que alguém apontar para um Nextcloud, nada muda.
 
-## A tela: e ela já foi construída uma vez
+## A tela — ✅ feita, e não houve nada a inventar
 
-**Não há nada a inventar aqui**, e isso é resultado da Onda 5. A seção **Dispositivos** entregou,
-para impressora, exatamente a anatomia que uma pasta de rede pede:
+`vssh-client/js/settings/secoes-pastas-de-rede.js`, na família **Sistema**, ao lado de
+Dispositivos. Isso é resultado da Onda 5: a seção **Dispositivos** já tinha entregue, para
+impressora, exatamente a anatomia que uma pasta de rede pede:
 
 | Impressora (feito) | Pasta de rede (esta onda) |
 |---|---|
@@ -120,6 +122,40 @@ A única peça nova é a **credencial**, e ela também tem precedente: o **cofre
 Onda 4 — o portal grava no servidor do usuário, com modo `0600`, e **não guarda cópia**. Uma senha
 de WebDAV é a mesma classe de valor que um token de app, e tratá-la de outro jeito seria criar a
 segunda noção de segredo no sistema.
+
+### O que só apareceu ao construir a tela
+
+Quatro coisas, e nenhuma delas estava escrita aqui antes. As três primeiras são **estados que
+pareciam um e eram dois** — a assinatura desta roadmap inteira.
+
+**1. A ordem entre a preferência e o cofre, e ela é uma junção de verdade.** `PUT /settings`
+**poda** os segredos que não estão na lista que ele carrega. Se a tela mandar a senha antes de a
+montagem existir no servidor, a poda a apaga — e o sintoma seria *"guardei a senha e ela some
+sozinha"*, **intermitente**, porque `VsshSettings.set()` é coalescido em 400 ms e às vezes a
+gravação chega primeiro. A tela grava a montagem, **espera o `flush()`**, e só então manda o
+segredo. Um `await` no meio de uma função é fácil de apagar sem perceber; por isso há guarda.
+
+**2. Cancelar não é apagar.** O diálogo de senha devolve `null` quando a pessoa fecha e `''`
+quando ela escolhe explicitamente esvaziar o campo. Colapsar os dois faz **fechar no X remover a
+credencial** de quem só queria sair — e ela só descobre na próxima vez que abrir a pasta.
+
+**3. O cadeado é duas condições, não uma.** `precisaSenha && !temSenha`. Só a primeira o deixaria
+aceso para sempre, inclusive depois de a senha ser informada: vira enfeite, e deixa de significar
+*"falta fazer alguma coisa"*. E `precisaSenha` gravado sai do **veredito da sonda**, nunca de haver
+senha digitada — são perguntas diferentes ("esta pasta exige credencial" × "eu preenchi o campo"),
+e confundi-las marca com cadeado uma pasta pública.
+
+**4. A montagem do servidor tinha dois donos, e não podia.** A regra de o que conta como montagem
+da máquina — ler `/media`, e **desembrulhar** o `/media/<usuário>/` quando o host monta tudo lá
+dentro — morava dentro do gerenciador de arquivos. A seção de Configurações precisava da mesma
+resposta. Ela subiu para o `FsList`, com o cache de listagem injetado por quem tem um; duas cópias
+divergiriam no primeiro conserto, e o sintoma seria a mesma máquina listando coisas diferentes em
+duas telas.
+
+> **E o `.ds-dupla`/`.ds-mini` existia no CSS sem um único usuário.** O par de campos com rótulo
+> lado a lado tinha sido desenhado na 2.6 e nunca usado. Usuário e senha são exatamente o caso: os
+> dois merecem rótulo permanente, porque um placeholder some ao digitar — e *"qual destes dois eu
+> preenchi?"* é a pergunta que um formulário de credencial não pode deixar no ar.
 
 ### A credencial mora no portal, cifrada
 
@@ -295,6 +331,61 @@ pública e uma esperando senha ficam indistinguíveis na barra lateral — as du
 senha dela são preferência, do mesmo gênero que `userPrinters`. Manter `/fs/*` querendo dizer uma
 coisa só é o que permite ao `contrato-de-raiz` mapear aquele namespace inteiro sem exceção, e há
 guarda nos dois sentidos.
+
+## Os BYTES — ✅ `/fs/read` e `/fs/stat` também reconhecem a raiz
+
+Isto não estava na ordem, e entrou porque a tela o cobrou: **uma pasta que aparece na barra
+lateral, lista arquivos e não abre nenhum é a tela que promete e nega.** O provider já sabia ler
+com `Range` desde o primeiro dia — o que faltava era a rota reconhecer o caminho, que são trinta
+linhas. Sem elas, a Onda 6 entregaria um catálogo, não um armazenamento.
+
+| Decisão | Por quê |
+|---|---|
+| o corpo é **canalizado**, nunca materializado | um TIFF de 40 GB atravessa o portal sem existir na memória dele — é literalmente o que esta onda existe para não fazer |
+| o `close` do cliente **derruba a leitura de cima** | sem isso, fechar a aba no meio de um arquivo grande deixa o portal baixando do storage até o fim, pagando banda por bytes que ninguém vai receber |
+| `HEAD` **pergunta** (`PROPFIND` `Depth: 0`) | um `GET` com o corpo descartado faz o storage transferir o arquivo inteiro para nada — desperdício que não aparece em teste de tela nenhum: a resposta está certa, e a conta chega em quem hospeda |
+| `Content-Type` sai da **extensão**, com o servidor como segunda opinião | o SeaweedFS responde `application/octet-stream` para tudo que não reconhece, e um PNG com esse tipo **baixa em vez de aparecer**. É a mesma tabela que decide isso do lado do host: o mesmo arquivo se comporta igual nas duas raízes |
+| `Accept-Ranges` é **repassado, nunca declarado** | afirmá-lo sobre uma raiz que não recorta faz o leitor de PDF pedir pedaços e receber o arquivo inteiro a cada página rolada — sem erro nenhum, só lentidão que ninguém explica. É a regra da onda: declarar não é provar |
+
+**O item 8 continua valendo, e mudou de natureza:** com a leitura pelo portal, a URL assinada
+apontando para fora deixa de ser *"o que falta para ler"* e passa a ser *"o que tira o salto
+duplo"*. Ela é otimização, não função — e por isso pode esperar o `minShellVersion` com calma.
+
+## O portão do que uma raiz ainda NÃO faz — e ele é um lugar só
+
+O provider declara `write`, `mkdir`, `rename`, `copy` e `delete` como `false`. Faltava responder o
+que acontece quando alguém pede assim mesmo — e a resposta que existia era a pior possível:
+`safePath()` **normaliza `//` para `/`**, então `//rede/a1b2c3/dados` virava `/rede/a1b2c3/dados`,
+um caminho do host. O pedido não dava erro de sintaxe: dava **"não encontrado"** sobre um arquivo
+que a pessoa está vendo listado na tela.
+
+**A recusa foi escrita dentro do próprio `safePath()`** — o funil por onde todo caminho vindo do
+usuário passa antes de virar comando de shell. Uma linha, e ela vale para as vinte rotas de uma
+vez, **inclusive para a rota vinte e uma**, que ainda não existe. Um `if` por rota seria a vigésima
+chance de esquecer um, e o dia de esquecer seria o dia em que alguém acrescentasse uma rota nova.
+
+> E a guarda que sustenta isso não mede a frase: ela mede que **toda rota que lê um caminho do
+> pedido passa pelo funil**. Uma rota que leia `req.body.path` e o use direto não é recusada por
+> ninguém — e o defeito não apareceria na rota nova, apareceria na pasta de rede, que é o último
+> lugar onde alguém procuraria.
+
+**Do lado da tela, a outra metade: não oferecer o que vai ser recusado.** Um menu com "Renomear"
+que responde *"esta operação ainda não funciona"* é o controle que não morde da Onda 2.1 com um
+passo a mais — a pessoa clica, recebe um não, e não tem como saber que o não é permanente. Então,
+numa raiz de rede:
+
+- as ações de escrita **saem do menu**, e por uma lista só: o `FileContextMenu` se monta pelo que
+  **recebe**, então remover os retornos apaga as entradas nos dois menus de uma vez;
+- o **teclado** (F2, Delete, Ctrl+V/X/D) responde com a frase, em vez de abrir o campo de renomear
+  e recusar depois de a pessoa já ter digitado o nome novo;
+- o **arraste** tem as duas pontas fechadas — não se solta na lista, e não se arrasta de dentro. Um
+  alvo que aceita e depois desiste é a promessa desfeita **depois** do gesto.
+
+E duas coisas que a raiz **faz** e precisaram de ramo próprio: a **trilha** (pelo caminho genérico,
+`//rede/a1b2c3/dados` sairia como `/ › rede › a1b2c3 › dados`, cada pedaço apontando para um
+caminho do host, e o id derivado da URL no lugar do nome que a pessoa escolheu) e o **subir**, que
+para na raiz da montagem — um nível acima de `//rede/<id>` é `//rede`, que não é caminho de raiz
+nem de host.
 
 ## ⚙ O que precisa acontecer no cluster antes de isto funcionar
 
@@ -555,8 +646,10 @@ como a impressora de rede já é
 6. ~~**Ligar o provider às rotas.**~~ ✅ `/fs/list` reconhece `//rede/<id>/…`; o segredo em tabela
    à parte; `POST /mounts/probe` e `PUT /mounts/:id/senha`; a poda ao remover a montagem. **O ciclo
    inteiro existe sem a tela** — dá para exercitar por `curl` contra o SeaweedFS.
-7. **A tela**, no molde de Dispositivos: dois escopos, assistente que sonda (`PROPFIND`) antes de
-   guardar, e a pasta aparecendo na barra lateral do gerenciador — com cadeado quando
-   `precisaSenha`. **É o que falta**, e é todo de cliente.
+7. ~~**A tela**, no molde de Dispositivos.~~ ✅ `secoes-pastas-de-rede.js` — dois escopos,
+   assistente que sonda antes de guardar, a pasta na barra lateral com cadeado quando falta a
+   senha, e o portão do que ela ainda não faz. Junto vieram **os bytes** (`/fs/read` e `/fs/stat`
+   reconhecem a raiz), porque sem eles a tela promete e nega.
 8. **A URL assinada apontando para fora** — por último, porque é a única que quebra contrato
-   publicado e por isso precisa de `minShellVersion` e anúncio.
+   publicado e por isso precisa de `minShellVersion` e anúncio. Com a leitura pelo portal já
+   funcionando, ela virou **otimização** (tira o salto duplo), e não função.

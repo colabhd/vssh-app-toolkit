@@ -125,6 +125,7 @@ não se reescreve numa tarde.
 | 6 | [Pastas de rede do usuário](05-arquivos-de-rede.md) — a guarda de junção | vssh-sso | ✅ concluída **antes do primeiro provider**, e medindo desde já: a repartição das 28 rotas mora em código e é comparada com as rotas de verdade. O ataque nº 1 é "acrescentar `POST /fs/chmod` e seguir a vida" |
 | 6 | [Pastas de rede](05-arquivos-de-rede.md) — provider WebDAV, leitor de `multistatus`, cofre cifrado, `userMounts` | vssh-sso | ✅ concluído · rodado contra **dois** servidores em container (SeaweedFS e Apache mod_dav), o que derrubou quatro coisas que eu teria feito por imaginação — e a **sonda mentia** sobre uma capacidade que existia. A primeira criptografia em repouso do portal nasce com chave própria e rotação escrita antes do primeiro segredo |
 | 6 | [Pastas de rede](05-arquivos-de-rede.md) — o backend ligado ponta a ponta | vssh-sso | ✅ concluído · `/fs/list` reconhece `//rede/<id>` (barra dupla porque `/mnt` e `/media` **existem** no host), o segredo mora em tabela à parte — separação estrutural, não vigilância —, e a montagem que responde **401 é guardada** marcada como "precisa de senha", porque um 401 é uma sondagem bem-sucedida do endereço. **O ciclo roda por `curl`, sem a tela.** Falta a tela |
+| 6 | [Pastas de rede](05-arquivos-de-rede.md) — **a tela, a barra lateral e os bytes** | vssh-sso | ✅ concluído · a onda ficou **usável ponta a ponta**. A tela cobrou o que faltava: `/fs/read` e `/fs/stat` passaram a reconhecer a raiz, porque uma pasta que lista e não abre nada promete e nega. E o que ela **não** faz é dito num lugar só — a recusa mora no `safePath()`, o funil de todo caminho, e a tela não oferece o que seria recusado |
 | 6 | [Pastas de rede do usuário](05-arquivos-de-rede.md) | vssh-sso | 🔵 **desenho fechado, sem trava.** WebDAV é o padrão; S3 entra com suporte *declaradamente* limitado — diz `rename: false` em vez de emular, e a tela desabilita dizendo por quê. Credencial **no portal, cifrada**, com chave própria (o portal não cifra nada em repouso hoje — isto é novo, e o custo está escrito). As 27 operações repartidas: 9 do provider, 14 do portal, 4 em aberto |
 | 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — os medidores ganham leitor | vssh-sso | ✅ concluído · `sshSlotStats`, `sessionStats` e o coletor estavam **exportados e sem nenhum leitor**; e o dashboard reportava `activeSessions: 0` literal |
 | 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — UTF-8 partido na fronteira do chunk | vssh-sso | ✅ concluído · bug vivo, achado **gerando carga**; a refutação usa o código anterior como ataque |
@@ -352,6 +353,26 @@ Três coisas para levar:
 - **isto foi disparado por instalar uma ferramenta**, não por escrever código. É a irmã da lição da
   Onda 4 no CI (`systemd-run` existe no runner e não no Windows, e o caso passava por acidente) —
   e mostra que o ambiente é entrada do teste tanto quanto o código.
+
+> #### E a mesma armadilha voltou, pela outra ponta: resolver o `python3` quebrou cinco casos
+>
+> Dias depois, com o `python3` da máquina consertado, `pacotes-do-app.test.js` ficou vermelho em
+> cinco casos — e a acusação era contra o **produto**: *"o instalador recusa um app que não declara
+> pacote nenhum"*.
+>
+> Não era. As bancadas punham no PATH de mentira um impostor `python3` que normaliza a saída com
+> `tr -d '\r'`, **e só o escreviam quando o interpretador achado tinha outro nome** — porque um
+> impostor chamado `python3` que chamasse `python3` chamaria a si mesmo. O efeito é perverso: a
+> normalização existia exatamente onde não fazia falta, e **sumia no dia em que um `python3` de
+> verdade aparecesse**. Aí o CRLF do Python de Windows fazia `PACKAGES` valer `"\r"` em vez de
+> vazio, o portão que devia ser pulado cobrava um pacote de nome invisível, e a instalação era
+> recusada com a lista de faltantes em branco.
+>
+> Três coisas, e as três já estão nesta lista acima: **a regra estava copiada em dois arquivos**;
+> **o instrumento acusava o produto**; e o gatilho foi de novo **instalar uma ferramenta**. O
+> conserto é o mesmo de sempre — o impostor mora no helper, vai **sempre**, e delega a um caminho
+> absoluto resolvido antes de o PATH de mentira existir. No Linux o `tr` não tem o que tirar, que é
+> como se sabe que a bancada roda o mesmo caminho de código nos dois sistemas.
 
 ### Depois de executar, alguém tem de tentar ABRIR
 
