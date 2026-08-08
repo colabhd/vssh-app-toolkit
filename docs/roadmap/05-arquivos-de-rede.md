@@ -51,8 +51,38 @@ sentido como travamento" era hipótese quando foi escrita e continua sendo até 
 antiga em dezenas de milissegundos, a justificativa desta onda muda de "o SSH está estrangulando a
 navegação" para "o salto extra custa latência", que é uma onda menor e com outra prioridade.
 
-Sondar antes de implementar já mudou três itens da Onda 3 e três afirmações da Onda 5. Aqui é
-barato: a rota de estatística já existe.
+> ### ⚠ Corrigido de novo (08-08, mesma tarde): medir NÃO custava uma requisição — não havia requisição
+>
+> A revisão da manhã escreveu que este passo *"custa uma requisição: a rota de estatística já
+> existe"*. **Não existia.** `sshSlotStats()`, `sessionStats()` e `serverCollectorStats()` estavam
+> exportados e **nenhum tinha leitor** — sem rota, sem log, sem painel. Três funções escritas, cada
+> uma, com a justificativa por extenso de que *"sem isto o gargalo é invisível"*, e invisíveis.
+>
+> É a assinatura de sempre — duas informações que existem e não se encontram —, e é o caso mais
+> puro dela até agora: nenhum dos lados está errado, e um deles simplesmente não é chamado. Revisão
+> de código nunca pegaria: `sshSlotStats()` é impecável.
+>
+> **Feito, e o passo 1 agora é executável:** `GET /api/admin/pressao` devolve os três, e o painel de
+> administração tem o bloco **Pressão no SSH**. Três decisões que valem registro:
+>
+> - **o que se lê é o PICO, não o instantâneo.** As filas esvaziam em milissegundos; um `GET` num
+>   momento qualquer pega o servidor ocioso quase sempre e responde "não há gargalo" com toda a
+>   autoridade. A marca d'água é registrada na ENTRADA da fila, porque quem desiste — a aba fechou,
+>   o mouse saiu da pasta — some sem ser atendido, e é justamente a fila que fez desistir que
+>   interessa;
+> - **o teto sai junto do número.** `inFlight: 6` não quer dizer nada sem saber contra o quê, e os
+>   limites moravam só dentro do módulo;
+> - **não há veredito.** Um campo `apertado: true` seria uma segunda noção de aperto, livre para
+>   divergir da que o operador forma olhando os mesmos números — e as duas discordando é o pior
+>   caso possível, que é a lição do `shellVersionOk` do painel de apps.
+>
+> No caminho apareceu um irmão: o dashboard reportava **`activeSessions: 0`** — o literal —, com
+> `sessionStats()` sabendo a resposta no módulo ao lado desde a Onda 1. Um zero fixo é pior que
+> métrica nenhuma: diz "ninguém está usando" com a autoridade de um número.
+
+Sondar antes de implementar já mudou três itens da Onda 3 e três afirmações da Onda 5. **O que
+falta agora é olhar**: abrir o painel de administração num servidor com uso real, deixar rodar, e
+ler o pico. É esse número que decide se esta onda é grande ou pequena.
 
 ## O desenho: providers por ponto de montagem
 
@@ -234,8 +264,11 @@ de graça** ([critério 3.2](criterios.md#32--isso-sobrevive-à-troca-de-máquin
 
 ## Ordem sugerida, depois da revisão
 
-1. **Medir** `sshSlotStats()` num servidor com uso real. É o passo que decide se esta onda é grande
-   ou pequena, e ele custa uma requisição.
+0. ~~**Dar leitor aos medidores.**~~ ✅ **feito** — `GET /api/admin/pressao` e o bloco "Pressão no
+   SSH" no painel. Este passo não estava na lista porque a revisão da manhã presumiu que a rota
+   existia; ela não existia.
+1. **Medir** num servidor com uso real: abrir o painel, deixar rodar, ler o **pico**. É o passo que
+   decide se esta onda é grande ou pequena.
 2. **Escrever a separação** provider × portal das 26 operações. É desenho, não código, e é o que
    impede a extração de virar reescrita.
 3. **A guarda de junção**, antes do primeiro provider — no molde da Onda 5, com piso.

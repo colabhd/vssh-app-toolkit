@@ -121,7 +121,8 @@ não se reescreve numa tarde.
 | 5 | [Mensageria entre apps](04-runtime-composicao.md#mensageria-entre-apps---medida-escrita-e-cercada) — nada a construir; medida, escrita e cercada, com o limite junto | vssh-sso + toolkit | ✅ concluído |
 | 5 | [Seção de Configurações por manifesto](04-runtime-composicao.md#seção-de-configurações-declarada-por-manifesto) — resolvida por `engine.loader` para app de admin; falta a **decisão de confiança** para terceiro | — | 🔵 decisão, não tarefa |
 | 5 | [Extensão do `FileOpener`](04-runtime-composicao.md#ponto-de-extensão-no-fileopener---desenhado-falta-um-produtor-e-é-isso-que-falta) — desenhado sobre `provides`; falta um **produtor** (thumbnail/OCR/transcode) | — | 🔵 sem consumidor |
-| 6 | [Camada de arquivos de rede](05-arquivos-de-rede.md) | vssh-sso | ⬜ não iniciado · **revisada 08-08**: 7 afirmações caíram, e o 1º passo virou *medir* |
+| 6 | [Camada de arquivos de rede](05-arquivos-de-rede.md) — passo 0: os medidores ganham leitor | vssh-sso | ✅ concluído · `sshSlotStats`, `sessionStats` e o coletor estavam **exportados e sem nenhum leitor**; e o dashboard reportava `activeSessions: 0` literal |
+| 6 | [Camada de arquivos de rede](05-arquivos-de-rede.md) — o resto | vssh-sso | ⬜ não iniciado · **revisada 08-08**: 7 afirmações caíram, e o passo 1 é *medir o pico num servidor real* |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — item 3 (OPFS é cache) | vssh-sso + toolkit | ✅ concluído (saiu com a Onda 3) |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — item 4 (artefatos nascem no ambiente) | vssh-sso | ✅ em grande parte · download e PDF já nascem no servidor; o relatório de bug **não nasceu em lugar nenhum — foi deletado**, e o `FileSaver.js` com ele. Sobra o log do app |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — itens 1 e 2 | vssh-sso + toolkit | ⬜ não iniciado · o item 2 trava numa **decisão de produto** |
