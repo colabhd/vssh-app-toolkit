@@ -1,6 +1,12 @@
 # Ondas 0 e 3 — Toolkit: higiene e a FSA de verdade
 
-> **Estado:** Onda 0 concluída · Onda 3 não iniciada · **Atualizado:** 2026-08-05 · **Repo:** toolkit
+> **Estado:** Onda 0 concluída · **Onda 3 🟢 fechada** (T9, T1, T2, T6, T7, os dois shims, a metade
+> declarativa do `requiredPackages` e a cópia vendorizada) · **Atualizado:** 2026-08-08 ·
+> **Repo:** toolkit
+>
+> *(Este cabeçalho dizia "Onda 3 não iniciada" até 08-08, com a seção dela marcada como fechada
+> quatro parágrafos abaixo. Cabeçalho é o que se lê primeiro, e era o único lugar do arquivo que
+> ainda estava errado.)*
 >
 > Revisado contra o código em 2026-08-05, junto com a [Onda 4/5](04-runtime-composicao.md). T1, T2 e
 > T9 continuam verdadeiros como estão escritos; a pendência da tag `v2` não é pendência; e o

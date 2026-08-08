@@ -1,6 +1,11 @@
 # Onda 6b — A navegação de arquivos, medida
 
-> **Estado:** em execução · **Atualizado:** 2026-08-08 · **Repo:** `vssh-sso`
+> **Estado:** ✅ **fechada** — e **sem a otimização que ela existia para fazer**, porque a medição
+> mostrou que não havia o que otimizar: uma listagem de 5.000 arquivos custa **157 ms**
+> (51 abrir o canal / 64 esperar o remoto / 42 receber os bytes), e os 874 ms que a onda perseguia
+> eram **do coletor**, não da navegação. O que sobrou de verdade — UTF-8 partido, virtualização da
+> lista, payload −40% — está feito. O coletor foi arquivado **com o número e o gatilho de volta**.
+> **Atualizado:** 2026-08-08 · **Repo:** `vssh-sso`
 > **Independente de tudo** — inclusive da [Onda 6](05-arquivos-de-rede.md), de onde ela saiu.
 
 ## De onde esta onda veio

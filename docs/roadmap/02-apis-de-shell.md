@@ -1,15 +1,20 @@
 # Onda 2 — APIs de shell: tray, notificações, clipboard, impressão
 
-> **Estado:** em andamento · **Atualizado:** 2026-08-03 · **Repos:** `vssh-sso` + toolkit
+> **Estado:** ✅ **as seis subondas entregues** · **Atualizado:** 2026-08-08 · **Repos:** `vssh-sso`
+> + toolkit
 > **Dependência da** [Onda 1](01-sessao-sem-xpra.md) **satisfeita** — a sessão existe
 > (`services/session.ts`), e com ela o canal que esta onda precisava.
 >
-> **Feito:** a [2.1 inteira](#21--tray---concluída) — bandeja com as duas fontes (app com janela e
-> `engine`/`service` por arquivo), o transporte da [2.0](#o-transporte-o-coletor-por-servidor---feito),
-> a taskbar obedecendo às capabilities e a tela cheia no hambúrguer; e a
-> [2.5](#25--mixer-de-volume-por-aplicação---concluída), que devolveu o botão de volume ao perfil
-> sem Xpra — como mixer, e não como o toggle que a 2.1 tirou.
-> **Falta:** 2.6. (2.2, 2.3 e 2.4 estão marcadas nas suas seções.)
+> **Feito:** 2.0 (o transporte), 2.1 (bandeja com as duas fontes, taskbar por capability),
+> 2.2 (centro de notificações e o relógio), 2.3 (clipboard — que encolheu ao ser medido),
+> 2.4 (impressão, pelo destino que funciona hoje: a fila CUPS do host), 2.5 (mixer por aplicação) e
+> 2.6 (a janela de Configurações refeita, com registro de seções).
+> **Em aberto, e nenhum deles é tarefa esperando prioridade:** o **PDF gerado no ambiente**
+> (2.4, destino 1) precisa de um motor `provides: ["print/v1"]` — falta o **produtor**, não a
+> decisão; e a verificação da 2.4 contra uma fila CUPS de verdade, um `.docx` e uma fila raw.
+>
+> *(Este cabeçalho dizia "Falta: 2.6" até 08-08, com a seção da 2.6 marcada como feita. Cabeçalho
+> é o que se lê primeiro.)*
 >
 > ⚠ **A [Onda 0c](0c-colapso-de-variantes.md) é pré-requisito da 2.6** e recomendada antes da 2.2:
 > enquanto o tema `neon` e o modo `dock` existirem, cada superfície nova aqui nasce com duas

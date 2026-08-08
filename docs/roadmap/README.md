@@ -135,7 +135,7 @@ não se reescreve numa tarde.
 | 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — decompor a latência da listagem | vssh-sso | ✅ **medido, e não havia gargalo nenhum.** Uma listagem de 5.000 arquivos custa **157 ms** (51 abrir · 64 remoto · 42 receber). Os 874 ms que a onda perseguia eram do **coletor por servidor**, que roda a cada 5 s: "Operação mais longa" era um pico sobre TUDO e não dizia de quem. Caíram junto os "95% da latência é nossa", os "9,7 op/s", o piso de 226 e a inclinação de 596 |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — item 3 (OPFS é cache) | vssh-sso + toolkit | ✅ concluído (saiu com a Onda 3) |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — item 4 (artefatos nascem no ambiente) | vssh-sso | ✅ em grande parte · download e PDF já nascem no servidor; o relatório de bug **não nasceu em lugar nenhum — foi deletado**, e o `FileSaver.js` com ele. Sobra o log do app |
-| 7 | [Continuidade entre máquinas](06-portabilidade.md) — itens 1 e 2 | vssh-sso + toolkit | ⬜ não iniciado · o item 2 trava numa **decisão de produto** |
+| 7 | [Continuidade entre máquinas](06-portabilidade.md) — itens 1 e 2 | vssh-sso + toolkit | ⬜ não iniciado · **é a única frente construível que sobrou** — o item 1 virou "copiar a forma de `userPrinters`", e o item 2 trava numa **decisão de produto** (handoff, espelho ou escopos separados) |
 
 ### E uma onda revisada rende tanto quanto uma executada
 
