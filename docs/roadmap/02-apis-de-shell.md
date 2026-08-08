@@ -9,12 +9,15 @@
 > 2.2 (centro de notificações e o relógio), 2.3 (clipboard — que encolheu ao ser medido),
 > 2.4 (impressão, pelo destino que funciona hoje: a fila CUPS do host), 2.5 (mixer por aplicação) e
 > 2.6 (a janela de Configurações refeita, com registro de seções).
-> **Em aberto, e nenhum deles é tarefa esperando prioridade:** o **PDF gerado no ambiente**
-> (2.4, destino 1) precisa de um motor `provides: ["print/v1"]` — falta o **produtor**, não a
-> decisão; e a verificação da 2.4 contra uma fila CUPS de verdade, um `.docx` e uma fila raw.
+> **Os três destinos de impressão existem**, inclusive o PDF gerado no ambiente — o motor é
+> `examples/print-engine`, no toolkit, e o diálogo o encontra por **capacidade**.
+> **Em aberto:** só a **verificação** da 2.4 contra uma fila CUPS de verdade, um `.docx` e uma fila
+> raw. Não é construção.
 >
-> *(Este cabeçalho dizia "Falta: 2.6" até 08-08, com a seção da 2.6 marcada como feita. Cabeçalho
-> é o que se lê primeiro.)*
+> *(Este cabeçalho dizia "Falta: 2.6" até 08-08, com a seção da 2.6 marcada como feita. E na
+> primeira correção, no mesmo dia, eu escrevi que o PDF **faltava produtor** — copiando o texto
+> velho da seção 2.4 em vez de conferir o código, que é exatamente o erro que esta roadmap
+> cataloga. O produtor existe desde a Onda 5, com teste de junção medindo os dois repositórios.)*
 >
 > ⚠ **A [Onda 0c](0c-colapso-de-variantes.md) é pré-requisito da 2.6** e recomendada antes da 2.2:
 > enquanto o tema `neon` e o modo `dock` existirem, cada superfície nova aqui nasce com duas
@@ -699,8 +702,25 @@ fim. A armadilha que apareceu junto está registrada lá: eu tinha concluído **
 campos de texto não tinham idioma compartilhado nos diálogos, porque procurei `.pnd-input`. O que
 existe é `.pnd-field`, e estava lá o tempo todo — a conclusão errada virou uma variante nova.
 
-**Continua faltando só o que depende da Onda 5:** o PDF gerado no ambiente, com fidelidade ao CSS
-de impressão, quando houver um motor `provides: ["print/v1"]`.
+### ✅ E o destino 1 saiu — o PDF gerado no ambiente
+
+> **Esta seção dizia *"continua faltando o que depende da Onda 5"* até 08-08, e estava errada há
+> semanas.** O motor foi construído: `examples/print-engine`, no toolkit — `type: "engine"`,
+> `provides: ["print/v1"]`, chromium headless declarado em `requiredPackages` com as quatro
+> alternativas, `/healthz`, `/capabilities` e `POST /render`.
+
+O diálogo resolve o destino **por capacidade** (`appComCapacidade('print/v1')`), nunca por nome de
+app — trocar o motor não custa uma linha aqui. E **sem motor instalado o destino não aparece**: não
+é botão desabilitado esperando, é a régua do `disponivel()` das seções e a lição do botão de volume
+morto da 2.1.
+
+A junção entre os dois repositórios é medida por `tests/unit/print-v1.test.js`, que lê o manifesto e
+o servidor do motor no toolkit: cada lado sozinho está certo em qualquer versão do contrato, e é no
+meio que o defeito mora.
+
+**E ele já cobrou preço num servidor de verdade:** o motor declarava `"chromium"` e foi **recusado**
+num host onde o pacote se chama `chromium-browser` — foi isso que fez `requiredPackages` aceitar
+alternativas (`a | b`, no idioma do `Depends:` do Debian).
 
 **O que ainda não foi verificado:** um host **com** fila CUPS de verdade (a prévia, a troca de
 impressora recarregando opções e o `lp` com cópias e intervalo foram exercitados só pela Debug

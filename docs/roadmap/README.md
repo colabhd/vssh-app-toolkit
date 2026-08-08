@@ -92,7 +92,7 @@ não se reescreve numa tarde.
 | 2 | [Impressão — fila do servidor](02-apis-de-shell.md#-destino-3-primeiro--e-a-ordem-tem-motivo) — o arquivo não viaja para imprimir | vssh-sso | ✅ concluído |
 | 2 | [Impressão — `vssh.print()` e o destino no navegador](02-apis-de-shell.md#-e-os-outros-dois-destinos-desbloqueados) | vssh-sso + toolkit | ✅ concluído |
 | 2 | [Impressão — a tela vira diálogo de verdade](02-apis-de-shell.md#-e-então-virou-um-diálogo-de-impressão-de-verdade) — prévia preguiçosa, opções da própria fila, o overlay vira janela, e o navegador vira um destino da lista | vssh-sso | ✅ concluído |
-| 2 | [Impressão — PDF gerado no ambiente](04-runtime-composicao.md#registro-de-capabilities) — o terceiro destino, destravado pelo `provides` | vssh-sso + toolkit () | ✅ concluído · era o único item vermelho da Onda 2 |
+| 2 | [Impressão — PDF gerado no ambiente](04-runtime-composicao.md#registro-de-capabilities) — o terceiro destino, destravado pelo `provides` | vssh-sso + toolkit | ✅ concluído · era o único item vermelho da Onda 2. O motor é `examples/print-engine`, o diálogo o acha por **capacidade**, e `print-v1.test.js` mede a junção entre os dois repositórios |
 | 2 | [Mixer de volume por aplicação](02-apis-de-shell.md#25--mixer-de-volume-por-aplicação---concluída) — o botão volta ao perfil sem Xpra como mixer; master, por app e por aba | vssh-sso + toolkit | ✅ concluído |
 | 2 | [Rede de classes CSS](02-apis-de-shell.md#o-que-o-critério-33-exigiu) (`client-css-classes.test.js`) — o simétrico do `client-dom-ids` que faltava | vssh-sso | ✅ concluído |
 | 2 | [Configurações refeitas](02-apis-de-shell.md#26--a-janela-de-configurações-refeita---feito) + `SettingsRegistry`, `VsshSettings`, `RemoteDesktopEngines`; o portal saiu | vssh-sso | ✅ feito |

@@ -813,9 +813,11 @@ o que permite trocar o produtor sem tocar em nenhum consumidor.
 > servidor**, o que significa índice no `/api/apps` e a decisão de subir o backend do vencedor.
 
 ~~Primeiro consumidor real sugerido: o **engine de impressão** (`print/v1`)~~ — **e o primeiro
-consumidor real acabou sendo outro, que já existia.** O `print/v1` continua sendo o próximo, e é
-ele que destrava o item vermelho da Onda 2; mas a medição achou um consumidor **vivo hoje** com
-exatamente o acoplamento que o campo existe para desfazer:
+consumidor real acabou sendo outro, que já existia.** O `print/v1` veio logo depois e **está
+entregue**: `examples/print-engine` no toolkit, o diálogo de impressão resolvendo por capacidade, e
+`tests/unit/print-v1.test.js` medindo a junção entre os dois repositórios. Ele destravou o item que
+estava vermelho na Onda 2 desde o começo. Mas a medição tinha achado antes um consumidor **vivo
+hoje**, com exatamente o acoplamento que o campo existe para desfazer:
 
 ```js
 vssh-client/js/browser/ScramjetEngine.js:16
