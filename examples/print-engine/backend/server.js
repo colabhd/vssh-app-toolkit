@@ -39,8 +39,21 @@ const PORT = Number(process.env.VSSH_APP_PORT) || 0;
 const TOKEN = process.env.VSSH_APP_TOKEN || '';
 const DATA = process.env.VSSH_APP_DATA_DIR || os.tmpdir();
 
-/** Os nomes com que o chromium se apresenta em distro de verdade. Ordem = preferência. */
-const CANDIDATOS = ['chromium', 'chromium-browser', 'google-chrome', 'google-chrome-stable'];
+/**
+ * Os nomes com que um navegador da família chromium se apresenta em servidor de verdade. Ordem =
+ * preferência.
+ *
+ * Todos aceitam `--headless=new --print-to-pdf`: é a mesma engine, empacotada por gente diferente.
+ * O Edge está aqui porque um servidor real tinha Chrome e Edge e nenhum `chromium` — e o motor foi
+ * recusado na instalação por um nome, não por uma falta. A lista aqui e o `requiredPackages` do
+ * manifesto dizem a MESMA coisa em dois lugares: o manifesto decide se instala, esta lista decide
+ * se renderiza, e as duas divergirem é o defeito que faz o app instalar e não funcionar.
+ */
+const CANDIDATOS = [
+  'chromium', 'chromium-browser',
+  'google-chrome', 'google-chrome-stable',
+  'microsoft-edge', 'microsoft-edge-stable',
+];
 
 let _binario = null;
 function acharChromium() {
@@ -128,8 +141,10 @@ const servidor = http.createServer(async (req, res) => {
       ok: !!bin,
       // Nomear o pacote é o que transforma "não funciona" em uma linha de comando para quem
       // administra. `requiredPackages` já recusa a instalação sem ele; isto cobre o servidor em
-      // que alguém o removeu depois.
-      motivo: bin ? null : 'chromium não encontrado neste servidor (apt-get install -y chromium)',
+      // que alguém o removeu depois. E nomear TODOS os que serviriam é o que impede a mensagem de
+      // mandar instalar chromium num servidor que já tem Chrome — o erro que originou esta lista.
+      motivo: bin ? null
+        : `nenhum navegador da família chromium encontrado neste servidor. Qualquer um destes serve: ${CANDIDATOS.join(', ')} (apt-get install -y chromium)`,
     });
   }
 

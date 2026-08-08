@@ -72,11 +72,11 @@
     },
     "requiredPackages": {
       "type": "array",
-      "description": "Pacotes Linux de que o app precisa para funcionar (ffmpeg, pandoc, rclone…). Declarar é o ponto: hoje uma dependência de sistema se esconde num installCommand opaco, e não há como responder 'este app roda neste servidor?' sem executá-lo. Nomes no formato Debian; quem VERIFICA é o portal (vssh-app-install recusa antes de instalar, e o painel admin mostra o que falta por servidor).",
+      "description": "Pacotes Linux de que o app precisa para funcionar (ffmpeg, pandoc, rclone…). Declarar é o ponto: hoje uma dependência de sistema se esconde num installCommand opaco, e não há como responder 'este app roda neste servidor?' sem executá-lo. Cada item é uma EXIGÊNCIA, e uma exigência pode ter alternativas separadas por '|' — 'chromium | google-chrome-stable' quer dizer que qualquer um dos dois serve. Quem VERIFICA é o portal (vssh-app-install recusa antes de instalar, e o painel admin mostra o que falta por servidor).",
       "items": {
         "type": "string",
-        "pattern": "^[a-z0-9][a-z0-9+.-]*$",
-        "description": "Nome de pacote. O padrão é restritivo de propósito: este valor chega a um gerenciador de pacotes no servidor, e um nome com metacaractere de shell seria injeção — o gate de publicação é o lugar certo para recusá-lo."
+        "pattern": "^[a-z0-9][a-z0-9+.-]*( *\\| *[a-z0-9][a-z0-9+.-]*)*$",
+        "description": "Uma exigência: um nome de pacote, ou vários separados por '|' quando qualquer um deles satisfaz — a ordem é a de PREFERÊNCIA, e é a primeira que as mensagens sugerem instalar. O alfabeto de cada nome é restritivo de propósito: este valor chega a um gerenciador de pacotes no servidor, e um nome com metacaractere de shell seria injeção. O '|' é a única exceção, e ele nunca atravessa como shell: quem confere separa as alternativas ANTES de montar o comando."
       }
     },
     "resources": {

@@ -90,13 +90,25 @@ if not b.get('entrypoint'):
 #
 # O erro nomeia o valor reprovado: "pacote inválido" sozinho manda quem publica conferir a lista
 # inteira à mão.
+#
+# Cada item é uma EXIGÊNCIA, e uma exigência pode ter ALTERNATIVAS separadas por '|' — o idioma do
+# `Depends: a | b` do Debian, e pelo mesmo motivo: "preciso de um navegador do tipo chromium" é uma
+# exigência que três pacotes diferentes satisfazem, e declarar só um recusa a instalação em
+# servidores onde o app rodaria perfeitamente. O '|' é o ÚNICO metacaractere admitido, e ele nunca
+# atravessa como shell: quem confere separa as alternativas antes de montar comando nenhum.
+_ALT = r'[a-z0-9][a-z0-9+.\-]*'
 pkgs = m.get('requiredPackages')
 if pkgs is not None:
     if not isinstance(pkgs, list):
         print('ERROR=requiredPackages_nao_e_lista'); sys.exit(0)
     for nome in pkgs:
-        if not isinstance(nome, str) or not re.match(r'^[a-z0-9][a-z0-9+.\-]*$', nome):
-            print(f'ERROR=pacote_invalido:{nome!r}'); sys.exit(0)
+        if not isinstance(nome, str) or not re.match(r'^%s( *\| *%s)*$' % (_ALT, _ALT), nome):
+            # Um '|' presente mas com uma alternativa torta é o erro provável desta sintaxe — e
+            # dizer só "pacote inválido" mandaria conferir a linha inteira em vez do pedaço.
+            ruim = next((a for a in str(nome).split('|')
+                         if not re.match(r'^%s$' % _ALT, a.strip())), None) if isinstance(nome, str) and '|' in nome else None
+            print(f'ERROR=pacote_invalido:{nome!r}' + (f'; a alternativa {ruim.strip()!r} não é nome de pacote' if ruim else ''))
+            sys.exit(0)
 
 # `resources` pelo MESMO motivo que `requiredPackages`, e não por simetria: cada valor daqui vira
 # um `-p Propriedade=<valor>` numa linha de comando de `systemd-run` rodando como o usuário. O

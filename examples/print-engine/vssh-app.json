@@ -7,7 +7,7 @@
   "category": "Engine",
   "description": "Gera PDF no próprio servidor, com o mesmo motor de renderização do navegador — então o PDF se parece com o que a pessoa viu na tela. Sem janela própria: é consumido pelo diálogo de impressão do ambiente.",
   "provides": ["print/v1"],
-  "requiredPackages": ["chromium"],
+  "requiredPackages": ["chromium | chromium-browser | google-chrome-stable | microsoft-edge-stable"],
   "resources": {
     "memoryMax": "1G",
     "tasksMax": "256"

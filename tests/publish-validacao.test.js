@@ -100,6 +100,42 @@ test('requiredPackages tem de ser lista', seNaoTem, () => {
   assert.match(validar({ ...BASE, requiredPackages: [42] }), /^ERROR=pacote_invalido:/m);
 });
 
+// ─── Uma exigência não é um pacote ────────────────────────────────────────────
+//
+// O caso real que fez esta sintaxe existir: um motor de impressão declarava `"chromium"` e foi
+// RECUSADO num servidor que tinha Chrome e Edge — dois programas que fazem exatamente o que ele
+// precisa. O app exige uma FERRAMENTA; o nome do pacote que a entrega muda com a distro e com o
+// repositório de onde ela vem. `|` é o idioma do `Depends: a | b` do Debian, e é o único
+// metacaractere que este campo admite.
+
+test('requiredPackages aceita ALTERNATIVAS separadas por barra', seNaoTem, () => {
+  for (const bom of [
+    'chromium | chromium-browser | google-chrome-stable',
+    'ffmpeg|libav-tools',                      // sem espaço também
+    'a | b',
+  ]) {
+    assert.match(validar({ ...BASE, requiredPackages: [bom] }), /^ID=x$/m, `recusou: ${bom}`);
+  }
+});
+
+test('a barra é a ÚNICA exceção — o resto do alfabeto continua fechado', seNaoTem, () => {
+  // Admitir um metacaractere num campo cuja defesa inteira é o alfabeto só se paga se a fresta
+  // for exatamente do tamanho da sintaxe. `||` é o operador do shell, e ele não passa.
+  for (const veneno of ['chromium || rm -rf /', 'a | ; id', '| chromium', 'chromium |', 'a | B']) {
+    assert.match(validar({ ...BASE, requiredPackages: [veneno] }), /^ERROR=pacote_invalido:/m,
+      `passou: ${veneno}`);
+  }
+});
+
+test('o erro aponta QUAL alternativa está torta', seNaoTem, () => {
+  // Numa exigência com quatro nomes, "pacote inválido" manda conferir os quatro à mão — e três
+  // deles estão certos.
+  const saida = validar({ ...BASE, requiredPackages: ['chromium | Google-Chrome | edge'] });
+  assert.match(saida, /^ERROR=pacote_invalido:/m);
+  assert.match(saida, /a alternativa 'Google-Chrome' não é nome de pacote/,
+    'o erro não nomeia o pedaço reprovado, só a linha inteira');
+});
+
 // ─── `resources`: o mesmo motivo, não a simetria ──────────────────────────────
 //
 // Cada valor daqui vira um `-p Propriedade=<valor>` numa linha de comando de `systemd-run` rodando
@@ -344,6 +380,12 @@ test('o schema é a fonte da verdade, e conhece o campo novo', seNaoTem, () => {
   const campo = schema.properties.requiredPackages;
   assert.equal(campo.type, 'array');
   assert.equal(campo.items.type, 'string');
-  assert.match('ffmpeg', new RegExp(campo.items.pattern));
-  assert.doesNotMatch('ffmpeg; rm -rf /', new RegExp(campo.items.pattern));
+  const re = new RegExp(campo.items.pattern);
+  assert.match('ffmpeg', re);
+  assert.doesNotMatch('ffmpeg; rm -rf /', re);
+  // O schema e a conferência explícita têm de aceitar a MESMA sintaxe. Divergindo, um manifesto
+  // passa num gate e é recusado no outro — e a mensagem vem do gate errado.
+  assert.match('chromium | google-chrome-stable', re, 'o schema não conhece alternativas');
+  assert.doesNotMatch('chromium || rm -rf /', re);
+  assert.doesNotMatch('chromium |', re);
 });

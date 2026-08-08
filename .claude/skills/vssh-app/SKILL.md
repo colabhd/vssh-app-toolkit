@@ -79,14 +79,25 @@ falta num app concreto.
   },                                   // Aplicativos). O arquivo escolhido chega via
                                        // `open-context` (ver seção abaixo). Generaliza `handles`,
                                        // que só cobre os 5 launchers embutidos.
-  "requiredPackages": ["ffmpeg"],     // opcional: pacotes Linux de que o app precisa para
-                                       // funcionar. DECLARAR é o ponto — hoje uma dependência de
+  "requiredPackages": ["ffmpeg",      // opcional: pacotes Linux de que o app precisa para
+    "chromium | google-chrome-stable"],// funcionar. DECLARAR é o ponto — hoje uma dependência de
                                        // sistema se esconde num installCommand opaco, e não há
                                        // como responder "este app roda neste servidor?" sem
                                        // executá-lo. Nomes no formato Debian: o publish RECUSA
                                        // qualquer coisa fora de `^[a-z0-9][a-z0-9+.-]*$`, porque
                                        // este valor chega a um gerenciador de pacotes no servidor
                                        // e um metacaractere de shell ali seria injeção.
+                                       // CADA ITEM É UMA EXIGÊNCIA, e ela pode ter ALTERNATIVAS
+                                       // separadas por `|` — o idioma do `Depends: a | b` do
+                                       // Debian, e qualquer uma satisfaz. Use quando o que você
+                                       // precisa é uma FERRAMENTA cujo pacote muda de nome com a
+                                       // distro ou vem de repositório de terceiro: um motor de
+                                       // impressão que declarasse só "chromium" seria recusado
+                                       // num servidor com Chrome e Edge instalados, que rodaria
+                                       // o app perfeitamente. A ordem é a de PREFERÊNCIA — é a
+                                       // primeira que as mensagens de erro mandam instalar.
+                                       // O `|` é o único metacaractere admitido, e ele nunca
+                                       // atravessa como shell: quem confere separa antes.
                                        // Quem VERIFICA é o servidor: o `vssh-app-install` RECUSA
                                        // antes de copiar nada, nomeando o que falta e a linha de
                                        // `apt-get` que resolve (escape: --sem-checar-pacotes). E o
