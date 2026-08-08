@@ -126,7 +126,8 @@ não se reescreve numa tarde.
 | 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — os medidores ganham leitor | vssh-sso | ✅ concluído · `sshSlotStats`, `sessionStats` e o coletor estavam **exportados e sem nenhum leitor**; e o dashboard reportava `activeSessions: 0` literal |
 | 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — UTF-8 partido na fronteira do chunk | vssh-sso | ✅ concluído · bug vivo, achado **gerando carga**; a refutação usa o código anterior como ataque |
 | 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — virtualizar a lista do gerenciador | vssh-sso | ✅ concluído · a RAM apareceu **em uso**; os 4 dependentes da geometria conferidos um a um, e um deles quebrava |
-| 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — encolher o payload, o piso de 226 ms | vssh-sso | ⬜ não iniciado · medido: **95% da latência de uma listagem é nossa**, e em disco local |
+| 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — encolher o payload da listagem | vssh-sso | ✅ concluído · o `path` absoluto saiu do fio (−40% de bytes) e voltou como **getter**, não como campo — reconstruir e guardar tinha ganho **zero** de RAM, e o corte real foi de 10,3 para 5,0 MB |
+| 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — o piso de 226 ms e a inclinação de 596 | vssh-sso | ⬜ não iniciado · medido: **95% da latência de uma listagem é nossa**, e em disco local. **Duas decomposições antes de escolher o caminho** — a receita das duas está escrita |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — item 3 (OPFS é cache) | vssh-sso + toolkit | ✅ concluído (saiu com a Onda 3) |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — item 4 (artefatos nascem no ambiente) | vssh-sso | ✅ em grande parte · download e PDF já nascem no servidor; o relatório de bug **não nasceu em lugar nenhum — foi deletado**, e o `FileSaver.js` com ele. Sobra o log do app |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — itens 1 e 2 | vssh-sso + toolkit | ⬜ não iniciado · o item 2 trava numa **decisão de produto** |
@@ -250,6 +251,26 @@ teste procurasse; acrescentar um comentário legítimo noutro ponto do arquivo m
 uma classe viva desde sempre apareceu como morta. **A mesma armadilha já tinha custado 14 KB na
 guarda de junção do manifesto** — e reincidência é sinal de que a lição precisava estar aqui, e não
 só num comentário: **comentário de bloco só conta quando abre a linha.**
+
+##### Depois da segunda vez, a pergunta certa não é "consertei?" — é "quantas mais existem?"
+
+O conserto acima foi pontual: um arquivo, o que estava vermelho. Ao escrever a guarda seguinte,
+perguntei quantos outros testes escreviam o mesmo stripper solto. **Eram 24, em 21 arquivos**, e
+rodar os dois strippers sobre a base inteira deu o tamanho do que ninguém via: **58.586 bytes**
+comidos de `src/routes/system.ts`, **40.402** do `FileBrowserWindow.js`, e mais dez arquivos atrás.
+O `system.ts` era justamente onde ia morar a guarda que eu estava escrevendo.
+
+Nada disso apareceu como vermelho, e nada disso apareceria: um extrator que engole código produz
+guarda que **passa**. A varredura é o único jeito de achar, e ela custou um comando. Três coisas
+saíram daí, e a terceira é a que importa:
+
+- os 24 sites passaram à forma ancorada — e a suíte seguiu verde, o que quer dizer que **nenhuma
+  guarda dependia de engolir código**, e que as 24 estavam medindo menos do que diziam;
+- `tests/helpers/sem-comentarios.js`, que é onde a lição mora e de onde teste novo importa (com um
+  `semComentariosCss` à parte, solto de propósito: não há literal de regex em CSS);
+- **uma guarda que proíbe a forma errada em qualquer teste.** É ela, e não o helper, que impede a
+  quarta vez — um helper novo não impede ninguém de escrever o velho de novo, e foi exatamente isso
+  que aconteceu entre a primeira e a segunda.
 
 O teste de "o teste está MEDINDO alguma coisa" existe em vários arquivos desta base por causa disso.
 Ele não é zelo — é o único que percebe quando um regex parou de casar.
