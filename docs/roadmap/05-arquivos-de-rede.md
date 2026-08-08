@@ -1,7 +1,9 @@
 # Onda 6 — Pastas de rede do usuário
 
-> **Estado:** não iniciado · **Atualizado:** 2026-08-08 · **Repo:** `vssh-sso`
+> **Estado:** desenho fechado, sem trava · **Atualizado:** 2026-08-08 · **Repo:** `vssh-sso`
 > **Independente das Ondas 1–2** — pode correr em paralelo.
+> **Decidido:** WebDAV como padrão, S3 com suporte declaradamente limitado, credencial no portal
+> cifrada. O próximo passo é código: a guarda de junção, e depois um provider WebDAV só de leitura.
 
 > ### ⚠ Esta onda foi reescrita duas vezes no mesmo dia, e a segunda foi um erro meu de leitura
 >
@@ -48,10 +50,36 @@ O que a onda entrega:
 É a estrela-guia aplicada ao dado: o armazenamento deixa de ser propriedade do servidor e passa a
 ser do usuário.
 
-## O protocolo: padronizar em UM, e qual
+## O protocolo: WebDAV, com S3 de suporte limitado
 
-Esta é a decisão que a onda tem de tomar primeiro, porque tudo depende dela. As candidatas, e o que
-cada uma custa:
+**O padrão da onda é WebDAV. S3 entra como segundo provider, com suporte declaradamente limitado.**
+
+O motivo é o consumidor: quem come esta onda é um **gerenciador de arquivos**, e um gerenciador
+precisa de renomear, mover, criar pasta e apagar. WebDAV tem isso na semântica; S3 não tem. E o
+ambiente já falou WebDAV três vezes sem saber — o SeaweedFS do k3s, o Nextcloud e o SharePoint são
+todos servidores WebDAV, então padronizar aqui não é adotar um produto, é parar de precisar
+escolher.
+
+### "Limitado" é uma palavra do contrato, não uma ressalva de rodapé
+
+Esta é a parte que muda o desenho, e ela vem da mesma régua que a Onda 5 fixou: **declarar não é
+provar, e o que não se consegue fazer se diz.**
+
+Em S3, renomear uma pasta de 10 mil objetos é 10 mil cópias e 10 mil deleções — e uma UI que ofereça
+"Renomear" ali está mentindo sobre o que vai acontecer. A resposta certa **não** é emular: é o
+provider declarar `rename: false`, `escritaParcial: false`, e a tela desabilitar o que aquela raiz
+não faz, **dizendo por quê**.
+
+É literalmente o mecanismo do `watch` três parágrafos abaixo, e o mesmo do `print/v1`: três
+respostas, não duas — *"faço"*, *"esta raiz não faz"* e *"não consegui perguntar"*. Colapsar as duas
+últimas manda o usuário procurar defeito onde há limitação.
+
+> **O que isso protege:** sem a declaração, o primeiro bucket S3 registrado vira um gerenciador de
+> arquivos que trava por dez minutos num arrastar-e-soltar, sem nada na tela explicando. Com ela, o
+> item aparece apagado e o motivo está escrito.
+
+<details>
+<summary>As candidatas, e o que cada uma custava</summary>
 
 | | Semântica de arquivo | Range | Ecossistema | SeaweedFS | Veredito |
 |---|---|---|---|---|---|
@@ -60,13 +88,11 @@ cada uma custa:
 | **NFS/SMB no host** | POSIX | — | — | — | é o que se está saindo |
 | Filer HTTP do SeaweedFS | boa | sim | só SeaweedFS | nativo | não: amarra a onda a um produto |
 
-**A escolha é WebDAV como padrão, e S3 como o segundo.** O motivo não é gosto — é que o consumidor
-desta onda é um **gerenciador de arquivos**, e um gerenciador precisa de renomear, mover, criar
-pasta e apagar. Em S3, renomear uma pasta de 10 mil objetos é 10 mil cópias e 10 mil deleções, e
-qualquer UI que finja o contrário está mentindo sobre o que vai acontecer.
+</details>
 
-E o SeaweedFS de vocês fala os dois — então ele é o primeiro alvo de teste sem que a onda precise
-escolher entre "o padrão" e "o que a gente tem".
+O SeaweedFS de vocês fala os dois — então ele é o primeiro alvo de teste sem que a onda precise
+escolher entre "o padrão" e "o que a gente tem", e é a bancada onde os dois providers se comparam
+contra o **mesmo** dado.
 
 > **A régua que já usamos duas vezes:** o `provides` da Onda 5 e o `RemoteDesktopEngines` da 2.7
 > dizem a mesma coisa — *não se escolhe o produto, se declara a capacidade e se aceita quem a
@@ -90,11 +116,33 @@ Onda 4 — o portal grava no servidor do usuário, com modo `0600`, e **não gua
 de WebDAV é a mesma classe de valor que um token de app, e tratá-la de outro jeito seria criar a
 segunda noção de segredo no sistema.
 
-> **Uma decisão que precisa ser tomada e não é técnica:** o cofre de hoje mora no **host Linux** do
-> usuário (`~/.vssh-apps/<id>/secrets.json`). Uma credencial de pasta de rede que viva ali herda
-> exatamente o que esta onda quer desfazer — ela para de acompanhar o usuário entre servidores.
-> Guardá-la no portal, cifrada, é o que torna a montagem verdadeiramente portátil, e é uma
-> mudança de modelo, não uma escolha de biblioteca.
+### A credencial mora no portal, cifrada
+
+**Decidido.** O cofre da Onda 4 grava no **host Linux** do usuário
+(`~/.vssh-apps/<id>/secrets.json`, modo `0600`, sem cópia no portal) e é um mecanismo provado — mas
+uma credencial de pasta de rede que viva ali herda exatamente o acoplamento que esta onda existe
+para desfazer: ela para de acompanhar o usuário entre servidores.
+
+O argumento que decidiu não é de conforto, é de forma. A parte **não-secreta** da montagem — URL,
+tipo, usuário, nome — vai para `/api/user/settings` como `userMounts`, no molde de `userPrinters`, e
+acompanha a pessoa. Se o segredo ficasse no host, **as duas metades do mesmo fato teriam tempos de
+vida diferentes**: a montagem apareceria numa máquina nova e não abriria. É a assinatura de junção
+que este repositório já pagou cinco vezes na Onda 4 — só que desenhada de propósito.
+
+**E o custo está aceito, não escondido.** Levantado contra o código antes da decisão: **o portal não
+cifra nada em repouso hoje.** `SESSION_SECRET` só **assina** — cookie de sessão e token de arquivo —
+e não há `createCipheriv` em lugar nenhum do `src/`. Então esta onda traz:
+
+| O que entra | Por quê |
+|---|---|
+| a primeira criptografia em repouso do portal | e ela precisa de chave própria, **não** do `SESSION_SECRET`: uma chave que assina e cifra confunde dois tempos de vida — trocar o segredo de sessão derrubaria as montagens de todo mundo |
+| uma história de rotação | escrita antes do primeiro segredo gravado, não depois — reencriptar um campo que já tem dados de produção é a migração que ninguém quer fazer com pressa |
+| uma classe nova de responsabilidade | o portal passa a guardar senha de storage **de terceiros**. Isso muda o que um vazamento significa, e tem de estar dito na tela: *"esta senha fica com o portal, cifrada"* |
+
+> **O cofre do host não morre nem vira legado.** Ele continua certo para o que ele serve: segredo
+> **de app**, que é consumido por um processo naquele host. São dois cofres porque são dois tempos
+> de vida — e essa frase precisa estar na documentação, senão o terceiro segredo do sistema vai
+> parar no lugar errado por analogia.
 
 ## Quem fala com o storage: o portal, e por quê
 
@@ -117,17 +165,78 @@ portal.
 
 ## O contrato do provider
 
-Um provider responde por uma raiz montada. A lista **não** é a de oito operações que a versão
-anterior deste arquivo dizia — são 26 no `system.ts` de hoje —, mas nem todas são do provider:
+Um provider responde por uma raiz montada. Sem esta separação escrita, a extração vira uma
+reescrita de 2349 linhas — que é o tamanho que transforma uma onda paralela numa onda que trava o
+repositório.
 
-| | Operações | Quem responde |
+> **A contagem estava errada, e para menos.** Este documento dizia "26 operações" (e, antes disso,
+> "oito"). Contadas em 08-08: são **29 rotas `/fs/*`**, que dão **27 operações distintas** — dois
+> pares `GET`/`HEAD` contam uma vez cada. Mais `/desktop-files`, que é uma **trigésima** e é uma
+> listagem que não se chama de listagem: roda a mesma cadeia `python3` de `/fs/list`, e passaria
+> despercebida numa extração feita por prefixo de rota.
+
+### As 27, repartidas
+
+**Do provider — cada backend, do seu jeito (9):**
+
+| Rota | | S3 |
 |---|---|---|
-| **do provider** | `list` `stat` `read` `write` `mkdir` `rename` `copy` `delete` `watch` | cada backend, do seu jeito |
-| **do portal, sobre qualquer provider** | lixeira, jobs de transferência com progresso e cancelamento, `fetch-url`, token de acesso | é convenção nossa, não do storage |
-| **em aberto** | arquivos compactados (`archive/*`) | ler um `.zip` remoto por Range é possível, e é o tipo de coisa que fica lenta sem o provider saber |
+| `GET /fs/list` | listar | prefixo, não pasta |
+| `GET·HEAD /fs/read` | ler com Range | ok |
+| `GET /fs/stat` | metadado | ok |
+| `POST /fs/mkdir` | criar pasta | **não existe** — pasta é convenção de prefixo |
+| `POST /fs/rename` | renomear/mover | **não existe** — é copiar + apagar, objeto a objeto |
+| `POST /fs/copy` | copiar | server-side copy, com teto de tamanho |
+| `DELETE /fs/delete` | apagar | ok |
+| `POST /fs/write` | escrever | sem escrita **parcial** |
+| `GET /fs/watch` | vigiar | **não existe**, e WebDAV também não |
 
-Sem essa separação escrita, a extração vira uma reescrita de 2349 linhas — que é o tamanho que
-transforma uma onda paralela em uma onda que trava o repositório.
+**Do portal, sobre qualquer provider — convenção nossa, não do storage (14):**
+
+`POST /fs/file-token` · `GET·HEAD /fs/file/:token/*` · `POST /fs/transfer` · `GET /fs/jobs/:id` ·
+`POST /fs/jobs/:id/cancel` · `POST /fs/trash` · `GET /fs/trash/list` · `POST /fs/trash/restore` ·
+`POST /fs/trash/delete` · `POST /fs/trash/empty` · `POST /fs/purge` · `POST /fs/upload` ·
+`GET /fs/open` · `POST /fs/fetch-url`
+
+Elas se apoiam nas 9 acima e não sabem qual backend está embaixo. **Duas precisam de decisão de
+desenho antes da primeira linha de código:**
+
+- **onde mora a lixeira de uma raiz remota.** Hoje ela é um diretório na home. Numa raiz WebDAV, a
+  resposta que não quebra o invariante *"o undo nunca perde dado"* é uma lixeira **dentro da própria
+  raiz** (`.vssh-trash/`), porque mandar para a home significa **atravessar o arquivo pela rede duas
+  vezes** para apagá-lo. E em S3 a lixeira é uma cópia de verdade, não um `mv` — que é mais um item
+  para a matriz de capacidade;
+- **`upload` e `transfer` viram tráfego que passa pelo portal.** Hoje o arquivo vai do navegador ao
+  SFTP; com uma raiz remota, ele vai navegador → portal → storage. É o mesmo salto duplo que a onda
+  reclama na primeira seção, e a saída é a mesma: **URL assinada de escrita**, quando o provider
+  souber emitir.
+
+**Em aberto — 4:** `GET /fs/archive/list` · `POST /fs/archive/extract` · `POST /fs/archive/create` ·
+`POST /fs/archive/delete-entries`. Ler um `.zip` remoto por Range é possível (o diretório central
+está no fim do arquivo, e são duas leituras); extrair e criar exigem trazer o arquivo inteiro para
+algum lugar. Ficam **fora do primeiro provider**, declaradas ausentes.
+
+### A matriz de capacidade, que é o que "suporte limitado" quer dizer
+
+O provider **declara** o que faz, e a tela desabilita o resto **dizendo por quê**. Três respostas,
+nunca duas: *faço*, *esta raiz não faz*, *não consegui perguntar*.
+
+```
+{ list, stat, read, write, delete, copy: true,
+  mkdir: false, rename: false, watch: false,
+  escritaParcial: false, urlAssinada: 'leitura' }
+```
+
+É o mesmo mecanismo do `provides` da Onda 5 e do `available()` do `RemoteDesktopEngines` — e é o que
+impede o desenho óbvio e errado: **emular `rename` em S3.** Emular faz um arrastar-e-soltar de uma
+pasta de 10 mil objetos travar por dez minutos com a barra parada, e o usuário não tem como saber
+que pediu 20 mil requisições. Recusar com o motivo na tela é mais honesto e mais rápido de escrever.
+
+> **E a guarda de junção nasce aqui, não depois** (item 4 da ordem). Um contrato de provider tem
+> dois lados em arquivos que não se leem: a matriz declarada e o que a tela desabilita. Se elas se
+> desencontrarem, o botão fica aceso e o erro chega ao usuário como travamento. **Com piso por
+> consumidor**, como a Onda 5 fez com o manifesto — senão uma extração quebrada fica verde medindo
+> vazio.
 
 ### Três armadilhas de contrato, e a terceira é a que a Onda 5 ensinou a procurar
 
@@ -201,25 +310,32 @@ isso é sentido como travamento"*. `GET /api/fs/list` é **UM** `exec` — um `o
 tudo dentro do processo remoto. Um diretório com 30 mil arquivos custa **um canal**, igual a um com
 três. E o pré-carregamento do gerenciador é um de cada vez, `background`, abortado ao mover o mouse.
 
-**E a medição, feita em 08-08 num servidor real, com diretórios sintéticos em disco local:**
+**E a medição, refeita e corrigida em 08-08:** uma listagem de 5.000 arquivos custa **157 ms** — 51
+ms para abrir o canal, 64 esperando o processo remoto, 42 recebendo 336 KB.
 
-| Pasta | Portal entrega | `ls -la` no servidor | **Nosso** |
-|---|---|---|---|
-| 100 arquivos | 226 ms | ~1 ms | ~225 ms |
-| 5.000 arquivos | 822 ms | **44 ms** | **778 ms — 95%** |
+> ### ⚠ Os números que estavam aqui eram de OUTRA operação
+>
+> Esta seção dizia *"226 ms para 100 arquivos, 822 para 5.000, e 95% da latência é nossa"*. Nenhum
+> desses números era de uma listagem: saíam de **"Operação mais longa"**, um pico sobre **tudo** que
+> passa pelo limitador de canais, num painel que não dizia de quem era o número. O dono real era o
+> **coletor por servidor**, que roda a cada 5 s e não é pedido por ninguém.
+>
+> Caíram junto o piso de 226 ms, a inclinação de 596 e a conta de "9,7 operações por segundo". A
+> história inteira, com o conserto do medidor, está na
+> [Onda 6b](05b-navegacao-de-arquivos.md#o-pico-que-não-dizia-de-quem-era).
+>
+> **E isso muda o que esta onda pode prometer.** Uma raiz WebDAV não vai "consertar a lentidão da
+> navegação", porque não há lentidão a consertar — a justificativa dela é a que sempre foi: o
+> armazenamento passa a ser do usuário, e não do servidor.
 
-Com **fila 0 e espera 0** nos dois casos: o teto de 8 canais não foi arranhado. Não é contenção
-entre usuários; é a latência de cada clique, e ela é nossa.
+**Os três achados de então, e nenhum se resolvia trocando de storage** — é por isso que eles saíram
+daqui:
 
-**Os três achados, e nenhum se resolve trocando de storage:**
-
-1. **um `python3` por listagem.** A cadeia é `ssh exec → sudo -H -u → bash -c → echo → base64 -d →
-   python3 → scandir`. Cinco processos e um interpretador subindo, por pasta aberta. É o piso de
-   226 ms que toda navegação paga, inclusive na home local;
-2. **a listagem inteira num JSON só.** 50 mil entradas com caminho absoluto viram megabytes, que
-   atravessam o canal, o portal e o `JSON.parse` do navegador;
-3. **a lista do gerenciador não virtualiza.** `_patch()` cria um nó DOM por item, para todos os
-   itens — 50 mil `.fm-item` com ícone, nome, tamanho e data. É a RAM que apareceu no uso.
+1. **um `python3` por listagem** — e a decomposição mostrou que a cadeia inteira custa 18 ms, contra
+   os 226 que este documento lhe atribuía;
+2. **a listagem inteira num JSON só** — o `path` absoluto repetido era 40% do corpo, e saiu do fio;
+3. **a lista do gerenciador não virtualiza** — 50 mil `.fm-item` no DOM. Este era real, apareceu no
+   uso como RAM, e foi o único dos três que virou ganho medido.
 
 > **E a medição achou um bug vivo**, que nenhuma leitura de código tinha achado: `stdout +=
 > d.toString()` decodificava cada `Buffer` isoladamente, então um caractere multibyte partido na
@@ -243,11 +359,12 @@ como a impressora de rede já é
 
 ## Ordem sugerida
 
-1. **Decidir o protocolo padrão.** A recomendação é WebDAV; a decisão não está tomada, e nada anda
-   antes dela porque o contrato do provider tem a forma do protocolo.
-2. **Decidir onde mora a credencial** — cofre no host (o que existe) ou no portal, cifrada (o que
-   torna a montagem portátil de verdade). É mudança de modelo.
-3. **Escrever a separação provider × portal** das 26 operações. É desenho, não código.
+1. ~~**Decidir o protocolo padrão.**~~ ✅ **WebDAV, com S3 de suporte limitado e declarado.**
+2. ~~**Decidir onde mora a credencial.**~~ ✅ **No portal, cifrada** — com chave própria, não a de
+   sessão, e a rotação escrita antes do primeiro segredo gravado.
+3. ~~**Escrever a separação provider × portal.**~~ ✅ 9 do provider, 14 do portal, 4 em aberto — mais
+   a matriz de capacidade e as duas decisões que ela destapou (a lixeira de uma raiz remota, e o
+   `upload` voltando a ser salto duplo).
 4. **A guarda de junção**, antes do primeiro provider — no molde da Onda 5, com piso.
 5. **Um provider WebDAV só de leitura**, contra o SeaweedFS de vocês, com `watch` declarado ausente
    e respondendo honestamente. Só-leitura já serve o arquétipo A3 e não toca escrita nenhuma.
