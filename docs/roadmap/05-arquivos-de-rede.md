@@ -26,12 +26,43 @@ navegador → portal → canal SSH → host Linux → cliente NFS → storage
 Dois saltos de rede, e o do meio disputa um orçamento de **~8 canais concorrentes para o servidor
 inteiro** ([diagnostico](diagnostico.md#-teto-de-canais-ssh-8-por-servidor-não-por-usuário)).
 
-NFS piora o caso: operações de metadado (`readdir`, `stat`) são conversadas por natureza, e cada uma
-vai embrulhada num `exec` por SSH. Num diretório de dataset com milhares de arquivos, isso é sentido
-como travamento — e, sob contenção, como os 409 de `da6bfb5`.
+### ⚠ Corrigido: o NFS **não** multiplica canais — ele alonga a ocupação de um
 
-**Tirar a navegação de dados do SSH não é só latência: é devolver canais ao orçamento** que hoje
-limita quantos pesquisadores cabem num servidor.
+O texto original dizia: *"operações de metadado (`readdir`, `stat`) são conversadas por natureza, e
+cada uma vai embrulhada num `exec` por SSH. Num diretório de dataset com milhares de arquivos, isso
+é sentido como travamento"*. **É falso, e era a justificativa central da onda.**
+
+`GET /api/fs/list` é **UM** `exec`: um script Python que faz `os.scandir(p)` e `e.stat()` de todas
+as entradas **dentro do processo remoto**, e devolve um JSON. Um diretório com 30 mil arquivos custa
+**um canal**, igual a um com três. A conversa do NFS acontece do lado de lá, dentro daquele único
+canal. E o pré-carregamento do gerenciador de arquivos é **um de cada vez**, com prioridade
+`background` e abortado ao mover o mouse — então um usuário navegando custa no máximo dois execs
+concorrentes.
+
+O que o NFS faz é outra coisa, e é mais simples de raciocinar:
+
+> **Ele segura aquele canal por muito mais tempo.** Com teto de 8 por servidor, a capacidade é de
+> aproximadamente **8 ÷ T** operações por segundo, onde T é quanto tempo uma listagem leva.
+
+E é isso que troca a medição. Não é preciso um dia de tráfego para saber o tamanho desta onda —
+basta **T**, que se mede abrindo uma pasta grande **uma vez**:
+
+| T de uma listagem | Capacidade do servidor inteiro | Leitura |
+|---|---|---|
+| 50 ms | 160 op/s | ninguém nunca vai encostar no teto; a onda é sobre latência |
+| 400 ms | 20 op/s | folgado, mas a navegação já *parece* lenta a quem usa |
+| 3 s | 2,6 op/s | **três pesquisadores navegando ao mesmo tempo já formam fila** |
+
+**O medidor foi feito para exatamente isso:** o campo `execDuracaoMs` do pico é a maior ocupação de
+canal, e o painel divide o teto por ela e mostra a capacidade. Zere os picos, abra a pasta de
+dataset mais pesada que existir, e leia. É uma navegação, não um dia.
+
+Contado ainda que a operação **falhe** — uma listagem que estoura o timeout do NFS é o caso mais
+interessante de todos, e medi-la só no caminho feliz deixaria justamente a mais longa de fora.
+
+**Tirar a navegação de dados do SSH continua valendo** — mas o argumento correto é *"a ocupação de
+canal por operação de metadado é o gargalo, e ela é proporcional à lentidão do NFS"*, e não
+*"cada metadado gasta um canal"*.
 
 ### ⚠ Corrigido: o gargalo continua real, mas deixou de ser invisível — e o primeiro passo é MEDI-LO
 
@@ -267,8 +298,10 @@ de graça** ([critério 3.2](criterios.md#32--isso-sobrevive-à-troca-de-máquin
 0. ~~**Dar leitor aos medidores.**~~ ✅ **feito** — `GET /api/admin/pressao` e o bloco "Pressão no
    SSH" no painel. Este passo não estava na lista porque a revisão da manhã presumiu que a rota
    existia; ela não existia.
-1. **Medir** num servidor com uso real: abrir o painel, deixar rodar, ler o **pico**. É o passo que
-   decide se esta onda é grande ou pequena.
+1. **Medir T**, e isso é UMA navegação: zerar os picos no painel, abrir a pasta de dataset mais
+   pesada que existir, e ler "Operação mais longa" e "Capacidade nesse ritmo". Era um dia de
+   tráfego enquanto a premissa dizia que cada metadado gastava um canal; com a premissa corrigida,
+   é um clique.
 2. **Escrever a separação** provider × portal das 26 operações. É desenho, não código, e é o que
    impede a extração de virar reescrita.
 3. **A guarda de junção**, antes do primeiro provider — no molde da Onda 5, com piso.
