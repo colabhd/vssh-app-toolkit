@@ -121,13 +121,37 @@ não se reescreve numa tarde.
 | 5 | [Mensageria entre apps](04-runtime-composicao.md#mensageria-entre-apps---medida-escrita-e-cercada) — nada a construir; medida, escrita e cercada, com o limite junto | vssh-sso + toolkit | ✅ concluído |
 | 5 | [Seção de Configurações por manifesto](04-runtime-composicao.md#seção-de-configurações-declarada-por-manifesto) — resolvida por `engine.loader` para app de admin; falta a **decisão de confiança** para terceiro | — | 🔵 decisão, não tarefa |
 | 5 | [Extensão do `FileOpener`](04-runtime-composicao.md#ponto-de-extensão-no-fileopener---desenhado-falta-um-produtor-e-é-isso-que-falta) — desenhado sobre `provides`; falta um **produtor** (thumbnail/OCR/transcode) | — | 🔵 sem consumidor |
-| 6 | Camada de arquivos de rede | vssh-sso | ⬜ não iniciado |
-| 7 | Continuidade entre máquinas | vssh-sso + toolkit | ⬜ não iniciado |
+| 6 | [Camada de arquivos de rede](05-arquivos-de-rede.md) | vssh-sso | ⬜ não iniciado · **revisada 08-08**: 7 afirmações caíram, e o 1º passo virou *medir* |
+| 7 | [Continuidade entre máquinas](06-portabilidade.md) — item 3 (OPFS é cache) | vssh-sso + toolkit | ✅ concluído (saiu com a Onda 3) |
+| 7 | [Continuidade entre máquinas](06-portabilidade.md) — item 4 (artefatos nascem no ambiente) | vssh-sso | ✅ em grande parte · download e PDF já nascem no servidor; sobram o log do app e o relatório de bug |
+| 7 | [Continuidade entre máquinas](06-portabilidade.md) — itens 1 e 2 | vssh-sso + toolkit | ⬜ não iniciado · o item 2 trava numa **decisão de produto** |
+
+### E uma onda revisada rende tanto quanto uma executada
+
+As Ondas 6 e 7 foram escritas em 01-08 e revistas em 08-08, contra o código, sem escrever uma linha
+de produção. O saldo:
+
+- **duas entregas apareceram** — o item 3 da Onda 7 (a regra "OPFS é cache") saiu junto com a Onda 3,
+  e o item 4 saiu aos pedaços nas Ondas 2 e 5. Estavam na tabela como pendentes há uma semana;
+- **um exemplo não existia.** A Onda 7 citava "gravação de tela" como candidato de varredura; não há
+  `getDisplayMedia` nem `MediaRecorder` no shell. Um item inexistente inflava o tamanho da onda;
+- **a Onda 6 estava curta por um fator de três**: o contrato de provider listava 8 operações e há 26;
+- **e duas coisas dadas como a construir já existiam** — a URL assinada (`/fs/file-token`) e a
+  identidade por conexão do handoff (`activeEventConnections`, um `Set` de sockets que o
+  `broadcastMigrate` já percorre um a um).
+
+Nenhuma das seis foi achada lendo o documento. Todas saíram de `grep` no código — o mesmo passo que
+o README já mandava dar **antes de executar** uma onda, aplicado a ondas que ninguém ia executar tão
+cedo. É barato, e o que ele evita é planejar em cima de um sistema que deixou de existir.
 
 ## Questões em aberto
 
 Decisões que precisam ser tomadas, não tarefas a executar. Detalhadas em
 [diagnostico.md](diagnostico.md#15-questões-em-aberto).
+
+- **Reconciliação de sessão entre duas máquinas** — handoff, espelho ou escopos separados?
+  ([Onda 7, item 2](06-portabilidade.md#2-sessão-que-segue-o-pesquisador)). Trava o item inteiro, é
+  decisão de produto, e a peça técnica que parecia faltar já existe sem nome.
 
 - **`SharedArrayBuffer`** — habilitar cross-origin isolation (COOP/COEP) ou não? Decide se WASM
   multi-thread (DuckDB-WASM, Pyodide com threads) é viável. **Precisa ser decidido antes**, não depois.
