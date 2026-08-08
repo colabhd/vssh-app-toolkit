@@ -12,9 +12,34 @@ caminho que o portal usa para listar **qualquer** pasta, inclusive a home em dis
 Separá-las é o ponto. A Onda 6 depende de uma decisão de protocolo que ainda não foi tomada; esta
 não depende de nada e melhora a navegação de hoje.
 
-## A medida
+## A medida, e como refazê-la
 
-Servidor real, diretórios sintéticos em **disco local** (nenhum NFS envolvido):
+Servidor real, diretórios sintéticos em **disco local** (nenhum NFS envolvido).
+
+<details>
+<summary>A receita, para medir de novo depois de cada mudança</summary>
+
+```bash
+# No Terminal do desktop. `xargs -n 500` BATELA — a primeira versão usava
+# `xargs -I{}`, que sobe um processo `touch` por arquivo: 50 mil processos, lento
+# a ponto de a medição ter sido feita sobre um diretório que ainda não tinha
+# terminado de encher. O `wc -l` existe por causa disso.
+for n in 100 5000 50000; do
+  mkdir -p ~/medida/p$n && cd ~/medida/p$n
+  seq 1 $n | sed 's/^/arq/' | xargs -n 500 touch
+  echo "p$n: $(ls | wc -l)"
+done
+```
+
+Depois, para cada pasta: **Administração → Dashboard → "Zerar picos"**, abrir a pasta no
+gerenciador de arquivos, voltar ao Dashboard e ler **"Operação mais longa"**. O painel também
+divide o teto de 8 canais por essa duração e mostra a capacidade do servidor naquele ritmo.
+
+E `time ls -la ~/medida/pN > /dev/null` no Terminal dá o custo do filesystem, que é o que separa
+"é nosso" de "é do armazenamento". Limpar com `rm -rf ~/medida`.
+
+</details>
+
 
 | Pasta | Portal entrega | `ls -la` no servidor | **Nosso** |
 |---|---|---|---|
@@ -56,9 +81,24 @@ Os caminhos, do mais barato ao mais estrutural:
 - **reusar o canal.** Hoje cada listagem abre um canal SSH novo. O supervisor de `watch` prova que
   dá para manter um aberto.
 
-**Nada disso está decidido, e o primeiro passo é decompor os 226 ms**: quanto é abrir o canal,
-quanto é `sudo`+`bash`, quanto é o arranque do `python3`. Sem isso, escolher entre os três caminhos
-é chutar — que é como esta onda inteira nasceu.
+**Nada disso está decidido, e o primeiro passo é decompor os 226 ms.** Sem isso, escolher entre os
+três caminhos é chutar — que é como esta onda inteira nasceu. A decomposição é de três comandos, no
+Terminal do desktop:
+
+```bash
+time python3 -c 'pass'                      # o arranque do interpretador
+time sudo -H -u "$USER" bash -c 'true'      # o sudo + o bash
+time sudo -H -u "$USER" bash -c 'echo "cGFzcw==" | base64 -d | python3'   # a cadeia inteira, local
+```
+
+O que **sobrar** dos 226 ms depois de descontar a cadeia local é o custo do canal SSH — abrir e
+fechar por listagem. E é esse resto que decide entre os três caminhos:
+
+| Se o dominante for | O caminho é |
+|---|---|
+| o arranque do `python3` | o daemon por sessão — nenhum dos outros dois toca nisso |
+| `sudo` + `bash` | tirar processos da cadeia, que é a mudança barata |
+| o canal SSH | reusar o canal, como o supervisor de `watch` já faz |
 
 ### 2 · A listagem inteira num JSON só
 
