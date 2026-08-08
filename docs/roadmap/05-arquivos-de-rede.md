@@ -232,11 +232,28 @@ impede o desenho óbvio e errado: **emular `rename` em S3.** Emular faz um arras
 pasta de 10 mil objetos travar por dez minutos com a barra parada, e o usuário não tem como saber
 que pediu 20 mil requisições. Recusar com o motivo na tela é mais honesto e mais rápido de escrever.
 
-> **E a guarda de junção nasce aqui, não depois** (item 4 da ordem). Um contrato de provider tem
-> dois lados em arquivos que não se leem: a matriz declarada e o que a tela desabilita. Se elas se
-> desencontrarem, o botão fica aceso e o erro chega ao usuário como travamento. **Com piso por
-> consumidor**, como a Onda 5 fez com o manifesto — senão uma extração quebrada fica verde medindo
-> vazio.
+### A guarda de junção — ✅ escrita antes do primeiro provider
+
+`src/utils/contrato-de-raiz.ts` é um **módulo folha** (nenhum import — exercitável sem SSH, Redis ou
+Express) que guarda as nove operações, a repartição das 28 rotas e a matriz de capacidade. A guarda
+compara a repartição com as **rotas de verdade** do `system.ts`.
+
+O ponto é que ela **já pode ficar vermelha hoje**, sem existir provider nenhum. Escrever teste antes
+do código costuma produzir a guarda infalsificável — mede o que não existe, passa verde para sempre
+e dá sensação de rede. Esta mede uma junção que existe: 29 rotas contra 28 chaves. O ataque nº 1 é
+literalmente *acrescentar `POST /fs/chmod` e seguir a vida*, e ele fica vermelho.
+
+E ela cobra os dois lados: rota sem lado declarado **e** lado declarado para rota que não existe
+mais. É o simétrico que faltou quando este repositório planejou em cima de `#taskbar-tray`.
+
+> **A refutação corrigiu uma afirmação minha sobre a própria guarda.** Eu tinha escrito que o piso
+> era o que a impedia de "ficar verde medindo vazio". Quebrando a varredura de propósito **com o
+> piso removido**, a suíte ficou vermelha assim mesmo: as 28 chaves viram órfãs de uma vez. A
+> detecção vem da **simetria**, não do piso — o piso fica pelo que ele de fato faz, que é falhar
+> com o diagnóstico certo em vez de 28 acusações contra o contrato.
+
+**12 ataques, 12 repelidos**, entre eles os dois que desfazem decisões desta onda: S3 voltar a
+declarar `rename: true` (emular), e `'desconhecido'` colapsar em `'não'`.
 
 ### Três armadilhas de contrato, e a terceira é a que a Onda 5 ensinou a procurar
 
@@ -365,7 +382,8 @@ como a impressora de rede já é
 3. ~~**Escrever a separação provider × portal.**~~ ✅ 9 do provider, 14 do portal, 4 em aberto — mais
    a matriz de capacidade e as duas decisões que ela destapou (a lixeira de uma raiz remota, e o
    `upload` voltando a ser salto duplo).
-4. **A guarda de junção**, antes do primeiro provider — no molde da Onda 5, com piso.
+4. ~~**A guarda de junção**, antes do primeiro provider.~~ ✅ `src/utils/contrato-de-raiz.ts` +
+   `tests/unit/contrato-de-raiz.test.js` — 15 casos, 12 ataques repelidos, e ela fica vermelha hoje.
 5. **Um provider WebDAV só de leitura**, contra o SeaweedFS de vocês, com `watch` declarado ausente
    e respondendo honestamente. Só-leitura já serve o arquétipo A3 e não toca escrita nenhuma.
 6. **A tela**, no molde de Dispositivos: dois escopos, assistente que sonda (`PROPFIND`) antes de
