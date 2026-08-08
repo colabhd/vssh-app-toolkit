@@ -381,3 +381,45 @@ test('o template DECLARA o ffmpeg — senão o benchmark é uma promessa sem las
     'o benchmark usa ffmpeg e o manifesto não o declara: o instalador deixaria passar um servidor ' +
     'onde a peça não funciona');
 });
+
+// ─── A seção que o template contribui a Configurações ───────────────────────
+//
+// `contributes.settings` é o mecanismo que faz um app comum poder ter preferências. O template é
+// o exemplo que todo mundo copia — então o que ele ENSINA importa tanto quanto o que ele faz.
+
+test('a contribuição do template executa no escopo de quatro nomes que o shell entrega', () => {
+  // Um exemplo que precisasse de um quinto nome documentaria uma API que não existe, e só
+  // quebraria na máquina de quem instalou o template — o pior lugar para descobrir.
+  const fonte = ler('configuracoes.js');
+  const registradas = [];
+  const SettingsRegistry = { register: (s) => registradas.push(s) };
+  const VsshSettings = { get: () => null, set: () => {} };
+  const AppLauncher = { open: () => {} };
+  const app = { id: 'hello-world-node', name: 'Hello World (Node)', version: '1.3.0' };
+
+  new Function('SettingsRegistry', 'VsshSettings', 'AppLauncher', 'app', fonte)(
+    SettingsRegistry, VsshSettings, AppLauncher, app);
+
+  assert.equal(registradas.length, 1, 'o exemplo deixou de registrar exatamente uma seção');
+  const s = registradas[0];
+  assert.equal(s.familia, 'apps');
+  assert.ok(s.grupos?.[0]?.linhas?.length, 'a seção do exemplo ficou sem linhas');
+});
+
+test('a chave do exemplo é derivada do id, e não escrita à mão', () => {
+  // Copiar o template e trocar o id é o primeiro passo de todo mundo. Uma chave literal faria o
+  // app novo gravar no espaço do hello-world, e os dois se sobrescreveriam sem nada avisar.
+  const fonte = ler('configuracoes.js');
+  assert.match(fonte, /chave: `appSettings\.\$\{app\.id\}\./,
+    'o exemplo passou a escrever o id à mão — quem copiar o template grava no espaço alheio');
+  // E não pode voltar a mandar registrar chave no portal: `appSettings` é mapa aberto justamente
+  // para que publicar um app não exija um commit no vssh-sso.
+  assert.doesNotMatch(fonte, /ALLOWED_KEYS/,
+    'o exemplo voltou a mandar o autor registrar a chave no portal, que é o que appSettings evita');
+});
+
+test('o manifesto do template declara a contribuição', () => {
+  const m = JSON.parse(ler('vssh-app.json'));
+  assert.equal(m.contributes?.settings, 'configuracoes.js',
+    'sem a declaração no manifesto o arquivo nunca é carregado, e o exemplo vira código morto');
+});

@@ -21,11 +21,16 @@
 //
 // ─── Onde as preferências ficam ────────────────────────────────────────────
 //
-// Em `VsshSettings`, junto com as do ambiente, o que quer dizer que elas **viajam com o usuário**
-// para outra máquina. A chave precisa existir no `ALLOWED_KEYS` do portal — enquanto não existir,
-// o PUT responde 200 e o servidor descarta em silêncio, que é o buraco que a Onda 2.6 fechou para
-// as chaves do próprio shell. Para preferência que é SÓ do app e não precisa atravessar máquina, o
-// lugar certo é o backend do app, no `VSSH_APP_DATA_DIR`.
+// Em `appSettings.<id-do-seu-app>.<chave>`, dentro do `VsshSettings` do ambiente — o que quer
+// dizer que elas **viajam com o usuário** para outra máquina.
+//
+// **Você não precisa registrar nada no portal.** `appSettings` é um mapa aberto, chaveado pelo id
+// do app, justamente para que publicar um app não exija um commit no `vssh-sso`. O que o portal
+// aperta é o VALOR: primitivo (booleano, número, texto até 512) ou lista curta de primitivos, até
+// 32 chaves por app. Objeto aninhado é descartado.
+//
+// O que não couber aí não é preferência — é dado do app, e o lugar dele é o `VSSH_APP_DATA_DIR`,
+// no servidor. Preferência é curta por natureza, e esta viaja em toda leitura de configuração.
 
 SettingsRegistry.register({
   id: `app-${app.id}`,
@@ -51,13 +56,13 @@ SettingsRegistry.register({
         {
           titulo: 'Mostrar a saudação em maiúsculas',
           desc: 'Um booleano qualquer, para demonstrar um controle que grava.',
-          // ⚠ Chave de EXEMPLO: ela não está no `ALLOWED_KEYS` do portal, então o valor vive
-          // apenas nesta aba e não sobrevive a um recarregamento. É de propósito — o template não
-          // deve gravar lixo permanente no perfil de quem só o instalou para olhar. Ao criar a sua
-          // de verdade, acrescente-a ao schema do portal, senão ela some sem avisar.
-          chave: 'helloWorldNodeGritar',
+          // O caminho pontuado é o contrato: `appSettings.<id>.<chave>`. Ele grava de verdade e
+          // sobrevive à troca de máquina, sem nada a registrar no portal — o mapa é aberto e
+          // chaveado pelo id do app. Interpolar o `app.id` em vez de escrever o id à mão é o que
+          // faz este arquivo continuar certo se alguém copiar o template e trocar o id.
+          chave: `appSettings.${app.id}.gritar`,
           controle: { tipo: 'switch' },
-          hint: 'Chave de exemplo: não persiste até entrar no schema do portal.',
+          hint: `Grava em appSettings.${app.id}.gritar e acompanha você em outra máquina.`,
           busca: ['hello', 'maiúsculas', 'exemplo'],
         },
         {
