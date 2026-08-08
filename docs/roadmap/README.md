@@ -116,7 +116,7 @@ não se reescreve numa tarde.
 | 4 | [GPU como conceito de runtime](04-runtime-composicao.md#gpu-como-conceito-de-runtime---concluído) — descoberta **genérica** pelo kernel (qualquer fabricante, inclusive virtual) + benchmark GPU×CPU; o portão é só de CUDA, e isso está dito | vssh-sso + toolkit | ✅ concluído |
 | 4 | [Cofre de segredos](04-runtime-composicao.md#cofre-de-segredos---concluído) — **o app pede** na hora em que falta; Configurações → Cofre só lista; o portal grava e não guarda cópia | vssh-sso + toolkit | ✅ concluído |
 | 4 | [O que só apareceu ao INSTALAR](04-runtime-composicao.md#o-que-só-apareceu-quando-a-onda-foi-instalada) — cinco defeitos que nenhuma bancada alcançava, e a terceira etapa que a regra de verificação ganhou | toolkit | ✅ registrado |
-| 5 | [Contrato do manifesto](04-runtime-composicao.md#o-contrato-do-manifesto-um-schema-uma-validação-uma-guarda) — a peneira fechou (raiz, `backend`, `window`), e o erro nomeia o vizinho | toolkit | 🟡 parcial · 3 afirmações da onda caíram na medição |
+| 5 | [Contrato do manifesto](04-runtime-composicao.md#o-contrato-do-manifesto-um-schema-uma-validação-uma-guarda) — a peneira fechou (raiz, `backend`, `window`), o erro nomeia o vizinho, e a guarda de junção mede os 5 consumidores | toolkit + vssh-sso | ✅ concluído · 3 afirmações da onda caíram na medição |
 | 5 | Composição: `provides`, `minShellVersion`, pontos de extensão, mensageria, seção de Configurações por manifesto | vssh-sso + toolkit | ⬜ não iniciado |
 | 6 | Camada de arquivos de rede | vssh-sso | ⬜ não iniciado |
 | 7 | Continuidade entre máquinas | vssh-sso + toolkit | ⬜ não iniciado |

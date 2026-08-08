@@ -1,9 +1,9 @@
 # Ondas 4 e 5 — Runtime de apps e composição do ecossistema
 
-> **Estado:** 🟢 **Onda 4 concluída** · 🟡 **Onda 5 aberta pelo contrato do manifesto** — a peneira
-> fechou (raiz, `backend` e `window` recusam campo desconhecido; o erro nomeia o vizinho), e a
-> medição corrigiu **três** afirmações desta onda. Falta `provides`/`minShellVersion` e a decisão da
-> guarda de junção · **healthcheck ✅** (verdadeiro **e**
+> **Estado:** 🟢 **Onda 4 concluída** · 🟡 **Onda 5 aberta — contrato do manifesto ✅**: a peneira
+> fechou (raiz, `backend` e `window` recusam campo desconhecido; o erro nomeia o vizinho) e a guarda
+> de junção mede os cinco consumidores a partir do schema vendorizado. A medição corrigiu **três**
+> afirmações desta onda. Falta `provides` e `minShellVersion` · **healthcheck ✅** (verdadeiro **e**
 > assíncrono) · **`kind:"service"` com janela ✅** (medido: era um teste) · **múltiplas janelas ✅**
 > (a cópia e a extra) · **`requiredPackages` ✅** (a metade que verifica) · **limites de recurso ✅**
 > (e o pré-requisito que a roadmap dizia pago **não estava**) · **GPU ✅** (descoberta genérica pelo
@@ -662,9 +662,10 @@ Hoje o ecossistema **não compõe**: cada consumidor de motor fica acoplado a um
 
 ### O contrato do manifesto: um schema, uma validação, uma guarda
 
-> **Feito** no toolkit: a raiz, `backend` e `window` deixaram de aceitar campo desconhecido; o erro
-> passou a nomear o vizinho; 6 testes novos, **8/8 refutações**, suíte em 264. O que continua aberto
-> é `provides`/`minShellVersion` e a guarda de junção — ver "O que a medição achou", abaixo.
+> **Feito**, nos dois repositórios. No toolkit: a raiz, `backend` e `window` deixaram de aceitar
+> campo desconhecido, e o erro passou a nomear o vizinho — 6 testes, **8/8 refutações**, suíte em
+> 264. No `vssh-sso`: o schema vendorizado e a **guarda de junção** sobre os cinco consumidores — 4
+> testes, **8/8 refutações**, suíte em 697. O que continua aberto é `provides` e `minShellVersion`.
 
 Vem primeiro porque **três ondas escrevem no mesmo arquivo** e nenhuma era dona dele:
 
@@ -720,23 +721,45 @@ perto, a mensagem continua sendo só o nome reprovado: sugestão errada é pior 
 **A rede que importa mais que os quatro casos:** *todo objeto do schema fecha a porta*. Fechar as
 três de hoje não impede a quarta de nascer aberta — e ela nasceria exatamente onde ninguém procura.
 
-### A guarda de junção, e por que ela é uma decisão e não uma tarefa
+### A guarda de junção — ✅ **feita, pela saída A**
 
 *"Todo campo que um consumidor lê está no schema"* atravessa dois repositórios que **não se
-conhecem**: o `vssh-sso` não tem cópia do schema, não depende do toolkit, e não há uma linha ligando
-os dois. É a mesma forma dos defeitos que a 2c achou três vezes — os dois lados certos sozinhos, e
-ninguém dono do meio.
+conhecem**: o `vssh-sso` não dependia do toolkit, e não havia uma linha ligando os dois. É a mesma
+forma dos defeitos que a 2c achou três vezes — os dois lados certos sozinhos, e ninguém dono do meio.
 
-Três saídas, e a escolha muda o resto da onda, porque `provides` e a seção de Configurações
-declarada por manifesto têm **exatamente a mesma forma**:
+Três saídas foram pesadas, e a escolha valia mais que este item: `provides` e a seção de
+Configurações declarada por manifesto têm **exatamente a mesma forma**.
 
-| | Como | Custo |
+| | Como | Por que não |
 |---|---|---|
-| **A** | vendorizar o schema no `vssh-sso`, como o `vssh-app-lib-sync` já faz com `lib/` — com `libVersion` e o publish conferindo a idade da cópia | uma cópia que envelhece, mas o mecanismo de detectar isso **já existe** e é o idioma da casa |
-| **B** | o portal **deriva** a projeção do `/api/apps` do schema, em vez de listar campo a campo | acaba com a divergência em vez de detectá-la; mexe numa rota quente |
-| **C** | o schema declara, por campo, quem consome — e a guarda fica só no toolkit | não mede o consumidor de verdade: vira documentação com cara de teste |
+| **B** | o portal **deriva** a projeção do `/api/apps` do schema, em vez de listar campo a campo | acaba com a divergência em vez de detectá-la — é melhor, e mexe numa rota quente por um defeito que hoje não existe. Fica anotado para quando houver motivo |
+| **C** | o schema declara, por campo, quem consome | não mede o consumidor de verdade: vira documentação com cara de teste |
 
-A **A** é a recomendação, por precedente: é o único dos três que já tem mecanismo rodando nesta casa.
+**A escolhida foi a A** — vendorizar, no idioma do `vssh-app-lib-sync`: `vssh-sso/schema/` com a
+procedência em `.vssh-schema-version`, e `tests/unit/contrato-do-manifesto.test.js` medindo os
+**cinco** consumidores (a projeção do `/api/apps`, o provisionador, e os três scripts de
+`infra/server/`, que são Python). 42 leituras extraídas, **zero fora do schema** — confirmando que
+esta guarda nasce anti-apodrecimento, e não como conserto.
+
+> **A cópia velha é o alarme, não o defeito** — e é o que torna a A barata. O toolkit ganhar um
+> campo que ninguém aqui lê **não** dispara nada, e está certo: não há consumidor a proteger. Passar
+> a ler esse campo com a cópia velha fica **vermelho dizendo o nome do campo**, e o conserto é
+> ressincronizar. O caso perigoso — ler um campo que o schema nunca teve — é o mesmo vermelho, e
+> nenhuma cópia velha o esconde: o que se mede é o nome, não a versão.
+
+**O que ela NÃO garante, e está escrito no arquivo:** que o campo está no lugar certo da árvore.
+`entrypoint` lido da raiz passaria, porque o nome existe dentro de `backend`. O defeito que ela
+persegue é o outro, e é o que acontece de verdade — o campo novo que nasceu só de um lado.
+
+> **Duas armadilhas na construção, e a segunda quase passou.** A limpeza de comentário usava
+> `/\*[\s\S]*?\*\/` e **comeu 14 KB de código de verdade** — um `/*` dentro de uma string faz o
+> casamento não-guloso começar no lugar errado e correr até o próximo `*/`. A extração passou a
+> devolver **um** campo onde havia quatro, e teria ficado verde medindo quase nada. Virou limpeza
+> ancorada em linha, onde o pior caso é local.
+>
+> E é por isso que cada consumidor tem um **piso** de campos. Uma regex falha devolvendo vazio —
+> verde, silencioso, medindo nada. A refutação prova isso de frente: com a extração zerada **e o
+> piso removido**, o arquivo inteiro passa verde. Com o piso, fica vermelho. **8/8 refutações.**
 
 O `engine.loader`, que a [2.7](02b-motores.md) pôs em produção, **está bem declarado** — `engine` é
 um dos objetos que já fechava a porta. A frase anterior dizia que ele *"só está declarado porque
