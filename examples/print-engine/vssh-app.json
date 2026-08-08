@@ -1,0 +1,20 @@
+{
+  "id": "print-engine",
+  "name": "Motor de Impressão",
+  "version": "1.0.0",
+  "type": "engine",
+  "kind": "service",
+  "category": "Engine",
+  "description": "Gera PDF no próprio servidor, com o mesmo motor de renderização do navegador — então o PDF se parece com o que a pessoa viu na tela. Sem janela própria: é consumido pelo diálogo de impressão do ambiente.",
+  "provides": ["print/v1"],
+  "requiredPackages": ["chromium"],
+  "resources": {
+    "memoryMax": "1G",
+    "tasksMax": "256"
+  },
+  "backend": {
+    "runtime": "node",
+    "entrypoint": "backend/server.js",
+    "healthcheckPath": "/healthz"
+  }
+}

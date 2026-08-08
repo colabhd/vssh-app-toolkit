@@ -1,8 +1,23 @@
-name: Publish templates
+name: Publish apps
 
-# Publica os apps-template deste toolkit (templates/*/vssh-app.json) no Worker do repositório,
-# para que fiquem instaláveis via `sudo vssh-app-install <id> --force` ou pela aba admin
-# "Repositório". Dispara a cada push em main que toque um template, e manualmente.
+# Publica os vssh-apps DESTE toolkit no Worker do repositório, para que fiquem instaláveis via
+# `sudo vssh-app-install <id> --force` ou pela aba admin "Repositório". Dispara a cada push em
+# main que toque um deles, e manualmente.
+#
+# ── Dois diretórios, e a diferença não é de tamanho ──────────────────────────
+#
+#   templates/   ponto de PARTIDA. Copie, troque o id, apague o que não usa.
+#   examples/    IMPLEMENTAÇÕES DE REFERÊNCIA de capacidades que o toolkit define — canônicas,
+#                substituíveis, e feitas para serem INSTALADAS. "Exemplo" aqui não quer dizer
+#                "não use": quer dizer que outra implementação da mesma capacidade é bem-vinda, e
+#                o ambiente a encontraria do mesmo jeito, pelo `provides`.
+#
+# ── Por que uma delas mora no repositório do CONTRATO ────────────────────────
+#
+# Porque a esteira já está aqui — segredo, var, e sobretudo a derivação de versão abaixo, que é o
+# único jeito conhecido de este ecossistema publicar sem repetir número. Um repositório próprio
+# custaria remoto, CI e segredo para recriar o que já existe, e nasceria com o `version: 1.0.0`
+# fixo que o comentário logo abaixo descreve como defeito.
 #
 # Pré-requisitos (uma vez), no próprio toolkit (Settings → Secrets and variables → Actions):
 #   - secret VSSH_REPO_PUBLISH_TOKEN: token escopado `kind:app` (ou mestre) — cobre todos os ids.
@@ -24,30 +39,30 @@ name: Publish templates
 # de verdade, e sem passo manual para alguém esquecer. `major.minor` continua no manifest,
 # sob controle humano — é lá que se declara "isto quebrou compatibilidade".
 #
-# Isto vale para os templates DESTE repositório. Um vssh-app externo continua responsável
+# Isto vale para os apps DESTE repositório. Um vssh-app externo continua responsável
 # pela própria versão (ver a SKILL): o mecanismo aqui é conveniência do monorepo, não regra
 # do ecossistema.
 
 on:
   push:
     branches: [main]
-    paths: ['templates/**']
+    paths: ['templates/**', 'examples/**']
   workflow_dispatch:
     inputs:
       app:
-        description: "Nome do template em templates/ (ex. terminal-latch) ou 'all'"
+        description: "Caminho do app (ex. examples/print-engine, templates/hello-vssh-app) ou 'all'"
         type: string
         default: 'all'
 
 jobs:
   publish:
-    name: Publish templates → repo
+    name: Publish apps → repo
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          # Histórico completo: o patch da versão é contagem de commits por template, e
+          # Histórico completo: o patch da versão é contagem de commits por app, e
           # num clone raso ela daria 1 para sempre — publicando 1.0.1 a cada push e o
           # servidor pulando todos, a partir do segundo, por "já está nessa versão".
           fetch-depth: 0
@@ -81,7 +96,12 @@ jobs:
             bash scripts/vssh-app-publish "${dir}" --version "${base}.${patch}"
           }
           if [ "${APP_INPUT}" = "all" ]; then
-            for d in templates/*/; do publish_dir "${d%/}"; done
+            for d in templates/*/ examples/*/; do [ -d "$d" ] && publish_dir "${d%/}"; done
           else
-            publish_dir "templates/${APP_INPUT}"
+            # Aceita o caminho inteiro (`examples/print-engine`). O nome solto continua valendo
+            # para template, que era a única forma antes — quebrar isso obrigaria a decorar a nova.
+            case "${APP_INPUT}" in
+              */*) publish_dir "${APP_INPUT}" ;;
+              *)   publish_dir "templates/${APP_INPUT}" ;;
+            esac
           fi
