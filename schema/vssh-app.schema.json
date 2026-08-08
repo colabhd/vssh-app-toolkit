@@ -58,6 +58,18 @@
       "pattern": "^[0-9]+(\\.[0-9]+){0,2}$",
       "description": "Versão MÍNIMA do shell de que este app precisa. O padrão é NÃO declarar: um campo obrigatório transformaria toda API nova em quebra de compatibilidade declarada, que é burocracia sem benefício. Quem declara está dizendo 'eu uso uma coisa que não existia antes' — a mesma regra do `engines` do npm, pelo mesmo motivo. NÃO substitui o `vssh.capabilities()`: um é gate de instalação, o outro é decisão de runtime. Quem confere é o portal, que sabe a versão do shell que serve; o `vssh-app-install` roda offline no servidor e não tem como saber."
     },
+    "contributes": {
+      "type": "object",
+      "description": "O que este app acrescenta às superfícies do AMBIENTE — coisas que não são a janela dele. Vale para qualquer app, e não só para `type:'engine'`: um app com janela pode perfeitamente ter preferências, e até aqui não tinha onde colocá-las. NÃO substitui `engine.loader`, e a diferença é de tamanho: o loader de um motor traz o lado-cliente INTEIRO (megabytes, assets, servidos pelo backend do app, que é um serviço e está de pé); uma contribuição é um script que registra alguma coisa e é servido do DISCO pelo portal — então funciona com o backend desligado, que é o caso normal de um app comum.",
+      "additionalProperties": false,
+      "properties": {
+        "settings": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9/._-]*\\.js$",
+          "description": "Caminho, relativo à raiz do PACOTE, de um script que registra uma seção em Configurações (`SettingsRegistry.register`). Carregado quando a janela de Configurações abre — não no boot: um app que ninguém configura não custa nada, e o ambiente não passa a depender de N apps para subir. ATENÇÃO ao que isto concede: o script roda na origem do shell, com a confiança do shell. O portão é o mesmo do resto do modelo — quem pode rodar `vssh-app-install`."
+        }
+      }
+    },
     "requiredPackages": {
       "type": "array",
       "description": "Pacotes Linux de que o app precisa para funcionar (ffmpeg, pandoc, rclone…). Declarar é o ponto: hoje uma dependência de sistema se esconde num installCommand opaco, e não há como responder 'este app roda neste servidor?' sem executá-lo. Nomes no formato Debian; quem VERIFICA é o portal (vssh-app-install recusa antes de instalar, e o painel admin mostra o que falta por servidor).",

@@ -5,16 +5,14 @@
   "icon": "icon.svg",
   "category": "Utility",
   "description": "Template de vssh-app com backend Node e galeria das capacidades do ambiente — ponte com o desktop, File System Access, bandeja, som, impressão, duas janelas sobre um backend só, e o que o ambiente decide por um app: limite de recurso, GPU e cofre de segredos.",
-
-  "requiredPackages": ["ffmpeg"],
-
+  "requiredPackages": [
+    "ffmpeg"
+  ],
   "gpu": true,
-
   "resources": {
     "memoryMax": "512M",
     "tasksMax": "128"
   },
-
   "secrets": [
     {
       "name": "HELLO_SEGREDO",
@@ -22,6 +20,9 @@
       "required": false
     }
   ],
+  "contributes": {
+    "settings": "configuracoes.js"
+  },
   "backend": {
     "runtime": "node",
     "entrypoint": "backend/server.js",
