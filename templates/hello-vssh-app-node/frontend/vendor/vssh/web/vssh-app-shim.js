@@ -518,6 +518,25 @@
           .catch(() => null);
       },
 
+      /**
+       * O que este app JÁ pode tocar, sem abrir seletor nenhum.
+       *
+       * ─── Para que serve, e por que ela não existia ────────────────────────
+       *
+       * A File System Access API não tem "liste os handles que eu já tenho" — cada app guarda os
+       * seus, e o lugar em que ele guarda é o IndexedDB, que é **por perfil de navegador**. Num
+       * computador novo o app acorda sem handle nenhum e pede a pasta de novo, mesmo quando a
+       * permissão já foi concedida — porque a permissão dele viajou e o handle não.
+       *
+       * Esta lista é a ponte: os caminhos vêm do shell (que agora os guarda por USUÁRIO, e não por
+       * navegador), e `showDirectoryPicker` deixa de ser o único jeito de obter um handle. O
+       * polyfill usa isto em `grantedHandles()`.
+       *
+       * Síncrona de propósito: o espelho já está em memória, alimentado pelo push do shell. Um
+       * `await` aqui faria a restauração do app depender de uma ida e volta que já aconteceu.
+       */
+      grantedPaths() { return [...grants]; },
+
       urlFor(path) {
         const abs = String(path || '');
         if (!granted(abs)) {

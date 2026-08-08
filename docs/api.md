@@ -513,6 +513,32 @@ Duas precisões que evitam surpresa:
   `grants`, ou desenvolvimento fora do desktop, produzem "não sei" — e "não sei" não é "não". O
   contrário faria o app pedir ao usuário uma permissão que ele já deu.
 
+### A terceira resposta: tenho a permissão, e não tenho o handle
+
+O grant mora **no usuário** (ele viaja com a pessoa para qualquer computador). O handle mora no
+`IndexedDB`, que é **por perfil de navegador** — e não viaja. Num computador novo, um app acorda
+sem handle nenhum e com a permissão já concedida: não é `granted` (não há por onde ler) nem
+`denied` (ninguém negou nada). É *"a escolha já foi feita, e a prova dela ficou na outra máquina"*.
+
+Tratar essa terceira resposta como uma das outras duas dá um app que ou pede de novo a pasta que já
+tem, ou tenta ler de um handle morto. A saída é reabrir **sem seletor** o que já está concedido:
+
+```js
+// No boot, ANTES de mostrar "abrir pasta": o que este app já pode tocar?
+const [meuGrafo] = await vssh.fs.grantedHandles();   // handles, sem abrir seletor
+if (meuGrafo) await carregar(meuGrafo);
+else          await carregar(await showDirectoryPicker());
+```
+
+| | |
+|---|---|
+| `vssh.fs.grantedPaths()` | **síncrono** — os caminhos concedidos a este app, inclusive de sessões anteriores e de outras máquinas |
+| `vssh.fs.grantedHandles()` | os mesmos, como handles da FSA. Um `stat` por caminho decide `file`/`directory`, e **o que não existe mais some da lista** em vez de virar handle morto |
+
+Isto **não contorna o consentimento** — o consentimento já aconteceu, uma vez, quando a pessoa
+escolheu a pasta num seletor. O que faltava não era permissão: era um objeto para representá-la
+nesta máquina.
+
 ### Existe? Renomear, mover, copiar
 
 ```js

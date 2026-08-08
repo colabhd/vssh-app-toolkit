@@ -126,6 +126,15 @@ interface VsshFs {
   isGranted(path: string, opts?: { mode?: 'read' | 'readwrite' }): Promise<boolean | null>;
 
   /**
+   * Os caminhos que este app JÁ pode tocar, sem abrir seletor — inclusive os de sessões anteriores
+   * e **de outras máquinas**, porque o grant mora no usuário e não no navegador.
+   *
+   * Síncrona: o espelho já está em memória, alimentado pelo push do shell. É a matéria-prima de
+   * `grantedHandles()` do polyfill, que os transforma em handles da File System Access API.
+   */
+  grantedPaths(): string[];
+
+  /**
    * URL HTTP para o conteúdo, pronta para `<img src>`, `<video>` ou `fetch`. **Síncrona de
    * propósito** — é o que permite substituir `URL.createObjectURL`. Suporta `Range`.
    */

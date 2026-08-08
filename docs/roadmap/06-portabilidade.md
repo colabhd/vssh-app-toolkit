@@ -1,6 +1,7 @@
 # Onda 7 — Continuidade entre máquinas
 
-> **Estado:** parcialmente entregue pelo caminho · **Atualizado:** 2026-08-08 · **Repos:** `vssh-sso` + toolkit
+> **Estado:** itens 1, 3 e 4 ✅ · o item 2 trava numa **decisão de produto** · **Atualizado:**
+> 2026-08-08 · **Repos:** `vssh-sso` + toolkit
 
 A estrela-guia diz que o pesquisador pula de um computador para outro e não perde nada. Isso era
 **critério** ([3.2](criterios.md#32--isso-sobrevive-à-troca-de-máquina)) e não era **entrega** em
@@ -15,29 +16,30 @@ lugar nenhum. Esta onda conserta.
 >
 > | Item | Era | É |
 > |---|---|---|
-> | 1 · Grants e handles migram | pendente | **pendente** — e o destino ficou pronto |
+> | 1 · Grants e handles migram | pendente | ✅ **feito** (08-08, à noite) — o destino estava pronto, e o que faltava derrubar era uma frase |
 > | 2 · Sessão que segue o pesquisador | decisão em aberto | **decisão em aberto** — e a peça que faltava já existe, sem nome |
 > | 3 · Regra "OPFS é cache" | pendente | ✅ **feito** — saiu com a Onda 3 |
-> | 4 · Artefatos nascem no ambiente | varredura pendente | ✅ **em grande parte feito** — e um dos exemplos não existia |
+> | 4 · Artefatos nascem no ambiente | varredura pendente | ✅ **feito** — a varredura era pequena, e o último item dela (o log do app) saiu junto com o 1 |
 
-## 1. Grants e handles migram para o servidor
+## 1. Grants e handles migram para o servidor — ✅ feito
 
-Hoje: grants em `localStorage` (`AppGrants.js`), handles do polyfill FSA em `IndexedDB`. Trocou de
-máquina, o app não reabre a pasta de trabalho e as permissões somem.
+**Era assim:** grants em `localStorage` (`AppGrants.js`), handles do polyfill FSA em `IndexedDB`.
+Trocou de máquina, o app não reabria a pasta de trabalho e as permissões sumiam.
 
-**Conferido em 08-08: continua exatamente assim.** `AppGrants` lê e grava `localStorage`, com a
-chave incluindo o `serverId`, e o próprio arquivo justifica a escolha por escrito — *"é o mesmo
-domínio de vida do que o app guardou"*. Essa justificativa é o que esta onda derruba: o domínio de
-vida certo é o do usuário, não o do navegador.
+O `AppGrants` lia e gravava `localStorage`, com a chave incluindo o `serverId`, e o próprio arquivo
+justificava a escolha por escrito — *"é o mesmo domínio de vida do que o app guardou"*. **Essa
+justificativa era o que esta onda tinha de derrubar**, e ela caiu: o domínio de vida certo é o do
+usuário, não o do navegador.
 
 Isso ficou **barato** depois que o critério 3.2 estabeleceu que o grant de caminho remoto é
 preferência, não segurança — o backend do app já roda como o usuário Linux com acesso POSIX a tudo
 que o grant protegeria. Não há invariante de segurança a preservar na migração.
 
-- `AppGrants` deixa de ser `localStorage` e passa a `/api/user/settings` (ou store equivalente),
-  chaveado por usuário;
-- o `fsa-polyfill` passa a reidratar de estado do servidor, com o `IndexedDB` como **cache**;
-- os dois migram **juntos** — um handle sem grant é handle morto, e um grant sem handle é órfão.
+- ~~`AppGrants` deixa de ser `localStorage` e passa a `/api/user/settings`~~ ✅ chave `appGrants`;
+- ~~o `fsa-polyfill` passa a reidratar de estado do servidor, com o `IndexedDB` como **cache**~~ ✅
+  `grantedHandles()`, sem seletor;
+- ~~os dois migram **juntos**~~ ✅ — e o "juntos" era o item difícil: um handle sem grant é handle
+  morto, e um grant sem handle era o estado que **não tinha nome** antes desta onda.
 
 > **O destino ficou pronto no caminho, e ficou mais pronto do que esta nota dizia.** Quando isto foi
 > escrito, `/api/user/settings` era um store frouxo — quatro chaves gravavam e o servidor as
@@ -64,6 +66,31 @@ que o grant protegeria. Não há invariante de segurança a preservar na migraç
 >   arrastar SSH e Redis, com a tela dizendo o limite em vez de deixar o servidor descartar em
 >   silêncio. É o critério 3.2 entregue uma vez inteira — *"só você vê estas, e elas acompanham você
 >   para outra máquina"* está escrito na tela. Copiar essa forma é o item 1 quase todo.
+
+### ✅ Como ficou — e o argumento que precisou ser derrubado antes
+
+`appGrants` em `/api/user/settings`: `{ "<serverId>": { "<appId>": ["/caminho", …] } }`, com teto de
+16 servidores, 64 apps e 64 caminhos, e recusando caminho relativo, com `..` ou com byte nulo. O
+`AppGrants.js` deixou de falar com o `localStorage`, e **a migração faz união** — quem já usava o
+ambiente não perde o que concedeu, e o lugar velho só é apagado **depois** de a gravação acontecer.
+
+**O que estava no caminho não era código, era uma frase.** O arquivo justificava o `localStorage`
+assim: *"espelhar em `/api/user/settings` daria ao grant alcance MAIOR que o do handle — permissão
+não deve sobreviver a quem a consome"*. A premissa é que o consumidor da permissão é o **handle**.
+Não é: **o consumidor é o app**, que é o mesmo app nas duas máquinas. O que não atravessava era o
+IndexedDB do navegador — e prender o grant ao mais frágil dos dois fazia a pessoa reconceder tudo a
+cada computador, com a lista de "Permissões de arquivo" nascendo vazia num e cheia no outro.
+
+**E o par se fecha do outro lado**, que é o que a nota original pedia com "os dois migram juntos":
+`vssh.fs.grantedPaths()` devolve ao app os caminhos que ele já pode tocar, e
+`vssh.fs.grantedHandles()` os transforma em handles da FSA **sem abrir seletor**. Não é contornar o
+consentimento: ele já aconteceu, uma vez, quando a pessoa escolheu a pasta. O que faltava não era
+permissão — era um objeto para representá-la nesta máquina. O que não existe mais **some da lista**,
+em vez de virar handle morto.
+
+Com isso, a terceira resposta prevista abaixo deixa de ser um problema aberto e vira um caminho:
+*"tenho a permissão e ainda não tenho o handle"* é exatamente o estado que `grantedHandles()`
+resolve, e está documentado em [`docs/api.md`](../api.md).
 
 **Não migra:** permissão da FSA **nativa**, que é do navegador e per-máquina por natureza. São dois
 regimes na mesma API, e a documentação precisa nomear qual é qual.
@@ -150,7 +177,7 @@ do portal — então "privado" não era privado entre apps. O T2 mudou de "imple
 regra está escrita; nenhum app de referência a exercita hoje. É item da galeria do toolkit, não
 desta onda.
 
-## 4. Artefatos nascem no ambiente — ✅ em grande parte feito
+## 4. Artefatos nascem no ambiente — ✅ feito
 
 O [limite 2 do critério do navegador](criterios.md#31--o-navegador-já-faz-isso), aplicado
 sistematicamente: **destino padrão remoto**, cliente por escolha explícita.
@@ -166,7 +193,7 @@ O texto original dizia que isto era *"uma varredura, não um item único: cada l
 | **Impressão em fila** | ✅ desde a Onda 2: o arquivo não viaja para imprimir |
 | **Gravação de tela** | ⚠ **o exemplo estava errado: não existe.** Nenhum `getDisplayMedia` nem `MediaRecorder` no shell. Não é um item pendente — é um recurso que nunca foi construído, e citá-lo aqui dava a esta onda um tamanho que ela não tem |
 | **Relatório de bug** (Configurações → Sistema) | ✅ **deletado** — não era para nascer no ambiente, era para não existir. Ver abaixo |
-| **Baixar o log de um app** (`LogWindow._baixar`) | ⬜ pendente, e é pequeno — um `Blob` de texto com `<a download>` |
+| **Baixar o log de um app** (`LogWindow._baixar`) | ✅ feito · três respostas, com **"Salvar no servidor" primária**, `/fs/write` no destino que a pessoa escolhe, e o caminho inteiro no aviso — quem guarda um log vai procurá-lo depois |
 | **Salvar como** do editor de Office | ✅ não era candidato: `_saveAs()` é um `movefile` no servidor, e só o nome colidia com o `saveAs` do FileSaver |
 
 > ### O relatório de bug: a terceira resposta, que esta onda não tinha
@@ -216,10 +243,9 @@ como ideia, não como plano.
 
 ## O que sobra, depois da revisão
 
-1. **Item 1 inteiro** — e ele agora é "copiar a forma de `userPrinters` e `appSettings`", não
-   "desenhar um store".
+1. ~~**Item 1 inteiro**~~ ✅ — `appGrants` no servidor, a migração por união, e o par do outro
+   lado (`grantedPaths`/`grantedHandles`), que é o que faz "os dois migram juntos" ser verdade.
 2. **A decisão do item 2** — handoff, espelho ou escopos separados. É de produto, e nada anda antes
-   dela.
+   dela. **É o único item aberto desta onda.**
 3. **Depois da decisão, o id por conexão** — duas mudanças pequenas em `ws/events.ts`.
-4. **Uma migalha do item 4** — o log do app. O relatório de bug já saiu, e levou o `FileSaver.js`
-   junto.
+4. ~~**Uma migalha do item 4** — o log do app.~~ ✅ — três respostas, com o servidor como primária.
