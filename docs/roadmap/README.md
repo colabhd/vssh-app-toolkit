@@ -123,6 +123,7 @@ não se reescreve numa tarde.
 | 5 | [Seção de Configurações por manifesto](04-runtime-composicao.md#seção-de-configurações-declarada-por-manifesto) — resolvida por `engine.loader` para app de admin; falta a **decisão de confiança** para terceiro | — | 🔵 decisão, não tarefa |
 | 5 | [Extensão do `FileOpener`](04-runtime-composicao.md#ponto-de-extensão-no-fileopener---desenhado-falta-um-produtor-e-é-isso-que-falta) — desenhado sobre `provides`; falta um **produtor** (thumbnail/OCR/transcode) | — | 🔵 sem consumidor |
 | 6 | [Pastas de rede do usuário](05-arquivos-de-rede.md) — a guarda de junção | vssh-sso | ✅ concluída **antes do primeiro provider**, e medindo desde já: a repartição das 28 rotas mora em código e é comparada com as rotas de verdade. O ataque nº 1 é "acrescentar `POST /fs/chmod` e seguir a vida" |
+| 6 | [Pastas de rede](05-arquivos-de-rede.md) — provider WebDAV, leitor de `multistatus`, cofre cifrado, `userMounts` | vssh-sso | ✅ concluído · rodado contra **dois** servidores em container (SeaweedFS e Apache mod_dav), o que derrubou quatro coisas que eu teria feito por imaginação — e a **sonda mentia** sobre uma capacidade que existia. A primeira criptografia em repouso do portal nasce com chave própria e rotação escrita antes do primeiro segredo |
 | 6 | [Pastas de rede do usuário](05-arquivos-de-rede.md) | vssh-sso | 🔵 **desenho fechado, sem trava.** WebDAV é o padrão; S3 entra com suporte *declaradamente* limitado — diz `rename: false` em vez de emular, e a tela desabilita dizendo por quê. Credencial **no portal, cifrada**, com chave própria (o portal não cifra nada em repouso hoje — isto é novo, e o custo está escrito). As 27 operações repartidas: 9 do provider, 14 do portal, 4 em aberto |
 | 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — os medidores ganham leitor | vssh-sso | ✅ concluído · `sshSlotStats`, `sessionStats` e o coletor estavam **exportados e sem nenhum leitor**; e o dashboard reportava `activeSessions: 0` literal |
 | 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — UTF-8 partido na fronteira do chunk | vssh-sso | ✅ concluído · bug vivo, achado **gerando carga**; a refutação usa o código anterior como ataque |
@@ -316,6 +317,40 @@ número com autoridade. Daí a regra:
 
 E o conserto certo não é rotular os chamadores um a um: são 32, e a 33ª nasceria anônima. O rótulo
 vem de onde a informação já está — `req.route.path`, o padrão da rota e não a URL preenchida.
+
+#### Um portão que mede a PLATAFORMA está medindo a coisa errada
+
+Instalar o WSL numa máquina de desenvolvimento deixou **57 testes vermelhos de uma vez**, sem que
+uma linha de código mudasse. O `bash` que o Node encontra passou a ser o lançador do WSL:
+
+```
+execFileSync('bash', …)  →  WindowsApps\bash.exe
+uname -s                 →  Linux
+python3 --version        →  Python 3.14.4
+```
+
+Oito arquivos perguntavam, cada um por sua conta, *"tem `bash`? tem `python3`?"*, e a resposta virou
+**sim**. Só que o Node continua no Windows: as bancadas montam árvore em `C:\Users\…` e entregam
+para um shell que enxerga `/mnt/c/…`. Nenhum dos dois está errado — **eles só deixaram de
+compartilhar o sistema de arquivos**. Antes, o `bash` era o do Git for Windows, que vê `C:\` como
+`/c/`, e por acidente tudo funcionava.
+
+A pergunta certa não é sobre plataforma, é sobre junção: **"este shell enxerga os arquivos que eu
+acabei de criar?"** — um `test -d` no próprio repositório. Uma linha, e ela não precisa conhecer
+WSL, git-bash, nem o que vier depois.
+
+Três coisas para levar:
+
+- **a sonda estava duplicada em oito arquivos, e errada nos oito.** Terceira vez nesta base que uma
+  verificação repetida se mostra errada em todas as cópias ao mesmo tempo — depois do stripper de
+  comentário e do próprio portão de `python3`. O conserto é sempre o mesmo: recolher para um lugar
+  só, e deixar uma guarda proibindo a forma errada;
+- **medir pela SAÍDA, nunca pelo código de saída.** O atalho da Microsoft Store para `python3`
+  imprime "Python was not found" e às vezes sai com 0. Um interpretador que responde `vssh-ok` é um
+  interpretador; um que sai com zero pode ser um redirecionador de loja;
+- **isto foi disparado por instalar uma ferramenta**, não por escrever código. É a irmã da lição da
+  Onda 4 no CI (`systemd-run` existe no runner e não no Windows, e o caso passava por acidente) —
+  e mostra que o ambiente é entrada do teste tanto quanto o código.
 
 ### Depois de executar, alguém tem de tentar ABRIR
 

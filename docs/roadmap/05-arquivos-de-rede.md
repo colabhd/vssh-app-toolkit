@@ -1,9 +1,12 @@
 # Onda 6 — Pastas de rede do usuário
 
-> **Estado:** desenho fechado, sem trava · **Atualizado:** 2026-08-08 · **Repo:** `vssh-sso`
+> **Estado:** em execução · **Atualizado:** 2026-08-08 · **Repo:** `vssh-sso`
 > **Independente das Ondas 1–2** — pode correr em paralelo.
 > **Decidido:** WebDAV como padrão, S3 com suporte declaradamente limitado, credencial no portal
-> cifrada. O próximo passo é código: a guarda de junção, e depois um provider WebDAV só de leitura.
+> cifrada.
+> **Feito:** guarda de junção · leitor de `multistatus` · provider WebDAV só de leitura · cofre
+> cifrado com rotação · `userMounts`.
+> **Falta:** ligar o provider às rotas, e a tela.
 
 > ### ⚠ Esta onda foi reescrita duas vezes no mesmo dia, e a segunda foi um erro meu de leitura
 >
@@ -143,6 +146,68 @@ e não há `createCipheriv` em lugar nenhum do `src/`. Então esta onda traz:
 > **de app**, que é consumido por um processo naquele host. São dois cofres porque são dois tempos
 > de vida — e essa frase precisa estar na documentação, senão o terceiro segredo do sistema vai
 > parar no lugar errado por analogia.
+
+## O primeiro provider — ✅ feito, e contra DOIS servidores
+
+`src/services/raiz-webdav.ts` devolve exatamente a forma de `/fs/list`
+(`{ path, items: [{ name, type, size, mtime }] }`), que é a que o `FsList.js` do shell já lê — uma
+raiz remota aparece no gerenciador **sem uma linha de cliente nova**.
+
+**Dois servidores, e não um.** Um parser testado contra um servidor só codifica as manias daquele
+servidor e descobre isso no dia em que alguém aponta para um Nextcloud — que é o cenário que a onda
+existe para servir. Subiram em container: `chrislusf/seaweedfs server -webdav` e `bytemark/webdav`
+(Apache mod_dav). Quatro configurações exercitadas: cada um dos dois, um com **prefixo na base**
+(o formato do Nextcloud) e um com **senha errada**.
+
+### O que só apareceu por rodar contra servidor de verdade
+
+| Achado | O que eu teria feito |
+|---|---|
+| o Apache manda a **mesma** propriedade sob `lp1:`, `g0:` e `D:`, os três declarados `xmlns:*="DAV:"` | casar por prefixo — quebra em metade dos servidores |
+| `displayname` traz o **caminho inteiro** no SeaweedFS e **não existe** no Apache (vem sob status 404) | tirar o nome dali. O nome sai do `href` |
+| `propstat` tem status, e o que está sob 404 **não existe** | ler as propriedades direto, e fazer "sem tamanho" virar "tamanho 0" — a diferença entre uma pasta e um arquivo vazio |
+| **o `Allow` subdeclara nos dois** | derivar a matriz de capacidade dele |
+| ETag: o SeaweedFS não manda nenhum; o Apache manda **forte** no `PROPFIND` e **fraco** no `GET` | comparar um com o outro num cache, e errar sempre |
+
+> **O `Allow` merece parágrafo próprio, porque ele inverte a régua da Onda 5.** O SeaweedFS não
+> lista `GET` nem `PUT` e faz os dois; o Apache omite `PUT` e `MKCOL` e também os faz. Então não
+> basta dizer *"declarar não é provar"*: **não declarar também não prova que não faz.** É por isso
+> que a sonda EXERCITA em vez de perguntar.
+
+### A sonda mentia, e é o achado que mais importa
+
+A primeira versão pedia `Range` ao **diretório** raiz. O SeaweedFS responde `405` a um `GET` de
+coleção — e a sonda anunciava *"vídeo e PDF grandes vão baixar inteiros"* sobre um servidor que faz
+`206` em arquivo, coisa que nós tínhamos acabado de medir na sondagem manual.
+
+**Sonda que mede a coisa errada é pior que sonda nenhuma**: ela dá autoridade a uma afirmação falsa,
+exatamente na tela em que a pessoa decide se guarda a montagem. Agora ela pede a um arquivo da
+listagem, e quando não há arquivo responde *"não havia arquivo para testar"* — a terceira resposta,
+que não é um "não faz". Raiz recém-criada e vazia não é raiz incapaz.
+
+## A credencial cifrada — ✅ feito, com a rotação escrita antes do primeiro segredo
+
+`src/utils/segredo-cifrado.ts`, AES-256-GCM, e as duas condições da decisão cumpridas:
+
+- **chave própria** (`VSSH_MOUNT_KEY`), não a de sessão. Uma chave que assina e cifra confunde dois
+  tempos de vida: trocar o segredo de sessão é rotina — derruba logins e pronto —, e se ele também
+  cifrasse, a mesma troca apagaria a credencial de pasta de rede de todo mundo, sem aviso e sem
+  volta;
+- **rotação desenhada antes**: o pacote é `v1.<idDaChave>.<iv>.<tag>.<cifrado>`, e
+  `VSSH_MOUNT_KEYS_ANTIGAS` **só decifra**. Rodar é gerar a nova, mover a atual para a lista, subir.
+  O que já existe continua abrindo, o que é gravado sai na chave nova, e a reescrita passa quando
+  der — sem janela de indisponibilidade. O `idDaChave` é **derivado** (hash truncado), e não um
+  número mantido à mão que um dia aponta para a chave errada.
+
+E `userMounts` guarda a metade **não-secreta**, no molde de `userPrinters`. O conjunto de campos é
+**fechado**, e não uma lista de nomes proibidos — proibir por nome deixa passar o próximo nome que
+alguém inventar. O cliente recebe apenas `temSenha`.
+
+> **Duas coisas que a validação de endereço recusa, e o motivo de cada uma.** `http://` público, que
+> entregaria a senha em Basic a quem estiver no caminho — mas `http://` **privado passa**, porque
+> recusá-lo inteiro impediria montar o SeaweedFS do cluster, e empurrar alguém para "desligue a
+> verificação" é pior. E credencial embutida na URL (`https://user:senha@host`), que guardaria o
+> segredo dentro do campo não-secreto **pelo caminho que ninguém revisa, porque parece uma URL**.
 
 ## Quem fala com o storage: o portal, e por quê
 
@@ -384,8 +449,8 @@ como a impressora de rede já é
    `upload` voltando a ser salto duplo).
 4. ~~**A guarda de junção**, antes do primeiro provider.~~ ✅ `src/utils/contrato-de-raiz.ts` +
    `tests/unit/contrato-de-raiz.test.js` — 15 casos, 12 ataques repelidos, e ela fica vermelha hoje.
-5. **Um provider WebDAV só de leitura**, contra o SeaweedFS de vocês, com `watch` declarado ausente
-   e respondendo honestamente. Só-leitura já serve o arquétipo A3 e não toca escrita nenhuma.
+5. ~~**Um provider WebDAV só de leitura.**~~ ✅ `src/services/raiz-webdav.ts`, rodado contra **dois**
+   servidores em container. Mais o leitor de `multistatus`, o cofre cifrado e o `userMounts`.
 6. **A tela**, no molde de Dispositivos: dois escopos, assistente que sonda (`PROPFIND`) antes de
    guardar.
 7. **A URL assinada apontando para fora** — por último, porque é a única que quebra contrato
