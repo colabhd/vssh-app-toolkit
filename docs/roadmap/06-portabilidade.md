@@ -211,7 +211,7 @@ menos para esta onda migrar: lock files de janela, journal de notificações, `V
 `run.log` de cada app, o cofre de segredos e as filas do CUPS.
 
 Portabilidade **entre servidores** é outra questão, maior, e não está nesta onda — ela depende da
-home montada por rede, [registrada na Onda 6](05-arquivos-de-rede.md#a-home-do-usuário-montada-por-rede--e-por-que-ela-é-a-linha-do-meio)
+home montada por rede, [registrada na Onda 6](05-arquivos-de-rede.md#a-home-do-usuário-montada-por-rede)
 como ideia, não como plano.
 
 ## O que sobra, depois da revisão
