@@ -165,23 +165,41 @@ O texto original dizia que isto era *"uma varredura, não um item único: cada l
 | **PDF de impressão** | ✅ [`print/v1`](04-runtime-composicao.md#registro-de-capabilities): o PDF é gerado **no servidor**, ao lado do original, e aberto no visualizador. O arquivo não viaja |
 | **Impressão em fila** | ✅ desde a Onda 2: o arquivo não viaja para imprimir |
 | **Gravação de tela** | ⚠ **o exemplo estava errado: não existe.** Nenhum `getDisplayMedia` nem `MediaRecorder` no shell. Não é um item pendente — é um recurso que nunca foi construído, e citá-lo aqui dava a esta onda um tamanho que ela não tem |
+| **Relatório de bug** (Configurações → Sistema) | ✅ **deletado** — não era para nascer no ambiente, era para não existir. Ver abaixo |
 | **Baixar o log de um app** (`LogWindow._baixar`) | ⬜ pendente, e é pequeno — um `Blob` de texto com `<a download>` |
-| **Relatório de bug** (Configurações → Sistema) | ⬜ pendente, e é o mais irônico da lista — ver abaixo |
 | **Salvar como** do editor de Office | ✅ não era candidato: `_saveAs()` é um `movefile` no servidor, e só o nome colidia com o `saveAs` do FileSaver |
 
-> **O relatório de bug é o caso que melhor mostra por que este item existe.** `gerarRelatorio()`
-> monta um `.txt` com a URL, o navegador, os motores, a telemetria da sessão e **`VsshSettings.all()`
-> inteiro** — ou seja, exatamente as preferências que seguem o pesquisador entre máquinas — e o
-> entrega, pelo `FileSaver`, **à máquina de onde ele está prestes a sair**. Um artefato sobre a
-> portabilidade, nascido no único lugar que não é portátil.
+> ### O relatório de bug: a terceira resposta, que esta onda não tinha
 >
-> E o `FileSaver.js` vendorizado tem **um** chamador: este. Nascendo o relatório no servidor, a
-> biblioteca inteira sai do `index.html` junto — o que também responde a pergunta que esta linha
-> fazia antes ("pode não ter chamador"), sem precisar deixá-la em aberto.
+> Ele parecia o caso mais forte deste item — montava um `.txt` com a URL, o navegador, os motores,
+> a telemetria da sessão e **`VsshSettings.all()` inteiro**, ou seja, exatamente as preferências que
+> seguem o pesquisador entre máquinas, e o entregava **à máquina de onde ele está prestes a sair**.
+> Um artefato sobre portabilidade nascendo no único lugar que não é portátil.
+>
+> **E a resposta certa não era movê-lo para o servidor. Era apagá-lo**, e isso é uma correção de
+> método: este item tinha duas respostas — "nasce no cliente" e "nasce no ambiente" — e faltava a
+> terceira, *"não tem por que existir"*.
+>
+> Ele é herança do cliente Xpra. A versão original montava um `.zip` com screenshot da sessão,
+> **nunca funcionou** (`new JSZip()` e o JSZip fora do bundle, com o guard de `typeof` deixando
+> passar), e só habilitava depois de um `info-response` — pacote do Xpra, portanto morto no
+> ambiente sem X11. A [Onda 2.6](02-apis-de-shell.md#26--a-janela-de-configurações-refeita---feito)
+> o reescreveu para um `.txt` que ao menos rodava, e **essa foi a decisão errada**: consertou a
+> execução de uma coisa que não tinha assunto. O que ele produzia — URL, user-agent, id dos
+> motores — quem atende um chamado já tem.
+>
+> Diagnóstico de verdade já existe, e mora onde o problema está: o **log do backend** de cada app
+> (janela própria, `run.log` rotacionado no servidor), o **estado de cada serviço** em Serviços, e
+> **Dispositivos** para hardware. Nenhum deles depende de alguém lembrar de clicar em "Gerar" antes
+> de fechar a aba.
+>
+> **O `FileSaver.js` saiu junto** — era o único chamador —, e com ele `saveAs` saiu da lista de
+> globais permitidos do `client-undefined-refs`. Essa lista tinha sete libs vendorizadas e agora
+> tem zero. A guarda que ficou não mede o botão, mede o eixo: uma biblioteca cuja função é *baixar
+> um Blob para a máquina do usuário* é, por definição, o oposto da estrela-guia.
 
-**O que sobra são dois itens pequenos e nomeados**, não uma varredura. O restante desta linha da
-onda já foi entregue por quem estava construindo outra coisa — que é o sintoma de um critério
-funcionando.
+**O que sobra é um item pequeno e nomeado**, não uma varredura. O restante desta linha da onda já
+foi entregue por quem estava construindo outra coisa — que é o sintoma de um critério funcionando.
 
 ## Nota sobre o alcance
 
@@ -203,5 +221,5 @@ como ideia, não como plano.
 2. **A decisão do item 2** — handoff, espelho ou escopos separados. É de produto, e nada anda antes
    dela.
 3. **Depois da decisão, o id por conexão** — duas mudanças pequenas em `ws/events.ts`.
-4. **Duas migalhas do item 4** — o log do app e o relatório de bug. O segundo leva o `FileSaver.js`
-   junto ao sair, porque é o único que o chama.
+4. **Uma migalha do item 4** — o log do app. O relatório de bug já saiu, e levou o `FileSaver.js`
+   junto.

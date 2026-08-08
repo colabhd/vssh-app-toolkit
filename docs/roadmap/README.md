@@ -123,7 +123,7 @@ não se reescreve numa tarde.
 | 5 | [Extensão do `FileOpener`](04-runtime-composicao.md#ponto-de-extensão-no-fileopener---desenhado-falta-um-produtor-e-é-isso-que-falta) — desenhado sobre `provides`; falta um **produtor** (thumbnail/OCR/transcode) | — | 🔵 sem consumidor |
 | 6 | [Camada de arquivos de rede](05-arquivos-de-rede.md) | vssh-sso | ⬜ não iniciado · **revisada 08-08**: 7 afirmações caíram, e o 1º passo virou *medir* |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — item 3 (OPFS é cache) | vssh-sso + toolkit | ✅ concluído (saiu com a Onda 3) |
-| 7 | [Continuidade entre máquinas](06-portabilidade.md) — item 4 (artefatos nascem no ambiente) | vssh-sso | ✅ em grande parte · download e PDF já nascem no servidor; sobram o log do app e o relatório de bug |
+| 7 | [Continuidade entre máquinas](06-portabilidade.md) — item 4 (artefatos nascem no ambiente) | vssh-sso | ✅ em grande parte · download e PDF já nascem no servidor; o relatório de bug **não nasceu em lugar nenhum — foi deletado**, e o `FileSaver.js` com ele. Sobra o log do app |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — itens 1 e 2 | vssh-sso + toolkit | ⬜ não iniciado · o item 2 trava numa **decisão de produto** |
 
 ### E uma onda revisada rende tanto quanto uma executada
@@ -143,6 +143,14 @@ de produção. O saldo:
 Nenhuma das seis foi achada lendo o documento. Todas saíram de `grep` no código — o mesmo passo que
 o README já mandava dar **antes de executar** uma onda, aplicado a ondas que ninguém ia executar tão
 cedo. É barato, e o que ele evita é planejar em cima de um sistema que deixou de existir.
+
+**E a revisão produziu uma deleção.** O "Relatório de problema" era o caso mais forte do item 4 da
+Onda 7 — um `.txt` com as preferências que seguem o pesquisador, entregue à máquina de onde ele está
+saindo. A resposta certa não era movê-lo para o servidor: o item tinha duas respostas ("nasce no
+cliente", "nasce no ambiente") e faltava a terceira, **"não tem por que existir"**. Ele é herança do
+cliente Xpra, nunca funcionou na forma original, e a 2.6 consertou a execução de uma coisa sem
+assunto. Saiu inteiro, com o `FileSaver.js` junto — e a lista de libs vendorizadas do
+`client-undefined-refs`, que tinha sete nomes, chegou a zero.
 
 ## Questões em aberto
 
