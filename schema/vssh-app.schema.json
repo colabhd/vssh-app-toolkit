@@ -2,10 +2,10 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/colabhd/vssh-app-toolkit/schema/vssh-app.schema.json",
   "title": "vssh-app.json",
-  "description": "Manifesto de um vssh-app. Fonte da verdade: este arquivo. Validado por inteiro no vssh-app-publish (o gate de entrada no repositório); o vssh-app-install valida só o mínimo, porque roda offline no servidor e não tem como buscar o schema.",
+  "description": "Manifesto de um vssh-app. Fonte da verdade: este arquivo. Validado por inteiro no vssh-app-publish (o gate de entrada no repositório); o vssh-app-install valida só o mínimo, porque roda offline no servidor e não tem como buscar o schema. `additionalProperties: false` em TODO objeto, e a raiz foi a última a fechar: enquanto ela aceitava qualquer chave, `requiredPackage` (sem o s), `gpuu` e `opns` publicavam limpos e o campo era descartado em silêncio por quem lê. Um manifesto escrito para um toolkit mais NOVO passa a ser recusado por um mais velho, e isso é o comportamento desejado — 'este toolkit não conhece este campo' é a informação, e a alternativa é publicar um app cujo campo ninguém vai ler.",
   "type": "object",
   "required": ["id", "version", "backend"],
-  "additionalProperties": true,
+  "additionalProperties": false,
   "properties": {
     "id": {
       "type": "string",
@@ -137,7 +137,7 @@
     "backend": {
       "type": "object",
       "required": ["runtime", "entrypoint"],
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "runtime": {
           "enum": ["python3", "node", "binary"],
@@ -157,8 +157,8 @@
     },
     "window": {
       "type": "object",
-      "description": "Ignorado por type:'engine'.",
-      "additionalProperties": true,
+      "description": "Ignorado por type:'engine'. O portal repassa este objeto INTEIRO ao cliente (`window: m.window || {}` em routes/apps.ts), e o cliente lê exatamente os quatro campos abaixo — então uma chave a mais aqui viaja o caminho todo para não ser lida por ninguém. É o campo em que o erro de digitação era mais barato de cometer e mais caro de perceber: `widht: 900` deixa a janela no tamanho padrão, sem erro em lugar nenhum.",
+      "additionalProperties": false,
       "properties": {
         "title": { "type": "string" },
         "width": { "type": "integer", "minimum": 200, "maximum": 10000 },

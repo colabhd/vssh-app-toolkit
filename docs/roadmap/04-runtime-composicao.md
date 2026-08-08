@@ -1,6 +1,9 @@
 # Ondas 4 e 5 — Runtime de apps e composição do ecossistema
 
-> **Estado:** 🟢 **Onda 4 concluída** · 🟡 Onda 5 não iniciada — **healthcheck ✅** (verdadeiro **e**
+> **Estado:** 🟢 **Onda 4 concluída** · 🟡 **Onda 5 aberta pelo contrato do manifesto** — a peneira
+> fechou (raiz, `backend` e `window` recusam campo desconhecido; o erro nomeia o vizinho), e a
+> medição corrigiu **três** afirmações desta onda. Falta `provides`/`minShellVersion` e a decisão da
+> guarda de junção · **healthcheck ✅** (verdadeiro **e**
 > assíncrono) · **`kind:"service"` com janela ✅** (medido: era um teste) · **múltiplas janelas ✅**
 > (a cópia e a extra) · **`requiredPackages` ✅** (a metade que verifica) · **limites de recurso ✅**
 > (e o pré-requisito que a roadmap dizia pago **não estava**) · **GPU ✅** (descoberta genérica pelo
@@ -659,6 +662,10 @@ Hoje o ecossistema **não compõe**: cada consumidor de motor fica acoplado a um
 
 ### O contrato do manifesto: um schema, uma validação, uma guarda
 
+> **Feito** no toolkit: a raiz, `backend` e `window` deixaram de aceitar campo desconhecido; o erro
+> passou a nomear o vizinho; 6 testes novos, **8/8 refutações**, suíte em 264. O que continua aberto
+> é `provides`/`minShellVersion` e a guarda de junção — ver "O que a medição achou", abaixo.
+
 Vem primeiro porque **três ondas escrevem no mesmo arquivo** e nenhuma era dona dele:
 
 | Onda | Campos |
@@ -671,12 +678,69 @@ Todos precisam das mesmas três coisas: entrada no `schema/vssh-app.schema.json`
 `vssh-app-publish`, e um consumidor no portal. Feito uma vez, paga pelas três; feito três vezes,
 são três noções do mesmo contrato livres para divergir.
 
-**E o schema hoje não segura nada:** ele é `"additionalProperties": true` na raiz — campo novo não
-quebra nada, e **campo com erro de digitação também não**. O `engine.loader`, que a
-[2.7](02b-motores.md) pôs em produção, só está declarado porque alguém lembrou de declarar. A
-guarda que falta é a mesma que a Onda 2c usou nos itens 8 e 9, na direção que importa aqui: **todo
-campo que o portal lê está no schema.** Um campo que o portal lê e o schema não conhece é um
-contrato que existe só na cabeça de quem escreveu os dois lados.
+~~**E o schema hoje não segura nada:** ele é `"additionalProperties": true` na raiz — campo novo não
+quebra nada, e **campo com erro de digitação também não**.~~
+
+### O que a medição achou — e as duas frases acima estavam erradas
+
+**"Não segura nada" era falso, e a forma do buraco importa mais que o tamanho.** Rodando o
+validador de verdade contra manifestos com typo, ele **recusava 5 dos 8 lugares**: todo objeto que
+já declarava `additionalProperties: false` — `resources`, `engine`, `opens`, `secrets[]` — mais os
+enums. Passavam limpo exatamente os três que declaravam `true`:
+
+| Onde | Typo | Antes | Agora |
+|---|---|---|---|
+| **raiz** | `requiredPackage` (sem o `s`) | publica, e o app instala **sem verificar pacote nenhum** | recusa |
+| **raiz** | `gpuu`, `opns`, `secret` | publica, campo descartado em silêncio | recusa |
+| **`backend`** | `healthcheckPat` | publica, o poll cai no `/` padrão | recusa |
+| **`window`** | `widht: 900` | publica, e a janela abre no tamanho padrão | recusa |
+
+O `window` é o mais barato de errar e o mais caro de perceber: o portal repassa o objeto **inteiro**
+ao cliente (`window: m.window || {}`), o cliente lê quatro chaves, e a quinta viaja o caminho todo
+para não ser lida por ninguém — sem uma linha de log em lugar nenhum.
+
+**E "todo campo que o portal lê está no schema" não era a guarda que faltava: hoje isso já é
+verdade.** A varredura dos cinco consumidores — a projeção de `/api/apps`, o `provisioning`, o
+`vssh-app-install`, o `vssh-app-run` e o `vssh-app-supervisor` — não achou **um** campo lido que o
+schema não declare. A frase descrevia um risco, não um defeito. O que sobra dela é anti-apodrecimento,
+e **ela não cabe em repositório nenhum sozinha** — ver "A guarda de junção", abaixo.
+
+> **Um manifesto escrito para um toolkit mais NOVO passa a ser recusado por um mais velho, e isso é
+> o comportamento desejado.** *"Este toolkit não conhece este campo"* é a informação; a alternativa
+> é publicar um app cujo campo ninguém vai ler. Custo medido: **zero** — os cinco manifestos reais
+> (dois templates, `logseq`, `scramjet-wisp`, `xpra`) continuam publicando sem alteração.
+
+**O erro passou a nomear o vizinho.** *"campo desconhecido: requiredPackage"* está correto e não
+ajuda: quem publica olha para o manifesto, vê o campo escrito lá, e conclui que o schema é que está
+velho. Agora sai *"(você quis dizer requiredPackages?)"* — e a distância é **Damerau**, não
+Levenshtein, por um caso concreto: `widht` por `width` é o typo mais comum que existe, e a distância
+simples o cobra como dois erros, deixando justamente o mais provável sem sugestão. Quando nada está
+perto, a mensagem continua sendo só o nome reprovado: sugestão errada é pior que nenhuma.
+
+**A rede que importa mais que os quatro casos:** *todo objeto do schema fecha a porta*. Fechar as
+três de hoje não impede a quarta de nascer aberta — e ela nasceria exatamente onde ninguém procura.
+
+### A guarda de junção, e por que ela é uma decisão e não uma tarefa
+
+*"Todo campo que um consumidor lê está no schema"* atravessa dois repositórios que **não se
+conhecem**: o `vssh-sso` não tem cópia do schema, não depende do toolkit, e não há uma linha ligando
+os dois. É a mesma forma dos defeitos que a 2c achou três vezes — os dois lados certos sozinhos, e
+ninguém dono do meio.
+
+Três saídas, e a escolha muda o resto da onda, porque `provides` e a seção de Configurações
+declarada por manifesto têm **exatamente a mesma forma**:
+
+| | Como | Custo |
+|---|---|---|
+| **A** | vendorizar o schema no `vssh-sso`, como o `vssh-app-lib-sync` já faz com `lib/` — com `libVersion` e o publish conferindo a idade da cópia | uma cópia que envelhece, mas o mecanismo de detectar isso **já existe** e é o idioma da casa |
+| **B** | o portal **deriva** a projeção do `/api/apps` do schema, em vez de listar campo a campo | acaba com a divergência em vez de detectá-la; mexe numa rota quente |
+| **C** | o schema declara, por campo, quem consome — e a guarda fica só no toolkit | não mede o consumidor de verdade: vira documentação com cara de teste |
+
+A **A** é a recomendação, por precedente: é o único dos três que já tem mecanismo rodando nesta casa.
+
+O `engine.loader`, que a [2.7](02b-motores.md) pôs em produção, **está bem declarado** — `engine` é
+um dos objetos que já fechava a porta. A frase anterior dizia que ele *"só está declarado porque
+alguém lembrou"*, e isso descrevia a ausência da guarda de junção, não uma fragilidade do campo.
 
 O `minShellVersion` entra aqui, e não na Onda 3, por esse motivo — ele e o `provides` são o mesmo
 trabalho com nomes diferentes. A metade que **publica** a versão já existe

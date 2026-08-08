@@ -190,6 +190,94 @@ test('as recusas que já existiam continuam recusando', seNaoTem, () => {
   assert.match(validar({ ...BASE, backend: { runtime: 'node' } }), /^ERROR=entrypoint_ausente$/m);
 });
 
+// ─── O campo que ninguém escreveu: o typo ─────────────────────────────────────
+//
+// Medido antes de consertar, e o resultado foi mais preciso do que a roadmap supunha. Os objetos
+// que já declaravam `additionalProperties: false` — `resources`, `engine`, `opens`, `secrets[]` —
+// recusavam o campo desconhecido. Os que declaravam `true` — a RAIZ, `backend` e `window` — deixavam
+// passar limpo, e o campo era descartado em silêncio pelo lado que lê.
+//
+// A raiz era a pior das três porque é onde moram os campos que MUDAM comportamento: um
+// `requiredPackage` sem o `s` publica, instala e não verifica pacote nenhum. E `window` era a mais
+// barata de errar: o portal repassa o objeto inteiro, o cliente lê quatro chaves, e `widht: 900`
+// deixa a janela no tamanho padrão sem uma linha de log em lugar nenhum.
+
+test('a raiz recusa campo desconhecido — era por onde o typo passava', seNaoTem, () => {
+  for (const [campo, valor] of [
+    ['requiredPackage', ['ffmpeg']],   // o `s` que faltou: publicaria sem verificar pacote nenhum
+    ['gpuu', true],
+    ['opns', { extensions: ['md'] }],
+    ['secret', [{ name: 'TOKEN' }]],
+  ]) {
+    assert.match(validar({ ...BASE, [campo]: valor }),
+      /^ERROR=schema:<raiz>: campo desconhecido: /m, `passou na raiz: ${campo}`);
+  }
+});
+
+test('backend e window também fecharam', seNaoTem, () => {
+  assert.match(
+    validar({ ...BASE, backend: { runtime: 'node', entrypoint: 'b.js', healthcheckPat: '/z' } }),
+    /^ERROR=schema:backend: campo desconhecido: healthcheckPat/m);
+  assert.match(validar({ ...BASE, window: { widht: 900 } }),
+    /^ERROR=schema:window: campo desconhecido: widht/m);
+});
+
+test('o erro nomeia o vizinho — inclusive quando o typo é uma transposição', seNaoTem, () => {
+  // "campo desconhecido: requiredPackage" está correto e não ajuda: quem publica olha para o
+  // manifesto, vê o campo escrito lá, e conclui que o schema é que está velho.
+  //
+  // A transposição é o caso que obrigou a distância a ser Damerau: `widht` por `width` é o typo
+  // mais comum que existe, e a distância de edição simples o cobra como DOIS erros — então
+  // justamente o mais provável ficaria sem sugestão.
+  for (const [manifesto, sugestao] of [
+    [{ ...BASE, requiredPackage: [] },                                          'requiredPackages'],
+    [{ ...BASE, gpuu: true },                                                   'gpu'],
+    [{ ...BASE, opns: {} },                                                     'opens'],
+    [{ ...BASE, window: { widht: 900 } },                                       'width'],
+    [{ ...BASE, window: { hieght: 600 } },                                      'height'],
+    [{ ...BASE, backend: { runtime: 'node', entrypoint: 'b.js', healthcheckPat: '/' } }, 'healthcheckPath'],
+  ]) {
+    assert.match(validar(manifesto), new RegExp(`você quis dizer ${sugestao}\\?`),
+      `sem sugestão para ${JSON.stringify(manifesto)}`);
+  }
+});
+
+test('e não inventa um vizinho quando não há', seNaoTem, () => {
+  // Uma sugestão errada é pior que nenhuma: manda quem publica renomear o campo para outro que
+  // também não é o que ele queria. O teto da distância é proporcional ao tamanho do nome.
+  const saida = validar({ ...BASE, zzzTotalmenteOutro: 1 });
+  assert.match(saida, /campo desconhecido: zzzTotalmenteOutro/);
+  assert.doesNotMatch(saida, /você quis dizer/);
+});
+
+test('todo objeto do schema fecha a porta', seNaoTem, () => {
+  // A rede que impede o apodrecimento, e é ela que importa mais que os casos acima: fechar as três
+  // portas de hoje não impede a quarta de nascer aberta. Um objeto novo sem
+  // `additionalProperties: false` reabre o buraco exatamente onde ninguém vai procurar.
+  const schema = JSON.parse(fs.readFileSync(SCHEMA, 'utf8'));
+  const abertos = [];
+  (function anda(no, caminho) {
+    if (!no || typeof no !== 'object') return;
+    if (no.type === 'object' && no.properties) {
+      if (no.additionalProperties !== false) abertos.push(caminho || '<raiz>');
+      for (const [k, v] of Object.entries(no.properties)) anda(v, `${caminho}.${k}`.replace(/^\./, ''));
+    }
+    if (no.items) anda(no.items, `${caminho}[]`);
+  })(schema, '');
+  assert.deepEqual(abertos, [], `objeto(s) aceitando campo desconhecido: ${abertos.join(', ')}`);
+});
+
+test('os manifestos que existem de verdade continuam publicáveis', seNaoTem, () => {
+  // Apertar um gate é barato de escrever e caro de errar: um campo legítimo esquecido no schema
+  // transformaria esta rede em "nenhum app publica". Os templates são o que qualquer pessoa copia
+  // para começar — se eles não passam, ninguém passa.
+  for (const t of ['hello-vssh-app', 'hello-vssh-app-node']) {
+    const mf = path.join(ROOT, 'templates', t, 'vssh-app.json');
+    const saida = validar(JSON.parse(fs.readFileSync(mf, 'utf8')));
+    assert.match(saida, /^ID=/m, `o template ${t} deixou de publicar: ${saida}`);
+  }
+});
+
 test('o schema é a fonte da verdade, e conhece o campo novo', seNaoTem, () => {
   // O campo tem DUAS conferências: a explícita no Python (com mensagem própria) e a do schema.
   // Se um dia a explícita sair, o schema ainda recusa — e é isso que este teste garante.

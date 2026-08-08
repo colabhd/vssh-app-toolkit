@@ -197,6 +197,13 @@ falta num app concreto.
 }
 ```
 
+**Campo que o schema não conhece é recusado no `vssh-app-publish`, em todo objeto do manifesto** —
+inclusive na raiz, que era a última a aceitar qualquer chave. O motivo é o caso que isso deixava
+passar: `requiredPackage` sem o `s` publicava limpo, e o app instalava sem verificar pacote nenhum;
+`widht: 900` em `window` abria a janela no tamanho padrão sem uma linha de log. O erro nomeia o
+vizinho quando há um (*"você quis dizer `requiredPackages`?"*). Se você precisa de um campo que o
+schema não tem, ele entra no schema — não no manifesto.
+
 Se o `backend.runtime` for `"node"` (ou qualquer outro com um gerenciador de pacotes real) e o app
 tiver dependências de verdade, prefira **vendorizar `node_modules/` já instalado** (rodar
 `npm install`/`npm ci` uma vez em dev/CI e commitar o resultado no pacote) — mesma lição do binário

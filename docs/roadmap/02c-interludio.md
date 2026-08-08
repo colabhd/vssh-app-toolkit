@@ -1,9 +1,12 @@
 # Onda 2c — Interlúdio: recolher o que a inversão deixou, e estabilizar a experiência
 
-> **Estado:** 🟢 fechada — **itens 1 a 9 concluídos**; o 10 **medido por leitura**, com a metade que
-> exige servidor limpo virando um checklist de quatro linhas para o próximo provisionamento (e o
-> porquê está escrito lá) · **Atualizado:** 2026-08-05 · **Repos:** `vssh-sso`, `vsshapp-xpra`,
-> `vssh-repo` (novo, item 6)
+> **Estado:** 🟢 fechada — **itens 1 a 9 e 11 concluídos**; o 10 **medido por leitura**, com a
+> metade que exige servidor limpo virando um checklist de quatro linhas para o próximo
+> provisionamento (e o porquê está escrito lá) · **Atualizado:** 2026-08-07 · **Repos:**
+> `vssh-sso`, `vsshapp-xpra`, `vssh-repo` (novo, item 6)
+>
+> O **item 11 entrou depois de a onda fechar**, e por isso está lá em vez de numa onda nova: são dois
+> defeitos que o uso achou nos itens 8 e 4, deployados em `867180c` e `4f81da4`.
 >
 > Vem depois da [Onda 2.7 inteira](02b-motores.md), que **fechou os quatro passos**. Não é uma onda
 > de capacidade nova: é a fatura da inversão, e três defeitos que só ficaram visíveis depois dela.
@@ -321,6 +324,11 @@ eles ocupariam cota para sempre, sem ninguém para lê-los.
 >
 > Os quatro passos saíram na ordem prevista. O que mudou foi o **tamanho do passo 2**: as 98
 > chamadas não foram migradas, e não por falta de fôlego — ver "A decisão sobre as 98", abaixo.
+>
+> ⚠ **E houve um SEGUNDO defeito, pela mesma porta** — achado em uso, com a onda fechada: o 401 que
+> este item inteiro depende de receber **nunca chegava ao shell**, porque `requireAuth` decidia por
+> `req.path` dentro de um router montado. O sintoma foi outra vez *"o portal está fora"*. Ver o
+> [item 11](#11--dois-defeitos-que-só-o-uso-achou-com-a-onda-já-fechada---concluído).
 
 ### A causa é uma linha
 
@@ -615,6 +623,10 @@ versionados.
 >
 > O `Sec-Fetch-Dest` era a aposta certa, e a página HTML não morreu. O que mudou em relação ao
 > plano foi **onde a guarda mora** — ver "A guarda mede a junção", abaixo.
+>
+> ⚠ **O item deu ao erro um painel, e deixou o TEXTO como estava** — escrito à mão, dizendo *"o
+> editor web"* para qualquer serviço que caísse. Consertado depois, em uso: ver o
+> [item 11](#11--dois-defeitos-que-só-o-uso-achou-com-a-onda-já-fechada---concluído).
 
 Tudo mora em **um** arquivo: `src/utils/render-error.ts`, 320 linhas, com 11 chamadas em `app.ts` e
 `proxy.ts`. São elas que aparecem quando um app quebra, quando o backend não subiu, e quando a
@@ -894,6 +906,84 @@ provisionamento que você fizer por outro motivo**:
 > Provisionar uma VM limpa só para carimbar os dois é ritual, e ritual barato é o que enche uma
 > roadmap de itens que ninguém faz. Fica nomeado, com o critério de aceitação escrito, e é
 > respondido no dia em que houver um servidor novo de qualquer jeito.
+
+## 11 · Dois defeitos que só o USO achou, com a onda já fechada — ✅ CONCLUÍDO
+
+> **Feito** em `867180c` (o erro do proxy nomeia quem caiu) e `4f81da4` (a sessão expirada volta a
+> responder 401), os dois no `vssh-sso` e **deployados**. Suíte em 693.
+>
+> Eles não entraram por planejamento: chegaram como relato — *"quando uma aplicação crasha, aparece
+> a mensagem do editor web"* e um print com um 401 do IdP. Ficam registrados aqui, e não numa onda
+> nova, porque são **a fatura dos itens 8 e 4** — e porque os dois têm a assinatura que a
+> [Onda 4](04-runtime-composicao.md#o-que-só-apareceu-quando-a-onda-foi-instalada) já nomeou: duas
+> informações que existiam e não se encontravam.
+
+### O erro do proxy sabia a mensagem, e não sabia de quem
+
+O item 8 deu ao erro um painel dentro da janela. O que ele não tocou foi o **texto**, e o texto era
+escrito à mão em três pontos — todos dizendo *"o editor web"*, porque foi para o code-server que
+eles nasceram. Um vssh-app que caísse recebia:
+
+> *"O editor web não está ativo no momento. Aguarde ou inicie o serviço no painel do portal."*
+
+Duas mentiras numa frase: não é o editor web, e **o painel do portal não inicia app nenhum** — quem
+inicia é abrir de novo pelo menu. A pessoa era mandada para uma tela onde não há o que fazer.
+
+A causa é de escopo: `proxy.on('error')` não tem `semanticService` nem `appId` à mão. Mas a resposta
+está no `req.originalUrl`, que ele tem — e passou a morar num lugar só, `src/proxy/servico.ts`, que
+devolve nome e como resolver por serviço (`vscode`, `office`, `app`, mais o genérico).
+
+> **A guarda que passou verde medindo uma constante.** O ataque *"ler o `appId` pela posição errada"*
+> não foi capturado: o ramo do `vscode` devolvia `appId: null` **escrito à mão**, então o teste
+> media um literal e não o parse. Consertado na fonte — todo ramo devolve o mesmo `appId` da leitura
+> de cima —, o ataque virou vermelho. É a terceira vez que uma guarda desta família aparece nesta
+> onda (itens 8 e 9), e as três só apareceram porque alguém tentou derrubá-la.
+
+### `req.path` é relativo ao mount — e o item 4 mediu tudo, menos isso
+
+`requireAuth` decidia *"isto é API?"* por `req.path.startsWith('/api/')`. Dentro de um router
+**montado**, `req.path` é relativo ao mount: em `app.use('/api', …)` o batimento chega como
+`/session/ping`, e em `app.use('/:serverId/api', …)` também. A condição era **constante-falsa em
+todas as rotas do portal**. O que salvava os POSTs era o `Content-Type: application/json`; os GETs,
+que não mandam nenhum, caíam no `res.redirect('/auth/login')`.
+
+E `/auth/login` não é página daqui: manda para o IdP, em **outra origem**. O `fetch` segue, e duas
+coisas acontecem juntas — o `credentials: 'same-origin'` derruba os cookies, e a resposta do
+authentik não tem `Access-Control-Allow-Origin`. **A promessa rejeita por CORS antes de existir um
+status para ler.**
+
+O efeito é o inverso exato do que o item 4 desenhou: o `SessionMonitor`, cuja regra central é *"401
+é a ÚNICA resposta que significa que a sessão morreu"*, recebia erro de rede e concluía **portal
+fora do ar**. A bandeja mostrava o globo e oferecia *"verificar agora"*; clicar refazia o mesmo ping,
+que falhava igual. **Quem estava com a sessão expirada nunca via o convite para entrar de novo** — a
+bandeja estava programada para mostrar o aviso certo e nunca chegava nele.
+
+E havia uma frase escrita afirmando o contrário. O comentário de `/session/ping`
+(`src/routes/system.ts`) dizia *"uma sessão morta responde 401 — que é o sinal que o shell escuta"*.
+Estava lá desde o item 4, era falsa, e nada media. Corrigida **no lugar**, dizendo que estava errada.
+
+O conserto é o mesmo discriminador do item 8, uma camada acima: a decisão passa a ser pelo
+**destino** da requisição (`Sec-Fetch-Dest`), com `Accept: text/html` de reserva. Só uma navegação de
+documento é redirecionada — aí o 302 é o certo, porque é o topo que navega e o cookie do IdP viaja.
+
+> **Consertar pelo `originalUrl` é o reflexo natural, e está errado.** Foi um dos ataques da
+> refutação: devolve 401 para a navegação de documento, que é justamente o caso em que o redirect
+> serve. A pergunta certa nunca foi o caminho.
+>
+> E **não há conserto do lado do cliente**: com a promessa rejeitando por CORS, não sobra resposta
+> para inspecionar. O servidor é a única camada onde isso se decide.
+
+`tests/unit/sessao-expirada-responde-401.test.js` monta o router nos **dois** montes reais e mede a
+junção contra o mesmo fato — o 401 do servidor e o `SessionMonitor` continuando a lê-lo. Refutação:
+condição original inteira 🔴3 · decidir pelo `originalUrl` 🔴1 · tratar `fetch` como navegação 🔴1 ·
+nunca redirecionar 🔴2.
+
+> **É a terceira vez, nesta onda, que o defeito mora na junção e os dois lados estão certos
+> sozinhos** — a colisão do `/ping` (item 4), o formato do erro (item 8) e agora este. A diferença é
+> que os dois primeiros foram achados por quem construiu; este chegou por um print de usuário, com o
+> sintoma **nomeando a coisa errada**. Nenhuma das nossas três camadas de verificação alcançava: não
+> é guarda que não mede, não é plataforma, não é o servidor — é uma semântica de framework que só
+> aparece com o router montado, e todo teste do item 4 usava `fetch` de mentira.
 
 ## O que esta onda NÃO faz
 

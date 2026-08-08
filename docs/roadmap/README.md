@@ -99,6 +99,7 @@ não se reescreve numa tarde.
 | 2 | [Motores](02b-motores.md) — passos 2 e 3: o motor instalável (`vsshapp-xpra`), o transporte por SSH e a preferência `x11Engine` | vssh-sso + vsshapp-xpra | ✅ concluído · `xpra.ts` 619→103, `/proxy/desktop/` morreu |
 | 2 | [Interlúdio 2c](02c-interludio.md) — deploys mortos, cliente com fingerprint, sessão que expira em uso, `repo-worker` para fora | vssh-sso + `vssh-repo` | ✅ fechada · −11260 linhas no portal, 107 requisições por carga viraram 0, a sessão parou de expirar em uso, o erro do proxy virou painel de janela, o log do backend virou janela — e três telas pararam de chamar de "vazio" uma falha que tinham em mãos |
 | 2 | [Motores](02b-motores.md#passo-4--a-inversão-de-vocabulário---concluído-2026-08-06) — passo 4: o vocabulário dos dois perfis sai do código | vssh-sso + vsshapp-xpra | ✅ concluído · a coluna `profile` morreu, e o sweep achou um TypeError vivo |
+| 2 | [Interlúdio 2c, item 11](02c-interludio.md#11--dois-defeitos-que-só-o-uso-achou-com-a-onda-já-fechada---concluído) — o erro do proxy nomeia quem caiu; a sessão expirada volta a responder 401 | vssh-sso | ✅ concluído · achados **em uso**, com a onda fechada |
 | 3 | [Testes de navegador](03-toolkit.md#t9--testes-de-navegador) (T9) — CDP à mão, sem dependência npm | toolkit | ✅ concluído |
 | 3 | [`LazyFile` com respaldo real](03-toolkit.md#t1--lazyfile-é-um-blob-vazio) (T1) — `slice` por Range HTTP, `Response`/`fetch`/`FileReader` | toolkit | ✅ concluído |
 | 3 | [OPFS isolado por app](03-toolkit.md#t2--opfs) (T2) — o "private" era da origem, não do app | toolkit | ✅ concluído |
@@ -115,7 +116,8 @@ não se reescreve numa tarde.
 | 4 | [GPU como conceito de runtime](04-runtime-composicao.md#gpu-como-conceito-de-runtime---concluído) — descoberta **genérica** pelo kernel (qualquer fabricante, inclusive virtual) + benchmark GPU×CPU; o portão é só de CUDA, e isso está dito | vssh-sso + toolkit | ✅ concluído |
 | 4 | [Cofre de segredos](04-runtime-composicao.md#cofre-de-segredos---concluído) — **o app pede** na hora em que falta; Configurações → Cofre só lista; o portal grava e não guarda cópia | vssh-sso + toolkit | ✅ concluído |
 | 4 | [O que só apareceu ao INSTALAR](04-runtime-composicao.md#o-que-só-apareceu-quando-a-onda-foi-instalada) — cinco defeitos que nenhuma bancada alcançava, e a terceira etapa que a regra de verificação ganhou | toolkit | ✅ registrado |
-| 5 | Composição: `provides`, pontos de extensão, mensageria, seção de Configurações por manifesto | vssh-sso + toolkit | ⬜ não iniciado |
+| 5 | [Contrato do manifesto](04-runtime-composicao.md#o-contrato-do-manifesto-um-schema-uma-validação-uma-guarda) — a peneira fechou (raiz, `backend`, `window`), e o erro nomeia o vizinho | toolkit | 🟡 parcial · 3 afirmações da onda caíram na medição |
+| 5 | Composição: `provides`, `minShellVersion`, pontos de extensão, mensageria, seção de Configurações por manifesto | vssh-sso + toolkit | ⬜ não iniciado |
 | 6 | Camada de arquivos de rede | vssh-sso | ⬜ não iniciado |
 | 7 | Continuidade entre máquinas | vssh-sso + toolkit | ⬜ não iniciado |
 
@@ -127,9 +129,22 @@ Decisões que precisam ser tomadas, não tarefas a executar. Detalhadas em
 - **`SharedArrayBuffer`** — habilitar cross-origin isolation (COOP/COEP) ou não? Decide se WASM
   multi-thread (DuckDB-WASM, Pyodide com threads) é viável. **Precisa ser decidido antes**, não depois.
 - **Terminal persistente** — `terminal-latch` não se firmou. Qual o caminho?
-- **Extensão de navegador** — o Scramjet se provou; ainda vale manter a extensão?
+- ~~**Extensão de navegador** — o Scramjet se provou; ainda vale manter a extensão?~~ **RESPONDIDA:
+  não vale, e ela já saiu** na [Onda 2c, item 1](02c-interludio.md#1--os-deploys-que-perderam-o-assunto---concluído).
+  A 2.6 já tinha feito o desmonte funcional (`BrowserEngines.get('extension')` sempre devolveu
+  `null`), e o que restava era artefato e esteira. **Não confundir com as extensões do navegador
+  embutido**, que são outra coisa e continuam vivas — o aviso está no item 6 da mesma onda.
 - **Isolamento de apps** — o modelo atual é "um admin instalou, portanto é confiável". Quando cair,
   a fronteira tem de ser no processo, não na origem.
+- **O rewriter do Scramjet emite uma variável que ninguém declara.** `$scramjet$temploc` é usado
+  como alvo de atribuição sem `var` correspondente; em módulo ES (sempre strict) isso é
+  `ReferenceError`, e derrubava páginas inteiras no navegador embutido —
+  `dash.cloudflare.com`, entre outras. **Consertado no nosso fork** declarando-o como propriedade
+  gravável do global (`wrap.ts`, release `2.0.67-alpha.3`, entregue em `scramjet-wisp 1.0.9`), o que
+  restaura a semântica sloppy que o rewriter presume. **O conserto estrutural continua em aberto**:
+  içar um `var $scramjet$temploc;` para a função/programa envolvente quando um `TempVar` é emitido
+  em posição de alvo. É Rust, o bug está no `main` do upstream hoje, e nenhum dos commits que
+  sincronizamos o toca — então é candidato a PR, não a dívida nossa para sempre.
 
 ## Como manter
 

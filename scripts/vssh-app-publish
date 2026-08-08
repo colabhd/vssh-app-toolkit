@@ -156,6 +156,31 @@ if segredos is not None:
 # Validador do subconjunto de JSON Schema que o arquivo usa (type, required, properties, enum,
 # pattern, items, minimum/maximum, additionalProperties:false). Sem dependência: o toolkit não tem
 # node_modules e o script precisa rodar em qualquer runner.
+# "campo desconhecido: requiredPackage" está correto e não ajuda: quem publica olha para o próprio
+# manifesto, vê o campo escrito lá, e o erro parece dizer que o schema é que está velho. Nomear o
+# vizinho resolve o caso que motivou fechar a raiz — o `s` que faltou — sem inventar nada: se
+# nenhum campo conhecido estiver perto, a mensagem continua sendo só o nome reprovado.
+def _perto(alvo, conhecidos):
+    # Damerau, e não Levenshtein simples, por um caso concreto: `widht` por `width`. Trocar dois
+    # vizinhos de lugar é o erro de digitação mais comum que existe, e a distância simples o cobra
+    # como DOIS erros — então justamente o typo mais provável ficava sem sugestão.
+    def dist(a, b):
+        la, lb = len(a), len(b)
+        d = [[0] * (lb + 1) for _ in range(la + 1)]
+        for i in range(la + 1): d[i][0] = i
+        for j in range(lb + 1): d[0][j] = j
+        for i in range(1, la + 1):
+            for j in range(1, lb + 1):
+                d[i][j] = min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + (a[i-1] != b[j-1]))
+                if i > 1 and j > 1 and a[i-1] == b[j-2] and a[i-2] == b[j-1]:
+                    d[i][j] = min(d[i][j], d[i-2][j-2] + 1)
+        return d[la][lb]
+    if not conhecidos: return None
+    melhor = min(conhecidos, key=lambda c: (dist(alvo.lower(), c.lower()), c))
+    # Teto proporcional: num nome curto ('gpu') dois erros já são outra palavra; num longo
+    # ('requiredPackages') dois erros ainda são o mesmo campo mal digitado.
+    return melhor if dist(alvo.lower(), melhor.lower()) <= max(1, len(melhor) // 5) else None
+
 def _validate(node, schema, path='', errors=None):
     if errors is None: errors = []
     t = schema.get('type')
@@ -186,7 +211,9 @@ def _validate(node, schema, path='', errors=None):
         props = schema.get('properties', {})
         if schema.get('additionalProperties') is False:
             for k in node:
-                if k not in props: bad(f"campo desconhecido: {k}")
+                if k not in props:
+                    vizinho = _perto(k, list(props))
+                    bad(f"campo desconhecido: {k}" + (f" (você quis dizer {vizinho}?)" if vizinho else ''))
         for k, sub in props.items():
             if k in node: _validate(node[k], sub, f"{path}.{k}" if path else k, errors)
     if isinstance(node, list) and 'items' in schema:
