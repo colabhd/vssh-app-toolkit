@@ -4,9 +4,11 @@
 > **Independente das Ondas 1–2** — pode correr em paralelo.
 > **Decidido:** WebDAV como padrão, S3 com suporte declaradamente limitado, credencial no portal
 > cifrada.
-> **Feito:** guarda de junção · leitor de `multistatus` · provider WebDAV só de leitura · cofre
-> cifrado com rotação · `userMounts`.
-> **Falta:** ligar o provider às rotas, e a tela.
+> **Feito — o backend inteiro:** guarda de junção · leitor de `multistatus` · provider WebDAV só de
+> leitura · cofre cifrado com rotação · `userMounts` · `//rede/<id>` em `/fs/list` · as rotas de
+> sondar e guardar senha. **O ciclo funciona por `curl`, sem a tela.**
+> **Falta:** a tela (item 7), e a URL assinada apontando para fora (item 8).
+> **Antes de usar:** `VSSH_MOUNT_KEY` no Secret — `k8s/README.md` §1c.
 
 > ### ⚠ Esta onda foi reescrita duas vezes no mesmo dia, e a segunda foi um erro meu de leitura
 >
@@ -208,6 +210,105 @@ alguém inventar. O cliente recebe apenas `temSenha`.
 > recusá-lo inteiro impediria montar o SeaweedFS do cluster, e empurrar alguém para "desligue a
 > verificação" é pior. E credencial embutida na URL (`https://user:senha@host`), que guardaria o
 > segredo dentro do campo não-secreto **pelo caminho que ninguém revisa, porque parece uma URL**.
+
+## Onde uma raiz montada mora — ✅ `//rede/<id>/…`, e a barra dupla não é enfeite
+
+A escolha óbvia era `/mnt/<id>` ou `/media/<id>`, e ela é **errada por um motivo concreto: esses
+caminhos existem no host.** `/media` é literalmente lida hoje pelo `_renderSidebar` para achar
+dispositivos montados. Um espaço de nomes que colide com um diretório real produz o pior tipo de
+defeito — a mesma string significando duas coisas conforme quem a resolve, e ninguém sabendo qual.
+
+Com `//rede/`:
+
+- nenhum caminho POSIX válido começa assim na prática;
+- `safePath()` **normaliza `//` para `/`**, então um caminho de raiz que vaze por engano para o lado
+  do SSH **não vira** um caminho válido lá — ele quebra alto e cedo, em vez de listar o lugar errado;
+- é visível: quem lê um log vê `//rede/a1b2c3/dados` e sabe na hora que aquilo não é do host.
+
+E a bifurcação em `/fs/list` acontece **antes** de exigir `user.username`. É o ponto da onda: uma
+raiz WebDAV não passa pelo host, e exigir a conta Linux faria uma pasta que o portal alcança sozinho
+depender de algo que ela não usa.
+
+> **`..` não sai da raiz**, e quem garante é o portal — não o servidor remoto. Mesmo princípio do
+> `safePath()`: quem valida é quem sabe qual é a fronteira.
+
+## O segredo mora numa TABELA À PARTE — e a separação é a proteção
+
+`user_mount_secrets`, e não um campo em `settings_json`.
+
+O motivo é estrutural, não de zelo: `settings_json` é lido por `GET /api/user/settings` e vai
+**inteiro** para o navegador. Um campo de segredo ali dependeria de o sanitizador acertar sempre, em
+toda rota, para sempre. Numa linha própria, o caminho que serve as preferências **não tem como**
+alcançá-lo — a garantia deixa de ser vigilância e passa a ser topologia.
+
+`src/services/raizes-do-usuario.ts` é o **único** lugar onde configuração e credencial se encontram,
+e por isso o único onde o segredo pode vazar. Espalhar essa junção seria dar a cada rota a chance de
+vazá-la, sem sintoma nenhum até alguém abrir o devtools.
+
+E há uma junção que só existe porque foi escrita: **remover a pasta pelas preferências poda o
+segredo dela**. As duas metades vivem em tabelas diferentes, e nada as liga a não ser uma linha no
+`PUT /settings` — sem ela, a senha ficaria guardada para sempre depois do gesto que significa
+exatamente *"não quero mais isto aqui"*.
+
+## Guardar a montagem que respondeu 401 — decidido
+
+**Quando o único problema é a credencial, a montagem é guardada marcada como "precisa de senha"**,
+em vez de a pessoa ter de digitar o endereço de novo depois de buscar a senha.
+
+E o argumento não é conveniência: **um 401 é uma sondagem bem-sucedida do endereço.** O servidor
+respondeu, existe, fala HTTP auth — o endereço se provou. Um timeout ou um 404 não provam nada
+disso. Daí a sonda ter três vereditos, e não dois:
+
+| `veredito` | |
+|---|---|
+| `ok` | listou; pode guardar e usar |
+| `faltaSenha` | respondeu 401 — guarda marcada, e a barra lateral mostra o cadeado |
+| `falhou` | não respondeu, ou respondeu outra coisa |
+
+> **E escrever isso destapou um defeito que eu mesmo tinha posto.** O tratamento de erro colapsava
+> **401 e 403 no mesmo status** — então um 403 passaria por "falta senha", e a montagem seria
+> guardada esperando uma credencial que não resolve nada.
+>
+> | | |
+> |---|---|
+> | **401** | *"me dê uma credencial"* — a senha é a resposta |
+> | **403** | *"você não pode"* — autenticado ou não, este caminho está fechado |
+>
+> É a mesma família de colapsar *"não faz"* com *"não sei"*, três seções acima. E o 401 ainda separa
+> *"foi recusada"* (mandei credencial) de *"pede usuário e senha"* (nem cheguei a mandar) — a pessoa
+> precisa saber se errou a senha ou se nem informou uma.
+
+`userMounts` ganhou `precisaSenha`, que sai da **sonda** e não de suposição. Sem ele, uma pasta
+pública e uma esperando senha ficam indistinguíveis na barra lateral — as duas com
+`temSenha: false` — e a segunda só se revelaria ao ser aberta, com um erro.
+
+## As duas rotas de escrita — ✅ feitas
+
+| | |
+|---|---|
+| `POST /api/user/mounts/probe` | sonda **sem guardar nada**, valida o endereço antes de conectar, e **nunca ecoa a senha recebida** |
+| `PUT /api/user/mounts/:id/senha` | cifra e grava no cofre; devolve `{ success, temSenha }`, nunca o pacote |
+
+**Elas ficaram em `/api/user/mounts/`, e não `/api/user/fs/mounts/`.** O router é montado em
+`/api/user`, então o segundo criaria um **segundo nome** para "coisas de filesystem" ao lado do
+`/api/fs/*` que já existe — e elas não são operação de arquivo: registrar uma pasta e guardar a
+senha dela são preferência, do mesmo gênero que `userPrinters`. Manter `/fs/*` querendo dizer uma
+coisa só é o que permite ao `contrato-de-raiz` mapear aquele namespace inteiro sem exceção, e há
+guarda nos dois sentidos.
+
+## ⚙ O que precisa acontecer no cluster antes de isto funcionar
+
+**`VSSH_MOUNT_KEY` tem de existir no Secret.** Sem ela o recurso fica **desligado, não quebrado**: o
+portal sobe, tudo o mais funciona, e quem abrir uma pasta de rede recebe um 503 que **nomeia a
+variável que falta**. Derrubar o processo por causa de uma feature opcional puniria quem nem a usa.
+
+O comando é um `kubectl patch` no Secret que já existe — o Deployment puxa tudo por `envFrom`, então
+não há mudança de manifesto. Está em **`k8s/README.md` §1c**, junto com a receita de rotação sem
+janela de indisponibilidade.
+
+> **Não reaproveitar o `SESSION_SECRET`.** Trocar o segredo de sessão é rotina — derruba logins e
+> pronto —, e se ele também cifrasse, a mesma troca apagaria a credencial de pasta de rede de todo
+> mundo, sem aviso e sem volta. São dois ciclos de vida, então são duas chaves.
 
 ## Quem fala com o storage: o portal, e por quê
 
@@ -451,7 +552,11 @@ como a impressora de rede já é
    `tests/unit/contrato-de-raiz.test.js` — 15 casos, 12 ataques repelidos, e ela fica vermelha hoje.
 5. ~~**Um provider WebDAV só de leitura.**~~ ✅ `src/services/raiz-webdav.ts`, rodado contra **dois**
    servidores em container. Mais o leitor de `multistatus`, o cofre cifrado e o `userMounts`.
-6. **A tela**, no molde de Dispositivos: dois escopos, assistente que sonda (`PROPFIND`) antes de
-   guardar.
-7. **A URL assinada apontando para fora** — por último, porque é a única que quebra contrato
+6. ~~**Ligar o provider às rotas.**~~ ✅ `/fs/list` reconhece `//rede/<id>/…`; o segredo em tabela
+   à parte; `POST /mounts/probe` e `PUT /mounts/:id/senha`; a poda ao remover a montagem. **O ciclo
+   inteiro existe sem a tela** — dá para exercitar por `curl` contra o SeaweedFS.
+7. **A tela**, no molde de Dispositivos: dois escopos, assistente que sonda (`PROPFIND`) antes de
+   guardar, e a pasta aparecendo na barra lateral do gerenciador — com cadeado quando
+   `precisaSenha`. **É o que falta**, e é todo de cliente.
+8. **A URL assinada apontando para fora** — por último, porque é a única que quebra contrato
    publicado e por isso precisa de `minShellVersion` e anúncio.

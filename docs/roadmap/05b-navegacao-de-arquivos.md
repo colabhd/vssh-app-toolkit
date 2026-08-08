@@ -182,6 +182,28 @@ O conserto tem três partes:
 > ~10% de um dos 8 canais, continuamente, para uma bandeja e um journal. Ninguém tinha olhado
 > porque ninguém sabia que aquele número era dele.
 
+### E o coletor fica como está — arquivado com o número e com o gatilho
+
+A tentação era imediata: 493 ms a cada 5 segundos parece caro. Duas coisas seguram a mão.
+
+**A otimização óbvia já estava lá.** A primeira ideia — *"não poll quando não há ninguém
+conectado"* — já é o comportamento: o tick itera sobre as sessões vivas, e sem nenhuma ele não toca
+em SSH. Vale escrever justamente porque alguém vai ter essa ideia de novo, olhar o `setInterval` e
+concluir que ela falta.
+
+**E não há vítima.** Fila de exec 0, espera 0, nas duas medições. Otimizar aqui seria repetir o erro
+que esta onda inteira acabou de desmontar: agir sobre um número sem verificar se ele machuca alguém.
+
+**O gatilho está escrito**, e é o que faz isto ser arquivamento e não esquecimento: **volta à mesa
+quando "Maior fila de exec" passar de 0**, ou quando um servidor passar a ter muitos usuários
+simultâneos — porque o custo do coletor é por servidor e por tick, não por usuário, mas o teto de 8
+canais é compartilhado com todo mundo que estiver clicando.
+
+> O que **está** anotado como estranho, para quando alguém voltar: os 493 ms são muito para um exec
+> que lê meia dúzia de arquivos, e o piso medido de um exec é ~115 ms. A diferença é o script remoto
+> (`getent`, laço, subshell por usuário) — e a decomposição por fase, que já existe, responde isso
+> em uma leitura.
+
 O texto abaixo é o que esta seção dizia antes de medir, e fica **como registro do que a medição
 derrubou** — não como plano.
 
@@ -423,4 +445,4 @@ Consertado nos 24 lugares, com duas coisas que faltavam:
 | 1 · O piso e a inclinação — **decompor o lado remoto** | ✅ medido · o processo remoto é **4%** da operação, e as três hipóteses da seção caíram |
 | 1b · Decompor o que sobrou (as três fases do exec) | ✅ medido · **não há gargalo**: a listagem custa 157 ms, distribuídos em 51/64/42 |
 | 1c · O pico anônimo | ✅ concluído · o número tinha autoridade e não tinha sujeito, e **os 874 ms eram do coletor** |
-| — | 🔵 **aberto pelo rótulo:** o coletor segura ~10% de um canal, continuamente, sem ninguém pedir |
+| O coletor segurando ~10% de um canal | 🗄️ **arquivado com o número** — ver abaixo |
