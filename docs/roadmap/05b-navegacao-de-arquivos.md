@@ -137,6 +137,20 @@ EOF
 **Rodar isto antes de escolher qualquer caminho do item 1.** A tabela do piso e esta se cruzam: uma
 diz de onde vem o que toda pasta paga, a outra de onde vem o que a pasta grande paga a mais.
 
+E rodar o bloco do piso **duas vezes, usando a segunda**: a primeira paga a autenticação do `sudo` e
+o cache frio, e essa parte não é o que a rota paga em regime.
+
+#### Uma previsão escrita antes da medida
+
+O corte do payload (item 2) já está no ar. Se a chegada fosse onde a latência mora, os 822 ms de uma
+pasta de 5 mil teriam caído junto com os 40% de bytes.
+
+> **Previsão: não caem. Ficam entre 780 e 830 ms.**
+
+Está escrito aqui porque previsão que só aparece depois do resultado não é previsão. Se eles caírem
+de verdade, a leitura desta onda inteira está errada sobre onde está o gargalo, e a decomposição
+muda de alvo antes de qualquer implementação — o que é exatamente o serviço que ela deve prestar.
+
 ### 2 · A listagem inteira num JSON só — ✅ a primeira metade; a segunda foi ARQUIVADA
 
 **O `path` era redundante, e agora não viaja.** Toda entrada repetia o diretório-pai inteiro, que o
