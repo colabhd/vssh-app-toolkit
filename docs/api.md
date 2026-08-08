@@ -38,6 +38,8 @@ no-op. Você desenvolve fora do VSSH sem `if` nenhum.
 | Abas no cabeçalho da janela | `vssh.tabs.*` (exige `richChrome`) |
 | Tocar som obedecendo ao volume do ambiente | **nada** — já é automático |
 | Ler o volume que o ambiente aplica | `vssh.audio.gain()` / `.muted()` / `.onChange()` |
+| Falar com outro app, ou com o shell | `new BroadcastChannel(…)` — mesma origem, sem ponte nossa |
+| Usar um motor sem saber o nome dele | declare `provides` no manifesto de quem oferece |
 | Saber onde estou rodando | `await vssh.capabilities()` |
 
 ---
@@ -802,6 +804,33 @@ o que está aberto continua ali e que ele avisa quando voltar. Você não precis
 **A garantia é estreita, e vale saber onde ela acaba:** uma escrita que falhou continua perdida, e
 nada disso vale para o **seu backend**. Se o processo do seu app cair, o seu app cai — o que
 sobrevive é o desktop em volta dele. Não é offline mode.
+
+---
+
+## Falar com outro app
+
+Não há API nossa para isto, e é de propósito: **use `BroadcastChannel`**.
+
+```js
+const canal = new BroadcastChannel('meu-app:indice');
+canal.postMessage({ tipo: 'reindexado', arquivos: 128 });
+canal.onmessage = (e) => { /* … */ };
+```
+
+Funciona entre dois vssh-apps, entre o seu app e o shell, e entre duas janelas do mesmo app —
+porque **shell e apps compartilham uma origem só**. O seu backend é servido por caminho relativo
+na origem do portal (`/<serverId>/proxy/app/<seu-id>/`), não por subdomínio, e a janela do app não
+é um iframe sandboxed. Pelo mesmo motivo funcionam o `localStorage` compartilhado e o `postMessage`
+sem `targetOrigin`.
+
+Construir uma ponte nossa em cima disso seria embrulhar o que o navegador já faz melhor — e
+acrescentar um lugar a mais onde a mensagem pode se perder.
+
+**Onde isto acaba, e vale saber:** a mesma origem única é o que torna o isolamento entre apps
+fraco. O modelo hoje é *"um admin instalou, portanto é confiável"* — outro app da mesma sessão
+**escuta os seus canais**. Não mande por `BroadcastChannel` o que você não mandaria por um mural.
+Se um dia houver origem separada por app, isto para de funcionar e a mensageria passará a
+atravessar o shell; o seu código muda nesse dia, e não antes.
 
 ---
 

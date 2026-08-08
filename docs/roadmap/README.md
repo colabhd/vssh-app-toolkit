@@ -1,6 +1,6 @@
 # Roadmap do ecossistema vssh-app
 
-> **Atualizado:** 2026-08-07
+> **Atualizado:** 2026-08-08
 
 Este diretório é o plano vivo do ecossistema VSSH — portal (`vssh-sso`), shell de desktop
 (`vssh-client/`) e este toolkit. Não é um documento de uma vez só: **cada arquivo tem cabeçalho
@@ -117,7 +117,10 @@ não se reescreve numa tarde.
 | 4 | [Cofre de segredos](04-runtime-composicao.md#cofre-de-segredos---concluído) — **o app pede** na hora em que falta; Configurações → Cofre só lista; o portal grava e não guarda cópia | vssh-sso + toolkit | ✅ concluído |
 | 4 | [O que só apareceu ao INSTALAR](04-runtime-composicao.md#o-que-só-apareceu-quando-a-onda-foi-instalada) — cinco defeitos que nenhuma bancada alcançava, e a terceira etapa que a regra de verificação ganhou | toolkit | ✅ registrado |
 | 5 | [Contrato do manifesto](04-runtime-composicao.md#o-contrato-do-manifesto-um-schema-uma-validação-uma-guarda) — a peneira fechou (raiz, `backend`, `window`), o erro nomeia o vizinho, e a guarda de junção mede os 5 consumidores | toolkit + vssh-sso | ✅ concluído · 3 afirmações da onda caíram na medição |
-| 5 | Composição: `provides`, `minShellVersion`, pontos de extensão, mensageria, seção de Configurações por manifesto | vssh-sso + toolkit | ⬜ não iniciado |
+| 5 | [Capacidades](04-runtime-composicao.md#registro-de-capabilities) — `provides` e `minShellVersion`; o motor de navegação deixou de fixar o appId no código | vssh-sso + toolkit + `vsshapp-scramjet-wisp` | ✅ concluído |
+| 5 | [Mensageria entre apps](04-runtime-composicao.md#mensageria-entre-apps---medida-escrita-e-cercada) — nada a construir; medida, escrita e cercada, com o limite junto | vssh-sso + toolkit | ✅ concluído |
+| 5 | [Seção de Configurações por manifesto](04-runtime-composicao.md#seção-de-configurações-declarada-por-manifesto) — resolvida por `engine.loader` para app de admin; falta a **decisão de confiança** para terceiro | — | 🔵 decisão, não tarefa |
+| 5 | [Extensão do `FileOpener`](04-runtime-composicao.md#ponto-de-extensão-no-fileopener---desenhado-falta-um-produtor-e-é-isso-que-falta) — desenhado sobre `provides`; falta um **produtor** (thumbnail/OCR/transcode) | — | 🔵 sem consumidor |
 | 6 | Camada de arquivos de rede | vssh-sso | ⬜ não iniciado |
 | 7 | Continuidade entre máquinas | vssh-sso + toolkit | ⬜ não iniciado |
 

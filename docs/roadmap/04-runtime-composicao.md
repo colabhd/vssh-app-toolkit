@@ -1,9 +1,12 @@
 # Ondas 4 e 5 — Runtime de apps e composição do ecossistema
 
-> **Estado:** 🟢 **Onda 4 concluída** · 🟡 **Onda 5 aberta — contrato do manifesto ✅**: a peneira
-> fechou (raiz, `backend` e `window` recusam campo desconhecido; o erro nomeia o vizinho) e a guarda
-> de junção mede os cinco consumidores a partir do schema vendorizado. A medição corrigiu **três**
-> afirmações desta onda. Falta `provides` e `minShellVersion` · **healthcheck ✅** (verdadeiro **e**
+> **Estado:** 🟢 **Onda 4 concluída** · 🟢 **Onda 5 — os cinco itens percorridos**: contrato do
+> manifesto ✅ (a peneira fechou, o erro nomeia o vizinho, e a guarda de junção mede os cinco
+> consumidores) · `provides` ✅ e `minShellVersion` ✅, com o motor de navegação como primeiro
+> consumidor real · mensageria ✅ (nada a construir; medida, escrita e cercada) · seção de
+> Configurações por manifesto e ponto de extensão do `FileOpener` 🔵 **desenhados e não
+> construídos, com o motivo escrito** — falta um produtor num, e a decisão de confiança no outro.
+> A medição corrigiu **cinco** afirmações desta onda · **healthcheck ✅** (verdadeiro **e**
 > assíncrono) · **`kind:"service"` com janela ✅** (medido: era um teste) · **múltiplas janelas ✅**
 > (a cópia e a extra) · **`requiredPackages` ✅** (a metade que verifica) · **limites de recurso ✅**
 > (e o pré-requisito que a roadmap dizia pago **não estava**) · **GPU ✅** (descoberta genérica pelo
@@ -809,10 +812,42 @@ o que permite trocar o produtor sem tocar em nenhum consumidor.
 > **já se registraram nesta página**; `provides:` precisa resolver entre apps **instalados no
 > servidor**, o que significa índice no `/api/apps` e a decisão de subir o backend do vencedor.
 
-Primeiro consumidor real sugerido: o **engine de impressão** (`print/v1`) da
-[Onda 2.4](02-apis-de-shell.md) — nasce como caso concreto em vez de abstração especulativa. O
-código dos três lugares que o esperam (`PrintDialog.js:12`, `routes/print.ts:7`,
-`services/printers.ts:10`) já nomeia `provides: ["print/v1"]` e aponta para cá.
+~~Primeiro consumidor real sugerido: o **engine de impressão** (`print/v1`)~~ — **e o primeiro
+consumidor real acabou sendo outro, que já existia.** O `print/v1` continua sendo o próximo, e é
+ele que destrava o item vermelho da Onda 2; mas a medição achou um consumidor **vivo hoje** com
+exatamente o acoplamento que o campo existe para desfazer:
+
+```js
+vssh-client/js/browser/ScramjetEngine.js:16
+const ENGINE_APP_ID = 'scramjet-wisp'; // appId do vssh-app companion
+```
+
+Isso é melhor do que nascer com um consumidor que ainda não existe: o mecanismo estreou contra um
+caso que já estava em produção, em quatro pontos de chamada.
+
+### ✅ Como ficou
+
+`AppLauncher` ganhou `appsComCapacidade` / `appComCapacidade` / `appPorId`, com as três decisões
+herdadas do `RemoteDesktopEngines` — não filtra por *"o backend está de pé"*, não filtra por `type`,
+e **declarar não é provar**. O desempate entre dois produtores é a ordem de `/api/apps`, que é
+alfabética porque nasce de um `ls`: está dito que é arbitrário, e que no dia em que dois
+concorrerem de verdade o desempate é **preferência do usuário**, no mesmo lugar onde `fileHandlers`
+já mora. Desenhar essa tela antes desse dia seria adivinhar.
+
+> **Duas identidades foram separadas antes de divergirem, e essa é a parte que quase passou.** O
+> `'scramjet-wisp'` aparecia como *duas* coisas no mesmo arquivo: o id do **motor** no
+> `BrowserEngines` — que é a chave da preferência `browserEngine` **gravada** de cada usuário — e o
+> **appId** do backend. Tornar as duas dinâmicas de uma vez jogaria fora, em silêncio, a escolha de
+> quem já escolheu. `ENGINE_ID` continua literal, o app é resolvido, e há teste que cai se alguém
+> recolar as duas. Hoje as strings são iguais — que é exatamente por que separá-las agora é barato.
+
+E o recuo para o nome antigo **fica, com prazo escrito**: publicar o manifesto do app e deployar o
+portal são dois deploys, e sem recuo existe uma janela em que o navegador embutido não sobe. Ele
+morre quando o `provides` estiver em todo servidor, e não antes.
+
+**De quebra, o `available()` do motor parou de fazer o próprio `fetch('/api/apps')`** — era a mesma
+pergunta sem o cache de 30 s do registro, e portanto uma segunda resposta possível para *"que apps
+existem"*.
 
 ### Seção de Configurações declarada por manifesto
 
@@ -848,16 +883,85 @@ de extensão com três consumidores, não três mecanismos parecidos.
 > para terceiro"*. O que não pode é a diferença ficar implícita — hoje o único gate é quem pode
 > rodar `vssh-app-install`.
 
-### Ponto de extensão no `FileOpener`
+#### 🔵 O que sobrou depois de medir: nada para construir, e uma decisão para tomar
 
-`vssh-client/js/FileOpener.js` é um **mapa fixo** de extensão → ação. Não há como um engine
-contribuir miniatura, preview ou render (arquétipo B4). Um engine de thumbnails, um de OCR ou um
-transcodificador não têm onde se plugar.
+A revisão de 2026-08-08 conferiu o que **falta de fato**, e o resto do item já estava entregue por
+outras ondas:
 
-### Mensageria entre apps
+| A pergunta | Quem já responde |
+|---|---|
+| Seção com estado ao vivo, ações, sub-páginas, repintura por evento? | `SettingsRegistry` (Onda 2.6) — e a janela **não cita nenhuma seção pelo nome**, o que é asserção de teste |
+| Um app trazer a própria seção sem o shell conhecê-lo? | `engine.loader` (Onda 2.7) — o app entrega o script, o shell carrega. É como o `xpra` e o `scramjet-wisp` já fazem |
+
+**Ou seja: para app instalado por administrador — que é todo app que existe hoje — o item está
+resolvido, por (3).** O que resta é exatamente a fronteira que o parágrafo acima nomeia, e ela não
+é falta de mecanismo: é a **decisão de confiança**.
+
+E ela não se decide sozinha, porque é a mesma pergunta da questão em aberto *"isolamento de apps"*
+([diagnostico](diagnostico.md#15-questões-em-aberto)) e do limite da mensageria, logo abaixo. Os
+três são o mesmo fato — **uma origem só, e um gate só: quem pode rodar `vssh-app-install`.** Um
+formato declarativo para seção de terceiro construído antes dessa decisão nasceria com a pergunta
+errada respondida: *como* declarar, quando o que falta é saber *se* terceiro entra.
+
+> **Por que não construir a variante declarativa "por segurança".** Ela seria a quarta forma de
+> declarar uma seção de Configurações — depois do `SettingsRegistry`, do `engine.loader` e do
+> código do próprio shell —, servindo **zero** apps. É o que a Onda 2.1 chamou de botão de volume
+> morto, na escala de um contrato público: uma vez publicado, ele não se reescreve numa tarde.
+
+### Ponto de extensão no `FileOpener` — 🔵 **desenhado; falta um produtor, e é isso que falta**
+
+~~`vssh-client/js/FileOpener.js` é um **mapa fixo** de extensão → ação.~~ **Meia frase errada.** Ele
+já **não** é fixo para a pergunta *"quem abre este arquivo?"*: a primeira coisa que `open()` faz é
+consultar `AppLauncher.defaultAppForFile(path)`, alimentado pelo campo `opens` do manifesto e pela
+preferência do usuário. Um vssh-app se registra para uma extensão **desde a Onda 2.6**.
+
+O que continua verdadeiro é a outra metade, e é a que o arquétipo **B4** pede: não há como um app
+contribuir **miniatura, preview ou render** — coisas que não abrem uma janela, e sim entregam um
+pedaço de imagem ou de HTML para uma janela que já existe.
+
+**E o mecanismo que faltava chegou nesta onda.** Com `provides`, a forma disto deixa de ser
+pergunta em aberto:
+
+```jsonc
+{ "provides": ["thumbnail/v1"], "opens": { "mimeTypes": ["application/pdf"] } }
+```
+
+— e `FileOpener`/`FileBrowserWindow` perguntam `appComCapacidade('thumbnail/v1')`, cruzando com
+`opens` para saber se aquele produtor serve *aquele* arquivo.
+
+> **Não está construído, e o motivo é o critério desta própria onda.** Não existe um produtor: nem
+> engine de thumbnail, nem de OCR, nem transcodificador — nenhum instalado, nenhum em construção.
+> Construir o ponto de extensão agora é escrever o contrato de um lado só, e a Onda 5 já diz, na
+> seção de capabilities, que o primeiro consumidor tem de ser **caso concreto em vez de abstração
+> especulativa**. O que muda em relação a antes é que **a decisão de desenho não é mais o
+> bloqueio** — o bloqueio é ter o que plugar, e no dia em que houver, isto é um dia de trabalho.
+
+### Mensageria entre apps — ✅ **medida, escrita e cercada**
 
 `BroadcastChannel` resolve hoje, e custa quase nada — porque tudo é same-origin.
 
-> **Acoplamento a registrar:** é o mesmo fato que torna o isolamento fraco
-> ([diagnostico](diagnostico.md#15-questões-em-aberto)). Se um dia houver origem separada por app,
-> `BroadcastChannel` deixa de funcionar e a mensageria precisa passar pelo shell.
+**Isso foi conferido, e não é só verdade: é frágil de um jeito específico.** O `BroadcastChannel`
+não tem **uma** ocorrência em `vssh-client/` — o que funciona é o primitivo do navegador, e o que o
+sustenta são duas decisões nossas, em lugares que não se parecem com mensageria:
+
+- o backend do app é servido por **caminho relativo** na origem do portal
+  (`/<serverId>/proxy/app/<id>/`), e não por subdomínio;
+- o iframe da janela do app **não tem `sandbox`**, então não recebe origem opaca.
+
+> **A garantia se perde por um atributo.** Um `sandbox="allow-scripts"` no iframe — o reflexo
+> correto em quase todo outro contexto — dá ao app uma origem opaca. Aí
+> `new BroadcastChannel('x')` continua funcionando, num universo separado, e a mensagem
+> simplesmente não chega. **Sem erro em lugar nenhum.** É a família da colisão do `/ping` da 2c:
+> os dois lados certos sozinhos, e o defeito só existindo na junção.
+
+Então não havia o que construir, e havia três coisas a fazer: **escrever a garantia** (no
+`docs/api.md` do toolkit, para quem constrói um app, e no `desktop-shell.md`, para quem mantém o
+shell), **cercá-la** (`tests/unit/mensageria-entre-apps.test.js`, 3/3 refutações) e **registrar o
+acoplamento com o limite junto**.
+
+> **O limite é a metade que importa, e ele não é técnico.** É o mesmo fato que torna o isolamento
+> fraco ([diagnostico](diagnostico.md#15-questões-em-aberto)): **outro app da mesma sessão escuta
+> os seus canais.** O `docs/api.md` diz isso com essas palavras — *não mande por
+> `BroadcastChannel` o que você não mandaria por um mural*. Se um dia houver origem separada por
+> app, isto para de funcionar e a mensageria passa a atravessar o shell; o teste é onde essa troca
+> fica visível, porque quem separar as origens vai vê-lo cair.
