@@ -125,7 +125,8 @@ não se reescreve numa tarde.
 | 6 | [Pastas de rede do usuário](05-arquivos-de-rede.md) | vssh-sso | ⬜ não iniciado · **reescrita 08-08** — eu tinha entendido a onda errado. Ela é *"o usuário monta o armazenamento dele, em protocolo moderno, sem tocar no host"*, e trava numa **decisão de protocolo** (recomendado: WebDAV, com S3 como segundo) |
 | 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — os medidores ganham leitor | vssh-sso | ✅ concluído · `sshSlotStats`, `sessionStats` e o coletor estavam **exportados e sem nenhum leitor**; e o dashboard reportava `activeSessions: 0` literal |
 | 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — UTF-8 partido na fronteira do chunk | vssh-sso | ✅ concluído · bug vivo, achado **gerando carga**; a refutação usa o código anterior como ataque |
-| 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — virtualizar a lista, encolher o payload, o piso de 226 ms | vssh-sso | ⬜ em execução · medido: **95% da latência de uma listagem é nossa**, e em disco local |
+| 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — virtualizar a lista do gerenciador | vssh-sso | ✅ concluído · a RAM apareceu **em uso**; os 4 dependentes da geometria conferidos um a um, e um deles quebrava |
+| 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — encolher o payload, o piso de 226 ms | vssh-sso | ⬜ não iniciado · medido: **95% da latência de uma listagem é nossa**, e em disco local |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — item 3 (OPFS é cache) | vssh-sso + toolkit | ✅ concluído (saiu com a Onda 3) |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — item 4 (artefatos nascem no ambiente) | vssh-sso | ✅ em grande parte · download e PDF já nascem no servidor; o relatório de bug **não nasceu em lugar nenhum — foi deletado**, e o `FileSaver.js` com ele. Sobra o log do app |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — itens 1 e 2 | vssh-sso + toolkit | ⬜ não iniciado · o item 2 trava numa **decisão de produto** |
@@ -229,6 +230,29 @@ refutando, *"o que acontece quando eu tirar?"*. Só a segunda encontra o que sus
 **E quando a refutação atinge o que você mesmo propôs, ela vale mais, não menos** — o custo de
 descobrir isso na roadmap é uma linha reescrita; no código, é um perfil quebrado que só aparece na
 mão de quem usa.
+
+#### O alvo da refutação nem sempre é o produto. Às vezes é o teste
+
+Duas vezes na [Onda 6b](05b-navegacao-de-arquivos.md) o vermelho que faltava era do instrumento, e
+essa é a variante mais perigosa — porque o instrumento não tem quem o meça.
+
+**O ataque que mais importa é o que desfaz a feature inteira, e ele passou verde.** A virtualização
+da lista de arquivos entrou com 13 casos verdes sobre a função que calcula a janela. Desfazê-la —
+trocar `todos.slice(inicio, fim)` por `todos` no consumidor — não produziu vermelho nenhum: os
+testes mediam a **conta**, e nenhum media **quem a usa**. A regra que sai daí: *entre os ataques,
+escreva primeiro o que apaga a razão de a mudança existir*. Se ele não fica vermelho, os outros
+doze não valem nada.
+
+**E um extrator quebrado acusa o código de um defeito que é dele.** O stripper de comentários de um
+teste de rede casava `/*` dentro de **regex literal** (`replace(/\/*$/, '/')`) e engolia código até
+o próximo `*/` de verdade. Ficou verde por meses porque o trecho engolido não tinha nada que o
+teste procurasse; acrescentar um comentário legítimo noutro ponto do arquivo mudou o pareamento, e
+uma classe viva desde sempre apareceu como morta. **A mesma armadilha já tinha custado 14 KB na
+guarda de junção do manifesto** — e reincidência é sinal de que a lição precisava estar aqui, e não
+só num comentário: **comentário de bloco só conta quando abre a linha.**
+
+O teste de "o teste está MEDINDO alguma coisa" existe em vários arquivos desta base por causa disso.
+Ele não é zelo — é o único que percebe quando um regex parou de casar.
 
 ### Depois de executar, alguém tem de tentar ABRIR
 
