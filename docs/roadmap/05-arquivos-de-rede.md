@@ -8,7 +8,8 @@
 > cifrado com rotação · `userMounts` · `//rede/<id>` em `/fs/list`, `/fs/read` e `/fs/stat` · as
 > rotas de sondar e guardar senha · **a tela**, no molde de Dispositivos · **a barra lateral**, com
 > cadeado quando falta a senha · **o portão** do que uma raiz ainda não faz, num lugar só.
-> **Falta:** a URL assinada apontando para fora (item 8) — e ela é otimização, não função.
+> **Em aberto:** só o item 8 — e ele é **sem produtor**, não sem prioridade: `WEBDAV` declara
+> `urlAssinada: 'nao'`, e assinar URL é mecanismo de S3. Entra com o segundo provider.
 > **Antes de usar:** `VSSH_MOUNT_KEY` no Secret — `k8s/README.md` §1c.
 
 > ### ⚠ Esta onda foi reescrita duas vezes no mesmo dia, e a segunda foi um erro meu de leitura
@@ -344,12 +345,28 @@ linhas. Sem elas, a Onda 6 entregaria um catálogo, não um armazenamento.
 | o corpo é **canalizado**, nunca materializado | um TIFF de 40 GB atravessa o portal sem existir na memória dele — é literalmente o que esta onda existe para não fazer |
 | o `close` do cliente **derruba a leitura de cima** | sem isso, fechar a aba no meio de um arquivo grande deixa o portal baixando do storage até o fim, pagando banda por bytes que ninguém vai receber |
 | `HEAD` **pergunta** (`PROPFIND` `Depth: 0`) | um `GET` com o corpo descartado faz o storage transferir o arquivo inteiro para nada — desperdício que não aparece em teste de tela nenhum: a resposta está certa, e a conta chega em quem hospeda |
-| `Content-Type` sai da **extensão**, com o servidor como segunda opinião | o SeaweedFS responde `application/octet-stream` para tudo que não reconhece, e um PNG com esse tipo **baixa em vez de aparecer**. É a mesma tabela que decide isso do lado do host: o mesmo arquivo se comporta igual nas duas raízes |
+| `Content-Type` sai da **extensão**, com o servidor como segunda opinião | **medido nos dois containers**: o Apache `mod_dav` devolveu um `GET` de `.md` **sem `Content-Type` nenhum**, e o SeaweedFS responde `application/octet-stream` para o que não reconhece. Repassar o que o servidor diz faria um PNG **baixar em vez de aparecer**. É a mesma tabela que decide isso do lado do host: o mesmo arquivo se comporta igual nas duas raízes |
 | `Accept-Ranges` é **repassado, nunca declarado** | afirmá-lo sobre uma raiz que não recorta faz o leitor de PDF pedir pedaços e receber o arquivo inteiro a cada página rolada — sem erro nenhum, só lentidão que ninguém explica. É a regra da onda: declarar não é provar |
 
-**O item 8 continua valendo, e mudou de natureza:** com a leitura pelo portal, a URL assinada
-apontando para fora deixa de ser *"o que falta para ler"* e passa a ser *"o que tira o salto
-duplo"*. Ela é otimização, não função — e por isso pode esperar o `minShellVersion` com calma.
+> **E a leitura foi exercitada contra os dois servidores**, não contra fixture: listar → `stat` →
+> `GET` inteiro → `Range` de 4 bytes conferidos contra o começo do arquivo → 404 e 401 nomeados.
+> Os arquivos da bancada existem para isso: `a&b (v2).txt` e `relatório final.md` atravessam
+> inteiros, com `&`, parênteses, espaço e acento.
+
+### O item 8 não tem produtor — e isso muda a leitura da onda
+
+Com a leitura pelo portal funcionando, a URL assinada apontando para fora deixaria de ser *"o que
+falta para ler"* e passaria a ser *"o que tira o salto duplo"*. Só que ela **não é uma tarefa que
+esteja esperando prioridade: é uma capacidade que a raiz de hoje não tem.**
+
+`WEBDAV` declara `urlAssinada: 'nao'` — está no contrato desde o primeiro dia, e não é ressalva:
+uma URL pré-assinada é mecanismo de **S3**, que declara `'leitura+escrita'`. Um servidor WebDAV se
+autentica por `Basic`/`Digest` a cada requisição; não há o que assinar.
+
+Então o item 8 é do **segundo provider**, e entra quando o S3 entrar. Escrevê-lo como "por último,
+porque quebra contrato publicado" era verdade e escondia a razão maior: **não há de onde emitir a
+URL.** É o mesmo estado do ponto de extensão do `FileOpener` na Onda 5 — desenhado, correto, e sem
+produtor.
 
 ## O portão do que uma raiz ainda NÃO faz — e ele é um lugar só
 
@@ -650,6 +667,6 @@ como a impressora de rede já é
    assistente que sonda antes de guardar, a pasta na barra lateral com cadeado quando falta a
    senha, e o portão do que ela ainda não faz. Junto vieram **os bytes** (`/fs/read` e `/fs/stat`
    reconhecem a raiz), porque sem eles a tela promete e nega.
-8. **A URL assinada apontando para fora** — por último, porque é a única que quebra contrato
-   publicado e por isso precisa de `minShellVersion` e anúncio. Com a leitura pelo portal já
-   funcionando, ela virou **otimização** (tira o salto duplo), e não função.
+8. **A URL assinada apontando para fora** — 🔵 **sem produtor.** `WEBDAV` declara
+   `urlAssinada: 'nao'`: assinar URL é mecanismo de S3. Entra com o segundo provider, e aí sim com
+   `minShellVersion` e anúncio, porque quebra contrato publicado.
