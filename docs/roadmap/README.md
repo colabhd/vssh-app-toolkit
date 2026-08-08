@@ -42,8 +42,9 @@ Duas consequências que precisam estar ditas antes de qualquer tabela:
 | [05-arquivos-de-rede.md](05-arquivos-de-rede.md) | Onda 6 — o usuário monta as pastas de rede DELE, em WebDAV/S3, sem passar pelo host |
 | [05b-navegacao-de-arquivos.md](05b-navegacao-de-arquivos.md) | Onda 6b — a navegação de arquivos, medida: 95% da latência é nossa |
 | [06-portabilidade.md](06-portabilidade.md) | Onda 7 — continuidade entre máquinas |
+| [07-shell-proprio.md](07-shell-proprio.md) | Onda 8 — o shell deixa de ser um fork do cliente Xpra: o jQuery sai, o gerenciador de arquivos se parte, e o ambiente passa a se medir |
 
-**A numeração não é sequência total.** Ondas 0, 6 e 7 não dependem das outras e podem correr em
+**A numeração não é sequência total.** Ondas 0, 6, 7 e 8 não dependem das outras e podem correr em
 paralelo. Só a Onda 2 depende da 1; a Onda 3 é pré-requisito real do arquétipo **A3** — A4 e A5
 dependiam da Onda 4 (várias janelas, entregue) e da 2 (clipboard, entregue), não da FSA. A
 **Onda 0c é pré-requisito da 2.6** e recomendada antes da 2.2 — enquanto houver duas variantes de
@@ -52,6 +53,12 @@ UI, cada superfície nova nasce com duas para manter.
 A **[2.7](02b-motores.md) é a mesma frase num eixo maior**: dois perfis são duas variantes, e cada
 superfície nova nasce com duas para especificar e verificar. Ela era "Onda 8", no fim da fila, e foi
 puxada para logo depois da 2.6 — **para que as ondas 3 a 7 já partam de um ambiente só**.
+
+O número 8 que ela deixou vago é agora a **[Onda 8](07-shell-proprio.md)**, e não por acaso: ela só
+existe *porque* a 2.7 aconteceu. Tirar o protocolo do Xpra de dentro do `vssh-client/` deixou à
+mostra o que sobrou de fundação emprestada — a biblioteca sobre a qual aquele cliente foi escrito,
+que o shell ainda carrega **para um consumidor que agora mora noutro repositório e pode nem estar
+instalado**.
 
 E ela não é uma aposta: **a primeira metade dela já foi executada e medida.** Quando o desktop
 deixou de ser servido pelo processo Xpra, oito mecanismos de orquestração de porta — alocação,
@@ -134,9 +141,14 @@ não se reescreve numa tarde.
 | 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — encolher o payload da listagem | vssh-sso | ✅ concluído · o `path` absoluto saiu do fio (−40% de bytes) e voltou como **getter**, não como campo — reconstruir e guardar tinha ganho **zero** de RAM, e o corte real foi de 10,3 para 5,0 MB |
 | 6b | [Navegação de arquivos](05b-navegacao-de-arquivos.md) — decompor a latência da listagem | vssh-sso | ✅ **medido, e não havia gargalo nenhum.** Uma listagem de 5.000 arquivos custa **157 ms** (51 abrir · 64 remoto · 42 receber). Os 874 ms que a onda perseguia eram do **coletor por servidor**, que roda a cada 5 s: "Operação mais longa" era um pico sobre TUDO e não dizia de quem. Caíram junto os "95% da latência é nossa", os "9,7 op/s", o piso de 226 e a inclinação de 596 |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — item 3 (OPFS é cache) | vssh-sso + toolkit | ✅ concluído (saiu com a Onda 3) |
-| 7 | [Continuidade entre máquinas](06-portabilidade.md) — item 4 (artefatos nascem no ambiente) | vssh-sso | ✅ em grande parte · download e PDF já nascem no servidor; o relatório de bug **não nasceu em lugar nenhum — foi deletado**, e o `FileSaver.js` com ele. Sobra o log do app |
+| 7 | [Continuidade entre máquinas](06-portabilidade.md) — item 4 (artefatos nascem no ambiente) | vssh-sso | ✅ concluído · download e PDF já nasciam no servidor; o relatório de bug **não nasceu em lugar nenhum — foi deletado**, e o `FileSaver.js` com ele. ~~Sobra o log do app~~ — **não sobra**: o log do app virou pergunta de três respostas com "Salvar no servidor" como primária. A guarda disso passou verde numa versão em que os DOIS botões baixavam para o cliente, porque media as peças e não a ligação |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — item 1 (grants e handles migram) | vssh-sso + toolkit | ✅ concluído · `appGrants` em `/api/user/settings`, migração por **união** (quem já concedeu não perde), e o par do outro lado: `vssh.fs.grantedHandles()` reabre sem seletor o que já foi concedido. O que estava no caminho era uma **frase** — o arquivo justificava o `localStorage` dizendo que "permissão não deve sobreviver a quem a consome", e o consumidor não é o handle, é o app |
 | 7 | [Continuidade entre máquinas](06-portabilidade.md) — item 2 (sessão que segue o pesquisador) | vssh-sso | 🔵 **decisão de produto** · handoff, espelho ou escopos separados. Nada anda antes dela — e é o último item aberto da onda |
+| 8 | [Shell próprio](07-shell-proprio.md) — item 1: o jQuery sai do shell | vssh-sso + `vsshapp-xpra` | 📋 planejado · **a medição inverteu a premissa.** O shell tem **9** call sites de jQuery; o motor Xpra tem **134** — e é o shell que carrega os 824 KB que o motor consome sem declarar. Então 1a é no **outro** repositório e vai primeiro. Achado junto: `jquery-transform-draggable.js` nunca executou (o plugin só roda com `transform:true`, que ninguém passa) |
+| 8 | [Shell próprio](07-shell-proprio.md) — item 2: partir o `FileBrowserWindow.js` | vssh-sso | 📋 planejado · 3.562 linhas, 2,4× o segundo maior do shell. As 32 costuras `// ───` já marcam os módulos; o molde é `js/browser/`, que são 19 arquivos e nenhum passa de 1.306 linhas |
+| 8 | [Shell próprio](07-shell-proprio.md) — item 3: "Computador" vira **Acesso Rápido** | vssh-sso | 📋 planejado · hoje é `data-path="/"` — a raiz de um Linux, e o único lugar do gerenciador que mostra a **máquina** em vez do ambiente. A tela nova reusa o espaço `//` da Onda 6, então herda a guarda do `safePath()` sem um `if` novo |
+| 8 | [Shell próprio](07-shell-proprio.md) — item 4: desligar a pasta de rede do administrador | vssh-sso | 📋 planejado · o administrador **propõe**, o usuário **dispõe**: interruptor, não botão Remover — `montagensDoServidor()` lista `/media` a cada vez, e "remover" voltaria na listagem seguinte |
+| 8 | [Shell próprio](07-shell-proprio.md) — item 5: gerenciador de tarefas do ambiente | vssh-sso | 📋 planejado · a metade do servidor tem fundação (`run.pid` já é lido, `/proc/<pid>` dá CPU e RSS, e a Onda 4 já põe o teto ao lado). A metade do navegador **não é o que o pedido supõe**: sem isolamento cross-origin a API de memória não existe, e app em iframe de mesma origem divide renderer — logo não há número por app. Achado junto: o painel "Recursos" está **congelado** desde sempre (`setInterval` cujo corpo é um `return`) |
 
 ### E uma onda revisada rende tanto quanto uma executada
 
