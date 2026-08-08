@@ -158,6 +158,24 @@ falta num app concreto.
                                        // No app é `process.env.OPENAI_API_KEY` — variável de
                                        // ambiente comum. O ambiente de um processo é fixado no
                                        // start, então guardar um segredo exige REINICIAR o app.
+  "provides": ["llm/v1"],             // opcional: capacidades que este app oferece a OUTROS apps,
+                                       // em "nome/vN". É o que permite trocar o produtor sem tocar
+                                       // no consumidor: um app de chat pede "llm/v1" e recebe o
+                                       // motor instalado, seja ollama, vLLM ou outro — em vez de
+                                       // fixar um appId no código. Do lado do shell:
+                                       // AppLauncher.appComCapacidade("llm/v1"). A versão é
+                                       // OBRIGATÓRIA: capacidade é contrato entre repositórios que
+                                       // não se conhecem, e contrato sem versão só muda quebrando
+                                       // alguém em silêncio. Declarar NÃO é provar — o ambiente
+                                       // não verifica; quem não puder atender falha por dentro,
+                                       // que é onde sabe dizer por quê.
+  "minShellVersion": "4.1",           // opcional, e o padrão é NÃO declarar. Só declare se usar
+                                       // algo que não existia antes — a mesma regra do `engines`
+                                       // do npm. Quem confere é o PORTAL, na instalação (é ele que
+                                       // sabe a versão do shell que serve); o vssh-app-install
+                                       // roda offline no servidor e não tem como saber. NÃO
+                                       // substitui vssh.capabilities(): um é gate de instalação,
+                                       // o outro é decisão de runtime.
   "backend": {
     "runtime": "python3",             // "python3" | "node" | "binary"
     "entrypoint": "backend/main.py",  // relativo à raiz do pacote

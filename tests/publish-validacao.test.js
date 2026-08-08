@@ -278,6 +278,65 @@ test('os manifestos que existem de verdade continuam publicáveis', seNaoTem, ()
   }
 });
 
+// ─── `provides` e `minShellVersion`: os dois campos de CONTRATO ───────────────
+//
+// São diferentes de todos os outros do manifesto, e a diferença é quem lê. `requiredPackages`,
+// `resources` e `secrets` descrevem o app para o ambiente que vai rodá-lo; estes dois descrevem o
+// app para OUTRO app, e para uma versão de shell que ainda não existe. Um contrato entre partes
+// que não se conhecem — e por isso o gate de publicação é o único lugar onde alguém revisa.
+
+test('provides aceita capacidade com versão, e só com versão', seNaoTem, () => {
+  assert.match(validar({ ...BASE, provides: ['llm/v1', 'print/v1', 'web-proxy/v12'] }), /^ID=x$/m);
+  // A versão é o ponto do campo. Uma capacidade é contrato entre repositórios que não se conhecem;
+  // sem versão, mudá-la é quebrar alguém em silêncio — e o erro tem de dizer o que fazer, porque
+  // esquecer o `/v1` é o engano óbvio e o conserto é óbvio também.
+  const saida = validar({ ...BASE, provides: ['llm'] });
+  assert.match(saida, /^ERROR=capacidade_invalida:'llm'/m);
+  assert.match(saida, /falta a versão \(ex\.: 'llm\/v1'\)/,
+    'o erro não ensina o conserto — e este é o engano que mais vai acontecer');
+});
+
+test('provides recusa o que não é nome de capacidade', seNaoTem, () => {
+  for (const ruim of ['LLM/v1', 'llm/V1', 'llm/1', '/v1', 'llm/v', 'llm//v1', 'llm v1', '']) {
+    assert.match(validar({ ...BASE, provides: [ruim] }),
+      /^ERROR=capacidade_invalida:/m, `passou: ${JSON.stringify(ruim)}`);
+  }
+  assert.match(validar({ ...BASE, provides: 'llm/v1' }), /^ERROR=provides_nao_e_lista$/m);
+});
+
+test('provides recusa a mesma capacidade duas vezes', seNaoTem, () => {
+  // Não é erro de forma, é erro de sentido — e ele SOME na resolução, que trabalha com conjunto.
+  // Recusar aqui é o único lugar onde alguém chega a ver.
+  assert.match(validar({ ...BASE, provides: ['llm/v1', 'llm/v1'] }), /^ERROR=capacidade_duplicada:/m);
+  // Mas duas VERSÕES da mesma capacidade são legítimas: é como se convive com o v1 enquanto ainda
+  // há consumidor dele.
+  assert.match(validar({ ...BASE, provides: ['llm/v1', 'llm/v2'] }), /^ID=x$/m);
+});
+
+test('minShellVersion aceita a forma que o shell publica, e nomeia o que recusa', seNaoTem, () => {
+  for (const boa of ['4', '4.0', '4.0.0', '10.2.13']) {
+    assert.match(validar({ ...BASE, minShellVersion: boa }), /^ID=x$/m, `recusou: ${boa}`);
+  }
+  // Os enganos vêm de outros ecossistemas e passariam como string qualquer, para só falhar no
+  // servidor de outra pessoa. O erro nomeia o valor porque é ele que está errado, não o campo.
+  for (const ruim of ['v4.0.0', '^4.0', '>=4', '4.0.0-beta', 'latest', '']) {
+    const saida = validar({ ...BASE, minShellVersion: ruim });
+    assert.match(saida, /^ERROR=minShellVersion_invalida:/m, `passou: ${JSON.stringify(ruim)}`);
+    assert.ok(saida.includes(JSON.stringify(ruim).slice(1, -1)) || ruim === '',
+      `o erro não diz qual valor foi recusado: ${saida}`);
+  }
+});
+
+test('minShellVersion não é obrigatória, e esse é o padrão', seNaoTem, () => {
+  // Um campo obrigatório transformaria toda API nova em quebra de compatibilidade declarada — a
+  // burocracia sem o benefício. Quem declara está dizendo "eu uso uma coisa que não existia antes".
+  assert.match(validar(BASE), /^ID=x$/m);
+  const schema = JSON.parse(fs.readFileSync(SCHEMA, 'utf8'));
+  assert.ok(!(schema.required || []).includes('minShellVersion'),
+    'minShellVersion virou obrigatória — todo app publicado passa a declarar contrato que não usa');
+  assert.ok(!(schema.required || []).includes('provides'));
+});
+
 test('o schema é a fonte da verdade, e conhece o campo novo', seNaoTem, () => {
   // O campo tem DUAS conferências: a explícita no Python (com mensagem própria) e a do schema.
   // Se um dia a explícita sair, o schema ainda recusa — e é isso que este teste garante.

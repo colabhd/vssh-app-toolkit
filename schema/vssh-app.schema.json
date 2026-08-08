@@ -44,6 +44,20 @@
         }
       }
     },
+    "provides": {
+      "type": "array",
+      "description": "Capacidades que este app oferece a OUTROS apps e ao ambiente, no formato 'nome/vN'. Declarar é o que permite trocar o produtor sem tocar em nenhum consumidor: um app de chat pede 'llm/v1' e recebe o motor que estiver instalado, seja ollama, vLLM ou outro. Sem isto o consumidor precisa FIXAR o appId no código — que é o que o shell fazia com o 'scramjet-wisp'. Declarar não é provar: o ambiente não verifica se o app cumpre a capacidade, pelo mesmo motivo que o registro de motores não verifica (exigir transforma 'este app não faz isso' em 'este app não carrega'). Quem não puder atender falha por dentro, que é onde sabe dizer por quê.",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]*/v[0-9]+$",
+        "description": "'nome/vN'. A versão é OBRIGATÓRIA e é o ponto: uma capacidade é um contrato entre repositórios que não se conhecem, e um contrato sem versão só pode ser mudado quebrando alguém em silêncio. Trocar o contrato é publicar 'nome/v2' e conviver com o v1 enquanto houver consumidor."
+      }
+    },
+    "minShellVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+(\\.[0-9]+){0,2}$",
+      "description": "Versão MÍNIMA do shell de que este app precisa. O padrão é NÃO declarar: um campo obrigatório transformaria toda API nova em quebra de compatibilidade declarada, que é burocracia sem benefício. Quem declara está dizendo 'eu uso uma coisa que não existia antes' — a mesma regra do `engines` do npm, pelo mesmo motivo. NÃO substitui o `vssh.capabilities()`: um é gate de instalação, o outro é decisão de runtime. Quem confere é o portal, que sabe a versão do shell que serve; o `vssh-app-install` roda offline no servidor e não tem como saber."
+    },
     "requiredPackages": {
       "type": "array",
       "description": "Pacotes Linux de que o app precisa para funcionar (ffmpeg, pandoc, rclone…). Declarar é o ponto: hoje uma dependência de sistema se esconde num installCommand opaco, e não há como responder 'este app roda neste servidor?' sem executá-lo. Nomes no formato Debian; quem VERIFICA é o portal (vssh-app-install recusa antes de instalar, e o painel admin mostra o que falta por servidor).",

@@ -149,6 +149,36 @@ if segredos is not None:
             if proibido in s:
                 print(f'ERROR=secret_com_valor:{nome!r}'); sys.exit(0)
 
+# `provides` tem checagem própria por um motivo diferente do `requiredPackages`: o valor daqui não
+# vai para lugar nenhum perigoso — vira chave de busca. O que ele precisa é de uma mensagem que
+# diga o que fazer, porque os dois erros prováveis têm conserto óbvio e o erro do schema não os
+# distingue: esquecer a versão (`llm` em vez de `llm/v1`) e declarar a mesma capacidade duas vezes.
+#
+# A versão é obrigatória e é o ponto do campo. Uma capacidade é contrato entre repositórios que não
+# se conhecem; sem versão, mudá-la é quebrar alguém em silêncio.
+caps = m.get('provides')
+if caps is not None:
+    if not isinstance(caps, list):
+        print('ERROR=provides_nao_e_lista'); sys.exit(0)
+    vistas = set()
+    for c in caps:
+        if not isinstance(c, str) or not re.match(r'^[a-z][a-z0-9-]*/v[0-9]+$', c):
+            falta_versao = isinstance(c, str) and re.match(r'^[a-z][a-z0-9-]*$', c)
+            print(f'ERROR=capacidade_invalida:{c!r}' + ('; falta a versão (ex.: %r)' % (c + '/v1') if falta_versao else ''))
+            sys.exit(0)
+        # Declarar duas vezes não é erro de forma, é erro de sentido — e some na resolução, que
+        # trabalha com conjunto. Recusar aqui é o único lugar onde alguém vê.
+        if c in vistas:
+            print(f'ERROR=capacidade_duplicada:{c!r}'); sys.exit(0)
+        vistas.add(c)
+
+# `minShellVersion` é conferido pelo PORTAL na instalação — ele sabe a versão do shell que serve.
+# Aqui só a forma, e nomeando o valor: um `"^4.0"` ou um `"v4"` copiado de outro ecossistema passaria
+# como string qualquer e só falharia no servidor de outra pessoa.
+msv = m.get('minShellVersion')
+if msv is not None and (not isinstance(msv, str) or not re.match(r'^[0-9]+(\.[0-9]+){0,2}$', msv)):
+    print(f'ERROR=minShellVersion_invalida:{msv!r}'); sys.exit(0)
+
 # Validação completa contra schema/vssh-app.schema.json, que é a fonte da verdade do manifesto.
 # Este é o gate de ENTRADA no repositório, então vale ser rigoroso aqui — o vssh-app-install, que
 # roda offline no servidor, continua validando só o mínimo (id/runtime/entrypoint).
