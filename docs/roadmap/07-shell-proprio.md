@@ -262,6 +262,42 @@ arquivo, e passava para qualquer ordem.
 Guarda final: 10 casos, **refutação 16/16**, e a de junção **rodou de verdade** (achou o pacote do
 motor irmão e conferiu o manifesto dele).
 
+### ⚠ E o hambúrguer da barra de tarefas ficou quebrado por três dias, por minha conta
+
+Reportado por você: *"o taskbar-menu-btn ainda não está abrindo nada"*. Eram **duas** traduções
+minhas na mesma mão, e cada uma parece uma equivalência sem ser:
+
+```
+$dd.is(":visible")  →  dd.offsetParent !== null
+$dd.show()          →  dd.style.display = ''
+```
+
+As duas dependem de um fato que mora no **CSS** e que o JS não tem como ver:
+
+- `#taskbar-xpra-dropdown { display: none }` — a folha declara o **repouso** escondido. Apagar o
+  inline não mostra: devolve a decisão para a regra, que continua `none`. O `.show()` do jQuery
+  escrevia um valor explícito exatamente por causa desse caso. Ler `.show()` como *"apagar o
+  inline"* só está certo quando foi o próprio JS que escondeu antes — que é a situação dos **outros
+  seis** `display = ''` do shell, e é por isso que eles estão certos e este não estava.
+- `#taskbar-xpra-dropdown { position: fixed }` — o CSSOM manda `offsetParent` devolver `null` para
+  elemento fixed, **sempre**. `aberto()` respondia "fechado" com o menu na tela.
+
+**Nem o JS nem o CSS, lidos sozinhos, contêm o defeito.** Cada arquivo fecha nas suas próprias
+contas. É a mesma forma dos defeitos do item 2 — duas informações que existem e não se encontram —,
+só que atravessando a fronteira folha↔script em vez de janela↔janela. E o modo de falha é o pior:
+**nenhum erro no console**, porque as duas linhas são JavaScript perfeitamente válido.
+
+A guarda nova (`mostrar-o-que-o-css-esconde.test.js`) lê **os dois lados**, que é a única leitura
+capaz de ver isto: monta do CSS o conjunto de ids cuja regra de repouso é `display:none` (e o de
+`position:fixed`), resolve no JS a ligação `const X = getElementById('Y')` e pergunta sobre `X` —
+**não** sobre o texto do id. Renomear a variável, mover o bloco ou trocar o id não a deixa verde por
+engano; é o ataque *"o mesmo defeito com a variável renomeada"*, e ela pega. **Refutação 10/10**,
+com os dois defeitos originais restaurados literalmente entre os ataques.
+
+De brinde, a varredura de `display:none` acusou **47 linhas de CSS morto** — o `#desktop-ctx`, menu
+de contexto artesanal do desktop substituído pelo `ContextMenu.js`, sem uma referência sequer no
+shell. Saiu junto.
+
 ---
 
 ## 2. ✅ O gerenciador de arquivos se parte — mas não como o navegador se partiu
