@@ -262,27 +262,138 @@ motor irmão e conferiu o manifesto dele).
 
 ---
 
-## 2. O gerenciador de arquivos se parte, como o navegador se partiu
+## 2. 🟡 O gerenciador de arquivos se parte, como o navegador se partiu
 
-`FileBrowserWindow.js` tem **3.562 linhas** — 2,4× o segundo maior arquivo do shell
+`FileBrowserWindow.js` tinha **3.562 linhas** — 2,4× o segundo maior arquivo do shell
 (`BrowserWindow.js`, 1.474). O navegador já passou por isto: `js/browser/` são 19 arquivos e 4.841
 linhas, e nenhum deles passa de 1.306.
 
-**As costuras já estão marcadas.** O arquivo tem 32 cabeçalhos `// ───` que são exatamente os
-módulos que faltam nascer. Os candidatos que se separam sozinhos:
+### ⚠ A divisão que eu tinha escrito aqui estava errada, e a medida a desmentiu
 
-| Sai para | Vem das seções (linhas de hoje) |
+Eu tinha listado sete arquivos (`FbAbas`, `FbNavegacao`, `FbLista`, `FbLateral`, `FbArrastar`,
+`FbSeletor`, `FbIcones`) mapeados a partir dos 32 cabeçalhos `// ───`. **O critério era o assunto
+do cabeçalho, e assunto não é costura.**
+
+Medi as 33 seções por **quanto cada uma fala com `this`**, que é o que decide se um pedaço sai
+inteiro ou sai puxando meia classe junto. A ordem que saiu não se parece com a tabela acima:
+`Constructor` tem densidade 0,937 e `DOM building` 0,512 — são o coração, não módulos. E as de
+densidade **zero** eram as tabelas estáticas, que eu tinha jogado num `FbIcones` no fim da lista.
+
+### E ao mexer nelas apareceu o motivo de verdade, que não é o tamanho
+
+O tamanho é o sintoma. O que estava errado é que **outras janelas alcançavam para dentro** do
+gerenciador de arquivos — seis chamadas, de quatro arquivos, para responder perguntas que não têm
+nada a ver com navegar em pastas:
+
+| Quem alcançava | O que buscava |
 |---|---|
-| `files/FbAbas.js` | Tab management (755), Address bar (913) |
-| `files/FbNavegacao.js` | Navigation & API (984), Pré-carregar ao pairar (1202) |
-| `files/FbLista.js` | Rendering (1252), Otimismo (1254), Ordem congelada (1272), Itens da lista (2012), Indicação de carregamento (2656) |
-| `files/FbLateral.js` | Static: sidebar places (90), pastas de rede DO USUÁRIO (1870), Pinned folders (1916) |
-| `files/FbArrastar.js` | Drag & drop (2103), Spring-loading (2175), Zonas de drop (2303) |
-| `files/FbSeletor.js` | Picker mode helpers (2927), Grupos de filtro nomeados (3036) |
-| `files/FbIcones.js` | Static: SVG icons (7), extension sets (59), mime-cache (130) |
+| `Desktop.js:84` | `FileBrowserWindow._loadMimeCache()` |
+| `Desktop.js:43` | `FileBrowserWindow._loadAppRegistry()` |
+| `ArchiveWindow.js:333` | `FileBrowserWindow._SVG.folder()` |
+| `OfficeEditorWindow.js:144` | `FileBrowserWindow._SVG[key]` |
+| `FileContextMenu.js:73` | `FileBrowserWindow._buildOpenWithItems(path)` |
+| `VsshAppWindow.js:563` | `FileBrowserWindow._buildOpenWithItems(path)` |
 
-**Isto vem antes dos itens 3 e 4**, que são os dois que mexem na lateral e na raiz: fazê-los depois
-do corte é escrever em arquivos de 200 linhas em vez de emendar num de 3.562.
+O ícone da área de trabalho dependia de o gerenciador de arquivos estar carregado. E o
+`ArchiveWindow` ia além: **enxertava um método estático nele, de fora** — com o comentário *"permite
+que ArchiveWindow obtenha ícones sem duplicar a lógica"*. É a afirmação mais afiada possível de que
+a lógica não era dele.
+
+**O critério do corte passou a ser esse**: sai o que outra janela precisa, não o que é grande.
+
+### ✅ Primeiro corte — `js/arquivos/tipos.js` (184 linhas)
+
+Os desenhos de ícone, os conjuntos de extensão (que continuam **apelidos do `FileOpener`**, a
+definição única), o `EXT_MIME` e o cache de MIME. Saíram junto uma **cópia byte a byte** da tabela
+de ícones que morava no `Desktop.js` e o enxerto do `ArchiveWindow`.
+
+O comentário que já estava no `Desktop.js` contava que uma cópia local **dos conjuntos** tinha
+divergido e fazia o mesmo `.html` abrir num lugar ali e noutro no gerenciador. Os conjuntos foram
+unificados na época; **os ícones ficaram** — a mesma duplicata, no mesmo arquivo, sobrevivendo ao
+conserto da irmã dela.
+
+### ✅ Segundo corte — e ele achou que o primeiro não tinha terminado
+
+Unificar a tabela **não unifica quem a consulta.** Depois que os desenhos vieram para o
+`tipos.js`, o mapeamento extensão→ícone continuou existindo em **três** cópias — e a terceira era o
+`iconePorExtensao` que eu mesmo tinha criado no corte anterior, herdado verbatim do enxerto, com o
+defeito junto.
+
+Só a do gerenciador de arquivos passava pelos `FileOpener.OFFICE_GROUPS`. Medido sobre as **108
+extensões conhecidas: 29 desenhavam ícone diferente conforme o lugar.**
+
+| | no gerenciador | na área de trabalho e dentro do `.zip` |
+|---|---|---|
+| `odt` `doc` `rtf` `epub` `ott` `dotx` `fodt` `mht` `fb2` | ícone de documento | folha em branco |
+| `ods` `xls` `csv` `tsv` `xlsm` `xlt` `xltx` `ots` `fods` | ícone de planilha | folha em branco |
+| `odp` `ppt` `pps` `ppsx` `pot` `potx` `otp` `fodp` | ícone de apresentação | folha em branco |
+| `djvu` `xps` `oxps` | ícone de PDF | folha em branco |
+
+Um `.odt` na área de trabalho era uma folha em branco; o **mesmo** `.odt` no gerenciador era o ícone
+azul de documento.
+
+**Nenhuma guarda de texto acharia isso** — as três cópias liam a mesma tabela, pelo nome certo, do
+módulo certo. O que divergia era a pergunta, não o endereço. Por isso a guarda nova **executa** os
+módulos reais e compara o resultado sobre o universo inteiro de extensões.
+
+Havia ainda uma quarta e uma quinta cópia dos quatro testes de família (`OfficeEditorWindow.js:128`
+e o `abrir-com`). A do `OfficeEditorWindow` **parecia** a mesma decisão e não era: ela testa antes
+do `CODE`, então para ela um `.txt` é documento — medido, discordam em 4 das 37 extensões, e são
+exatamente as 4 que têm de discordar. Virou `grupoDoDocumento`, chamada pelas duas em ordens
+diferentes, com a diferença escrita. A do `abrir-com` testava os grupos em outra ordem e devolvia
+outros nomes, o que a fazia parecer diferente; **os quatro grupos são disjuntos** (medido: 0 das 37
+extensões cai em mais de um), então era cópia mesmo.
+
+### ✅ `js/arquivos/abrir-com.js` (197 linhas)
+
+`_buildOpenWithItems`, `_appsForExt` e `_loadAppRegistry` eram três `static` que **nunca tocaram em
+`this`** — o único pedaço que precisava da janela já vinha por parâmetro (`focusFn`), anos antes de
+alguém reparar no que isso significava. Com eles saem os três últimos alcances de fora.
+
+`FileBrowserWindow.js`: **3.562 → 3.286 linhas.** O ganho em linhas é modesto e não é o ponto —
+o que saiu foi acoplamento entre janelas e cinco duplicatas de uma decisão.
+
+### O que falta, na ordem que a medida deu
+
+`Ordem congelada` (598 linhas, 27 métodos) · `Zonas de drop` (353, 22) · `DOM building` (361) ·
+`File operations` (201) · `Spring-loading` (128) · `Keyboard` (124). Daqui em diante a densidade de
+`this` sobe e o corte deixa de ser de graça — o que sair vai precisar de contrato explícito com a
+janela, não só de mudança de arquivo.
+
+**Isto vem antes dos itens 3 e 4**, que são os dois que mexem na lateral e na raiz.
+
+### 📋 O que mais a área de trabalho pode aproveitar — medido, ainda não decidido
+
+Com os módulos de pé, dá para medir o que a área de trabalho **não** faz e o gerenciador de
+arquivos já faz. A cada verbo, a pergunta é feita ao código dos dois:
+
+| Verbo | gerenciador | área de trabalho |
+|---|---|---|
+| Seleção múltipla (Ctrl / Shift) | sim | **não** — `_selected` é um elemento só |
+| Seleção por laço | sim | **não** |
+| Teclado: `Delete`, `F2`, `Enter`, setas, `Ctrl+C/V/Z`, type-ahead | sim | **nenhuma tecla** |
+| Arrastar um item para fora | sim | **não** |
+| Receber arquivo solto no fundo (mover para `~/Desktop`) | sim | **não** — só a lixeira aceita |
+| Receber upload do computador | sim | **não** |
+| Propriedades por `Alt+↵` | sim | **não** (existe no clique direito) |
+| Renomear no lugar | sim | **não** — abre diálogo |
+| Novo arquivo | sim | **não** (só Nova pasta) |
+| Desfazer / refazer | sim | **não** pelo teclado |
+
+Nada disso é ícone bonito: **é a área de trabalho não se comportando como um lugar onde há
+arquivos.** Apagar cinco ícones exige cinco cliques direitos, e `Ctrl+Z` não desfaz.
+
+Duas funções ainda são cópia, e a medida diz quanto:
+
+- `_wireTrashDrop` × `_wireTrashDropZone` — **16 de 25 linhas idênticas** (64%). Mesmo contador de
+  profundidade, mesmo `canDrop`, mesmos quatro ouvintes; só a classe CSS difere.
+- `_doEmptyTrash` — **6 de 6 linhas idênticas** (100%), tirando um `this.focus()`.
+
+E uma terceira que **diverge sem ninguém ver**: o "Abrir Terminal Aqui" da área de trabalho cai num
+`qterminal --workdir` fixo, enquanto o do gerenciador sonda nove emuladores (`$TERMINAL`,
+`x-terminal-emulator`, `xterm`, `konsole`…) e escapa o caminho com aspas simples. Hoje **não morde**
+— o `TerminalLauncher` está sempre carregado e atende os dois antes do fallback —, então é defeito
+latente, não vivo. Digo isso porque medi, não porque suponho.
 
 ---
 
