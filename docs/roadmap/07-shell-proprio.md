@@ -262,7 +262,7 @@ motor irmão e conferiu o manifesto dele).
 
 ---
 
-## 2. 🟡 O gerenciador de arquivos se parte, como o navegador se partiu
+## 2. ✅ O gerenciador de arquivos se parte — mas não como o navegador se partiu
 
 `FileBrowserWindow.js` tinha **3.562 linhas** — 2,4× o segundo maior arquivo do shell
 (`BrowserWindow.js`, 1.474). O navegador já passou por isto: `js/browser/` são 19 arquivos e 4.841
@@ -353,12 +353,82 @@ alguém reparar no que isso significava. Com eles saem os três últimos alcance
 `FileBrowserWindow.js`: **3.562 → 3.286 linhas.** O ganho em linhas é modesto e não é o ponto —
 o que saiu foi acoplamento entre janelas e cinco duplicatas de uma decisão.
 
-### O que falta, na ordem que a medida deu
+### ⚠ E aqui a medida teve de mudar de pergunta, porque o critério acabou
 
-`Ordem congelada` (598 linhas, 27 métodos) · `Zonas de drop` (353, 22) · `DOM building` (361) ·
-`File operations` (201) · `Spring-loading` (128) · `Keyboard` (124). Daqui em diante a densidade de
-`this` sobe e o corte deixa de ser de graça — o que sair vai precisar de contrato explícito com a
-janela, não só de mudança de arquivo.
+Com o "Abrir com" fora, **ninguém mais alcança dentro do `FileBrowserWindow`** — o critério dos dois
+primeiros cortes se esgotou. E a densidade de `this` não serve de substituto: ela ordena por
+**facilidade**, não por valor. Um corte fácil que não fecha contrato nenhum só troca um arquivo
+grande por dois arquivos acoplados.
+
+O que decide agora é a **superfície**: quantos membros distintos cada pedaço toca, e quantos são só
+dele. E a primeira coisa que isso mostrou foi que **a maior seção do arquivo era o pior candidato**:
+
+| seção | linhas | contrato |
+|---|---|---|
+| `Ordem congelada` | 598 | **30 itens** |
+| `DOM building` | 358 | **51 itens** |
+| `Navigation & API` | 215 | 19 itens |
+
+Seção com contrato de 30 não é uma costura ruim — **é um cabeçalho que está mentindo.** Descendo a
+método e agrupando por membro privado compartilhado, `Ordem congelada` guardava **cinco máquinas
+independentes**, e quatro nada tinham a ver com ordem congelada.
+
+### ✅ Terceiro corte — `js/arquivos/lateral.js` (360 linhas)
+
+Uma dessas cinco era a barra lateral, e ela estava espalhada por **quatro seções**: `Ordem
+congelada` (os lugares, a lixeira, as montagens), `As pastas de rede DO USUÁRIO`, `Pinned folders` e
+a tabela `Static: sidebar places`. 251 linhas que sempre foram uma coisa só e que nenhum cabeçalho
+nomeava. Sai agora porque **os itens 3 e 4 vão editá-la**.
+
+Do lado de fora a barra precisa de sete ganchos, e eles chegam por parâmetro justamente para que
+esteja escrito o que ela sabe da janela — e para que crescer essa lista seja visível.
+
+**Duas guardas tiveram de ir atrás do código, e as duas ficaram vermelhas antes disso:**
+
+- `raiz-no-gerenciador` lia só o `FileBrowserWindow.js`. Agora procura por **símbolo** entre os
+  arquivos, e falha se ele sumir de todos — ou se aparecer em dois. Duas correções dela valem por
+  si: o `corpoDe` fatiava até `\n  }`, que é medir **indentação**; e o padrão precisava exigir `{`
+  no fim, senão casava com a **chamada** `desenharRaizes();`, que aparece antes da declaração.
+- `fs-list-payload` usava o `FileBrowserWindow` como cobaia do *stripper* de comentários e exigia
+  30.000 caracteres de diferença. O arquivo emagreceu 599 linhas e o caso ficou vermelho **sem que
+  nada do que ele mede tivesse mudado**: ele dependia de um arquivo específico continuar gordo.
+  Agora mede o shell inteiro (~43.000 caracteres, em dez arquivos).
+
+### ✅ Quarto corte — `js/arquivos/trilha.js` (142 linhas), e o que NÃO foi cortado
+
+Medido por superfície, o que sobrava eram quatro máquinas:
+
+| máquina | linhas | contrato | saiu? |
+|---|---|---|---|
+| a lista virtual | 203 | 10 | **não** |
+| a trilha | 94 | 7 (3 são contêineres dela) | **sim** |
+| as zonas de drop | 75 | 6 | **não** |
+| a seleção | 107 | 9 | **não** |
+
+**Nem toda máquina medível merece virar arquivo.** A trilha sai porque o item 3 mexe nela — "Acesso
+Rápido" precisa de ramo próprio na trilha, exatamente como a pasta de rede já tem. As outras três
+têm **um cliente só**, e módulo com oito retornos de chamada e um cliente é indireção, não
+separação. Quando o desktop precisar da seleção (item da lista abaixo), aí serão dois clientes e o
+corte se paga.
+
+E um achado do próprio corte: `_renderBread` tinha **três saídas** e cada uma repetia o par
+`btnUp`/`btnBack` no fim. Esquecer uma deixa o "subir" aceso apontando para fora do espaço de nomes,
+e o sintoma é o botão não fazer nada — que ninguém liga a *"a trilha ganhou um caminho novo"*.
+
+**Mais dois cabeçalhos que mentiam.** `Zonas de drop` guardava nove máquinas, entre elas a **seleção
+inteira**, que não tem nada a ver com soltar arquivo. E `Rendering` estava vazio havia tempos,
+seguido direto por `Otimismo` — não foi esta onda que o esvaziou, foi esta que reparou.
+
+### O saldo, e o que ele não alcança
+
+`FileBrowserWindow.js`: **3.562 → 2.916 linhas (−18%)**, com 935 linhas em quatro módulos.
+
+**E não vai chegar aos 1.306 do maior arquivo de `js/browser/` por extração.** Somando tudo que
+ainda se separa (lista virtual, seleção, zonas de drop = ~385 linhas), sobrariam ~2.500 — porque
+`DOM building` (358, contrato de 51), `Navigation & API` (215, contrato de 19), o construtor e a
+fiação **são a janela**, não módulos escondidos nela. Escrevi "como o navegador se partiu" no
+começo deste item; a medida diz que essa parte da frase não se sustenta, e é melhor dizer isso do
+que continuar cortando para alcançar um número.
 
 **Isto vem antes dos itens 3 e 4**, que são os dois que mexem na lateral e na raiz.
 
