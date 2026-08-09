@@ -1,6 +1,7 @@
 # Onda 8 — O shell deixa de ser um fork do cliente Xpra
 
-> **Estado:** 📋 planejada, com a medição do item 1 já feita · **Atualizado:** 2026-08-08
+> **Estado:** 🟡 em execução — **1a ✅ feito** (o motor 0.3.0 adotou o jQuery), **1b medido** e a
+> medida mudou a justificativa dele · **Atualizado:** 2026-08-08
 > **Repos:** `vssh-sso` + `vsshapp-xpra`
 > **Depende da [2.7](02b-motores.md)**, que já fechou — sem o motor ter saído do `vssh-client/`,
 > o item 1 não teria como existir. **Independente da [Onda 7](06-portabilidade.md)**, cujo item 2
@@ -94,18 +95,35 @@ recálculo síncrono.
 > ambiente que tem o Xpra instalado quebra — e o motor é um pacote versionado à parte, instalado
 > por servidor, que não atualiza em sincronia com o portal.
 
-### 1a. O motor adota a própria dependência — `vsshapp-xpra`, e vai primeiro
+### 1a. ✅ O motor adota a própria dependência — `vsshapp-xpra` 0.3.0
 
-`frontend/motor/arquivos.js` ganha `js/lib/jquery.js` e `js/lib/jquery-ui.js` no topo da lista, e
-o pacote passa a vendorizá-los. Ele já vendoriza treze bibliotecas; estas duas são a décima quarta
-e a décima quinta, e são as únicas que hoje ele pega emprestado.
+`frontend/motor/arquivos.js` ganhou `js/lib/jquery.js` e `js/lib/jquery-ui.js` no topo da lista, e
+o pacote passou a vendorizá-los. Ele já vendorizava treze bibliotecas; estas duas eram as únicas
+que ele pegava emprestado.
 
-**Enquanto as duas versões coexistem, carregar duas vezes tem de ser inócuo.** O motor carrega
-depois do shell; jQuery redefinido sobre si mesmo com a mesma versão é idempotente, mas
-`jquery-ui` registrando os widgets duas vezes não é óbvio que seja. **Isso se mede, não se
-supõe** — e é o portão para publicar 1a.
+**A dupla carga era o risco, e a resposta não foi medi-la — foi evitá-la.** O plano original dizia
+"carregar duas vezes tem de ser inócuo, e isso se mede". Ao procurar o modo de falha, ele apareceu
+antes da medição e é grosseiro demais para se arriscar: uma segunda instância de jQuery vira
+`window.jQuery`, os widgets do jQuery UI se registram nela, e os elementos que o shell já
+inicializou guardam o `data('ui-draggable')` na **primeira** — invisível para a segunda. Aí
+`VsshWindow.toggleMaximized()` chama `draggable('disable')` **sem `try/catch`**
+(`VsshWindow.js:331-332`) e maximizar uma janela qualquer passa a lançar
+`cannot call methods on draggable prior to initialization`.
 
-`conferir-pacote.mjs` do motor passa a exigir que os dois arquivos existam e estejam na lista.
+Então o carregador **pula o que o ambiente já provê** — a tabela `__XPRA_JA_TENHO`, no manifesto.
+Enquanto o shell provê, o motor pula; no dia em que ele parar, o motor carrega. **Não existe
+janela em que duas cópias coexistam, e os dois deploys ficam independentes** — que é o que um
+pacote instalado por servidor precisa ser.
+
+E o carregador confere o jQuery **depois** da carga, com erro nomeado: sem isso, um pacote antigo
+num shell já sem jQuery falharia com `ReferenceError` no primeiro clique direito, que foi
+exatamente como a dívida do global `client` apareceu — em produção, uma vez.
+
+`conferir-pacote.mjs` ganhou duas perguntas, e a segunda **executa**: os predicados de "já tenho"
+rodam num `vm` nos três estados possíveis do ambiente. Refutação **12/12**, mais uma prova
+positiva. Dois defeitos do próprio instrumento caíram junto — o recorte do manifesto ia do
+primeiro `[` ao último `]` do arquivo (o comentário que explicava a fragilidade a demonstrou), e a
+guarda de "o carregador lê a tabela" passava verde porque um **comentário** citava o nome dela.
 
 ### 1b. O arraste vira nativo — `vssh-sso`
 
@@ -123,20 +141,85 @@ O que ele precisa preservar, porque cada um já custou um defeito e está coment
 - os ganchos do `TilingManager` — `onDragStart` / `onDrag` / `onDragStop` / `onResize` /
   `onResizeStop`.
 
-**A previsão, escrita antes da medida.** Prevejo que trocar `left`/`top` por
-`transform: translate3d()`, com uma escrita por `requestAnimationFrame` e as leituras de layout
-tiradas do frame, elimine Layout e Paint do arraste e deixe só composição.
+### ✅ A previsão foi medida — e ela acertou o mecanismo e errou o tamanho
 
-**Mas isso é previsão.** A [Onda 6b](05b-navegacao-de-arquivos.md) previu 874 ms de navegação e
-mediu 157 — os 874 eram de outro subsistema. **Então mede-se antes de escrever o módulo**, com a
-bancada CDP que a [Onda 3 (T9)](03-toolkit.md#t9--testes-de-navegador) já construiu: arraste
-sintético de N frames, contando `Layout` / `Recalculate Style` / `Paint` e frames longos, com o
-mesmo roteiro rodando depois. Se o número de hoje já for bom, **o item 1b encolhe para "apagar a
-segunda cópia" e a onda diz isso**, como a 6b disse.
+> A previsão, escrita aqui antes de medir, era: *"trocar `left`/`top` por `transform: translate3d()`,
+> com uma escrita por `requestAnimationFrame`, elimina Layout e Paint do arraste e deixa só
+> composição."*
 
-O mesmo vale para a memória: 830 KB de fonte são parse e heap, mas **quanto** é medida, não conta
-de padaria. `performance.memory` do renderer, com e sem os três arquivos, antes de afirmar
-qualquer coisa no texto.
+Medido em `vssh-sso/docs/bancadas/arraste/` — três sujeitos com a **mesma** carga nos callbacks,
+contadores do CDP, varrendo quantos `mousemove` chegam por quadro:
+
+| `mousemove`/quadro | **A** jQuery UI (`left`/`top`) | **B** nativo `transform` | **C** nativo `transform` + rAF |
+|---|---|---|---|
+| 1 | **1,00 layout/quadro** | 0,00 | 0,00 |
+| 3 | **3,00** | 0,00 | 0,00 |
+| 8 | **8,00** | 0,00 | 0,00 |
+
+**A previsão acertou o mecanismo.** `left`/`top` custa um layout por evento tratado; `transform`
+custa zero, porque `_generatePosition` LÊ geometria depois de a escrita anterior ter sujado o
+layout — e leitura não se adia — enquanto o nativo não lê nada e o navegador resolve tudo num
+flush por quadro.
+
+### ⚠ E aqui eu errei duas vezes, a segunda por causa da própria bancada
+
+Ao ver os contadores escalarem com `mousemove`/quadro, escrevi que o custo é **"proporcional ao
+mouse, não à tela"** — *O(eventos)* contra *O(quadros)* — e que por isso a lentidão seria sentida
+por quem tem mouse rápido. **Está errado, e o erro foi de instrumento:** eu disparava 3 e 8 eventos
+sintéticos por quadro, e **o Chrome coalesce `mousemove` ao ritmo do quadro**. Por mais rápido que
+o periférico reporte, o handler recebe ~1 por quadro. Aquele cenário não existe.
+
+Quem derrubou foi a bancada à mão, num computador de verdade, na primeira corrida — `ev/quadro`
+deu **0,9**:
+
+| corrida | ev/quadro | ms/evento | do orçamento |
+|---|---|---|---|
+| **A** — jQuery UI | 0,94 · 0,86 | **0,40 · 0,50** | **2,3% · 2,6%** |
+| **B** — nativo | 0,96 · 0,93 | 0,10 | 0,6% |
+| **C** — nativo + rAF | 0,84 · 0,93 | 0,10 | 0,5% · 0,6% |
+
+> **Então vale a primeira conclusão, e ela é a que fica: o jQuery UI NÃO é o que faz a janela
+> arrastar devagar.** Ele custa 4–5× mais por evento, e isso é real — mas 4–5× de 0,1 ms. Trocá-lo
+> devolve **~0,3 ms por quadro**.
+>
+> **Corrigido depois:** eu dizia "2% do quadro", contra um orçamento de 16,7 ms. **A tela onde isso
+> foi medido é de 120 Hz**, então o orçamento é 8,33 ms e a fração é o dobro — o arraste de hoje
+> custa ~**4%** do quadro, e trocá-lo devolve ~4%. Continua pequeno, continua não sendo a causa da
+> lentidão; mas o painel da bancada relatava metade do custo real, e agora deriva o período da
+> própria tela em vez de assumir 60 Hz.
+
+**E a composição foi investigada, com um resultado que também precisa de ressalva.** Doze janelas
+com sombra e `backdrop-filter`, na máquina de verdade: **110–119 fps contra 120** — ou seja, ~nada.
+A mesma prova na bancada headless derrubava os quadros pela metade, e a diferença é que o cliente
+CDP sobe o Chrome com **`--disable-gpu`**: aquilo era composição por software.
+
+> Fica registrado porque **é o tipo de máquina onde o VSSH roda** — thin client velho, VM sem
+> aceleração, sessão por RDP. Sem GPU, o `backdrop-filter` é o que paga (a `box-shadow` não custa
+> nada, medido). Com GPU, não é assunto. É item para a lista de "o que degrada onde não há placa",
+> não para a causa da lentidão percebida numa máquina comum.
+
+**O item 1b não morre — muda de justificativa, e desta vez a justificativa é medida.** Ele deixa de
+ser "acelerar o arraste" e passa a ser: **uma implementação em vez de duas** (`VsshWindow` e
+`VsshDialogs` têm cópias do mesmo `_setupDragResize`), **zero layout por quadro**, e — a que paga
+sozinha — **é o que destrava apagar 824 KB**. Vender qualquer coisa disso como conserto de lentidão
+seria repetir os 874 ms da 6b, que é o erro que esta seção já cometeu duas vezes.
+
+**B ou C: fica C**, mas por um motivo mais modesto do que eu tinha escrito. Com `mousemove`
+coalescido eles empatam (0,10 ms os dois). C ganha nos casos em que o navegador *não* coalesce —
+`pointerrawupdate`, touch, e o `getCoalescedEvents()` de quem quiser precisão — e não perde em
+nenhum. É a escolha segura, não a vitoriosa.
+
+**As durações em milissegundos ficam de fora do texto.** Os contadores são exatos e lineares; as
+durações não escalam de forma estável entre corridas, porque o headless não pinta e o relógio inclui
+o screencast. A bancada as imprime com essa ressalva; a roadmap não as cita.
+
+**E o que a bancada NÃO alcança continua em aberto**, com suspeitos nomeados: N janelas com sombra e
+`backdrop-filter`, o `_syncProxy()`, o `_reassignZIndices()`, o `containmentFor()` a cada
+`mousedown`, e o canvas do Xpra por baixo. Isso exige o shell com sessão — a terceira camada.
+
+Sobre a memória, a conta continua sendo conta e não medida: 830 KB de fonte são parse e heap, mas
+**quanto** exige `performance.memory` com e sem os três arquivos. Isso ainda não foi medido, e o
+texto não vai afirmar número nenhum antes disso.
 
 ### 1c. Os três arquivos saem — `vssh-sso`
 
@@ -280,10 +363,10 @@ no navegador"*, e a tela não vai fingir que responde.
 
 | # | O quê | Repo | Trava em |
 |---|---|---|---|
-| 1a | O motor vendoriza e declara o jQuery dele | `vsshapp-xpra` | — |
-| — | *(publicar o motor; medir a dupla carga)* | | 1a |
-| 1b | Medir o arraste; um `arrastar.js` no lugar das duas cópias | `vssh-sso` | — |
-| 1c | Apagar `jquery*.js` e as três linhas do `index.html` | `vssh-sso` | **1a publicado** e 1b |
+| 1a | ✅ O motor vendoriza e declara o jQuery dele — **0.3.0** | `vsshapp-xpra` | — |
+| — | **publicar o motor 0.3.0 nos servidores** | | 1a |
+| 1b | ✅ medido · falta o `arrastar.js` no lugar das duas cópias | `vssh-sso` | — |
+| 1c | Apagar `jquery*.js` e as três linhas do `index.html` | `vssh-sso` | **1a instalado** e 1b |
 | 2 | Partir o `FileBrowserWindow.js` | `vssh-sso` | — |
 | 3 | Acesso Rápido | `vssh-sso` | 2 |
 | 4 | Desligar montagem do servidor | `vssh-sso` | 2 |
