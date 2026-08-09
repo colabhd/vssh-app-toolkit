@@ -1,7 +1,9 @@
 # Onda 8 — O shell deixa de ser um fork do cliente Xpra
 
-> **Estado:** 🟡 em execução — **o item 1 fechou.** O jQuery saiu do shell: 824 KB a menos em toda
-> sessão, o JS caiu de 2,25 para 1,44 MB, e o arraste é um módulo nativo só. Seguem os itens 2 a 5 · **Atualizado:** 2026-08-08
+> **Estado:** 🟡 em execução — **os itens 1 e 2 fecharam.** O jQuery saiu do shell (824 KB a
+> menos em toda sessão, o JS caiu de 2,25 para 1,44 MB), o `FileBrowserWindow` foi de 3.562 para
+> 2.827 linhas em seis módulos, e a área de trabalho ganhou 11 dos 13 verbos que lhe
+> faltavam. Seguem os itens 3 a 5 · **Atualizado:** 2026-08-08
 > **Repos:** `vssh-sso` + `vsshapp-xpra`
 > **Depende da [2.7](02b-motores.md)**, que já fechou — sem o motor ter saído do `vssh-client/`,
 > o item 1 não teria como existir. **Independente da [Onda 7](06-portabilidade.md)**, cujo item 2
@@ -432,38 +434,78 @@ que continuar cortando para alcançar um número.
 
 **Isto vem antes dos itens 3 e 4**, que são os dois que mexem na lateral e na raiz.
 
-### 📋 O que mais a área de trabalho pode aproveitar — medido, ainda não decidido
+### ✅ E a área de trabalho deixou de ser só um lugar onde ícones aparecem
 
 Com os módulos de pé, dá para medir o que a área de trabalho **não** faz e o gerenciador de
 arquivos já faz. A cada verbo, a pergunta é feita ao código dos dois:
 
-| Verbo | gerenciador | área de trabalho |
+Medido verbo a verbo, faltavam **dez**. Nada disso é ícone bonito: era a área de trabalho **não se
+comportando como um lugar onde há arquivos.** Apagar cinco ícones exigia cinco cliques direitos, e
+`Ctrl+Z` não desfazia.
+
+| Verbo | antes | agora |
 |---|---|---|
-| Seleção múltipla (Ctrl / Shift) | sim | **não** — `_selected` é um elemento só |
-| Seleção por laço | sim | **não** |
-| Teclado: `Delete`, `F2`, `Enter`, setas, `Ctrl+C/V/Z`, type-ahead | sim | **nenhuma tecla** |
-| Arrastar um item para fora | sim | **não** |
-| Receber arquivo solto no fundo (mover para `~/Desktop`) | sim | **não** — só a lixeira aceita |
-| Receber upload do computador | sim | **não** |
-| Propriedades por `Alt+↵` | sim | **não** (existe no clique direito) |
-| Renomear no lugar | sim | **não** — abre diálogo |
-| Novo arquivo | sim | **não** (só Nova pasta) |
-| Desfazer / refazer | sim | **não** pelo teclado |
+| Seleção múltipla (Ctrl / Shift) | **não** — `_selected` era um elemento só | ✅ |
+| Seleção por laço | não | ✅ |
+| Teclado: `Delete`, `F2`, `Enter`, setas, `Ctrl+A/C/X/V/Z`, type-ahead | **nenhuma tecla** | ✅ |
+| Arrastar um item para fora | não | ✅ |
+| Receber arquivo solto no fundo (mover para `~/Desktop`) | não — só a lixeira aceitava | ✅ |
+| Propriedades por `Alt+↵` | não | ✅ |
+| Novo arquivo | não (só Nova pasta) | ✅ |
+| Desfazer / refazer pelo teclado | não | ✅ |
+| Renomear no lugar | não — abre diálogo | **continua abrindo diálogo** |
+| Receber upload do computador | não | **de propósito, não** |
 
-Nada disso é ícone bonito: **é a área de trabalho não se comportando como um lugar onde há
-arquivos.** Apagar cinco ícones exige cinco cliques direitos, e `Ctrl+Z` não desfaz.
+O upload arrastado para o fundo **não** foi feito, e a razão é de produto: o handler global do
+`index.html` já trata isso como *file-transfer* da sessão X11. Interceptá-lo aqui mudaria, sem
+aviso, o destino de um gesto que as pessoas já usam.
 
-Duas funções ainda são cópia, e a medida diz quanto:
+### Os dois cortes que eu tinha deixado de fora se pagaram aqui
 
-- `_wireTrashDrop` × `_wireTrashDropZone` — **16 de 25 linhas idênticas** (64%). Mesmo contador de
-  profundidade, mesmo `canDrop`, mesmos quatro ouvintes; só a classe CSS difere.
-- `_doEmptyTrash` — **6 de 6 linhas idênticas** (100%), tirando um `this.focus()`.
+É a regra que esta onda inteira usou: **sai o que mais de um lugar precisa.** No item 2 a seleção
+foi medida (107 linhas, contrato de 9) e **deixada onde estava**, porque tinha um cliente só. Aqui
+apareceu o segundo.
 
-E uma terceira que **diverge sem ninguém ver**: o "Abrir Terminal Aqui" da área de trabalho cai num
-`qterminal --workdir` fixo, enquanto o do gerenciador sonda nove emuladores (`$TERMINAL`,
-`x-terminal-emulator`, `xterm`, `konsole`…) e escapa o caminho com aspas simples. Hoje **não morde**
-— o `TerminalLauncher` está sempre carregado e atende os dois antes do fallback —, então é defeito
-latente, não vivo. Digo isso porque medi, não porque suponho.
+- **`js/arquivos/selecao.js`** — a regra do clique com modificador, das setas, do laço e do
+  type-ahead. **Pura de propósito**: as duas telas são muito diferentes por baixo (50 mil itens
+  virtualizados com abas de um lado, doze ícones e um proxy de escala do outro) e nada disso entra
+  no módulo. Tudo que custou defeito se prova com listas de cinco strings, sem navegador.
+- **`js/arquivos/lixeira.js`** — soltar dentro e esvaziar. Eram **14 de 25** linhas idênticas no
+  primeiro e **6 de 6** no segundo.
+
+### ⚠ Dois defeitos que a extração achou, e o primeiro não é "agora está melhor"
+
+**1. `Shift+seta` no gerenciador de arquivos só selecionava DOIS itens — sempre.** O código tinha só
+a âncora e calculava a posição atual a partir dela, então `Shift+↓` cinco vezes a partir do segundo
+item dava os mesmos dois nas cinco. É o gesto normal de *"selecionar deste até aqui"* pelo teclado,
+e **ele nunca funcionou**. A correção é o par **âncora** (ponto fixo) + **foco** (cursor), que é o
+que todo gerenciador tem. Achado ao escrever o teste do módulo: o teste dizia o que o gesto *deve*
+fazer, e o código respondeu outra coisa.
+
+**2. As duas telas preenchem em sentidos opostos.** O gerenciador preenche por linha, então `↑↓`
+cruzam a faixa; a área de trabalho é `flex-direction: column; wrap` (como o Windows), então quem
+cruza é `←→`. Tratar as duas igual faz a seta pular o ícone vizinho — o tipo de coisa que se sente e
+não se explica. O módulo recebe o **eixo**, e não um número de colunas.
+
+### ⚠ E uma falha da própria suíte, que é o achado mais desconfortável
+
+Um `paths.join('\n')` virou uma quebra de linha **dentro** do literal — código que navegador nenhum
+carrega. **A suíte inteira, 1.126 casos, passou verde.** Nenhum deles fazia o *parse* dos arquivos
+do cliente: eles leem o texto, procuram padrões e afirmam coisas sobre ele, e um arquivo que não
+compila casa com padrão igual a um que compila.
+
+No produto o `<script>` morreria e **tudo que vem depois dele no `index.html` deixaria de existir** —
+a tela apareceria pela metade, sem erro que aponte para a causa. Agora há `shell-compila.test.js`,
+que compila cada arquivo num `vm`; ele também recusa **byte NUL**, que foi o outro que passou batido
+nesta mesma sessão.
+
+### O que sobrou de cópia
+
+`_openTerminal` **diverge sem ninguém ver**: o da área de trabalho cai num `qterminal --workdir`
+fixo, enquanto o do gerenciador sonda nove emuladores (`$TERMINAL`, `x-terminal-emulator`, `xterm`,
+`konsole`…) e escapa o caminho com aspas simples. Hoje **não morde** — o `TerminalLauncher` está
+sempre carregado e atende os dois antes do fallback —, então é defeito **latente**, não vivo. Digo
+isso porque medi, não porque suponho.
 
 ---
 
