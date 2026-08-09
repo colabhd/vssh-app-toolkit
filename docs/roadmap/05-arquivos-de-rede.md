@@ -653,9 +653,15 @@ como a impressora de rede já é
 1. ~~**Decidir o protocolo padrão.**~~ ✅ **WebDAV, com S3 de suporte limitado e declarado.**
 2. ~~**Decidir onde mora a credencial.**~~ ✅ **No portal, cifrada** — com chave própria, não a de
    sessão, e a rotação escrita antes do primeiro segredo gravado.
-3. ~~**Escrever a separação provider × portal.**~~ ✅ 9 do provider, 14 do portal, 4 em aberto — mais
-   a matriz de capacidade e as duas decisões que ela destapou (a lixeira de uma raiz remota, e o
+3. ~~**Escrever a separação provider × portal.**~~ ✅ 9 do provider, 14 do portal, **5** em aberto —
+   mais a matriz de capacidade e as duas decisões que ela destapou (a lixeira de uma raiz remota, e o
    `upload` voltando a ser salto duplo).
+   > Eram 4. A quinta é `/fs/df`, da [Onda 8](07-shell-proprio.md): `df` mede um **filesystem**, e
+   > uma raiz remota não é um. Perguntar quanto cabe numa raiz WebDAV pelo `df` mediria o disco de
+   > quem hospeda o cache — número certo sobre a coisa errada, que é pior que número nenhum. Quem
+   > saberá responder é o provider, se e quando o protocolo dele souber (o `RFC 4331` tem
+   > `quota-available-bytes`, e nem todo servidor o implementa). **A guarda de contagem é quem
+   > cobrou esta linha** — ela ficou vermelha no minuto em que a rota nasceu.
 4. ~~**A guarda de junção**, antes do primeiro provider.~~ ✅ `src/utils/contrato-de-raiz.ts` +
    `tests/unit/contrato-de-raiz.test.js` — 15 casos, 12 ataques repelidos, e ela fica vermelha hoje.
 5. ~~**Um provider WebDAV só de leitura.**~~ ✅ `src/services/raiz-webdav.ts`, rodado contra **dois**

@@ -1,13 +1,38 @@
 # Onda 8 — O shell deixa de ser um fork do cliente Xpra
 
-> **Estado:** 🟡 em execução — **os itens 1 e 2 fecharam.** O jQuery saiu do shell (824 KB a
-> menos em toda sessão, o JS caiu de 2,25 para 1,44 MB), o `FileBrowserWindow` foi de 3.562 para
-> 2.827 linhas em seis módulos, e a área de trabalho ganhou 11 dos 13 verbos que lhe
-> faltavam. Seguem os itens 3 a 5 · **Atualizado:** 2026-08-08
+> **Estado:** ✅ **concluída — os cinco itens fecharam.** O jQuery saiu do shell (824 KB a menos
+> em toda sessão; o JS caiu de 2,25 para 1,44 MB), o `FileBrowserWindow` foi de 3.562 para 2.827
+> linhas em seis módulos, a área de trabalho ganhou 11 dos 13 verbos que lhe faltavam,
+> "Computador" virou **Acesso Rápido**, a montagem do servidor pode ser **escondida**, e o
+> ambiente passou a **se medir**. · **Atualizado:** 2026-08-09
+>
+> **1.246 testes, 0 falhas.** SEIS guardas novas, com refutação: 10/10 (o hambúrguer), 15/15 (as
+> variantes que não existem), 8/8 (a medida congelada), 28/28 (a montagem escondida), 27/27 (o
+> Acesso Rápido) e 31/31 (o gerenciador de tarefas).
+>
 > **Repos:** `vssh-sso` + `vsshapp-xpra`
 > **Depende da [2.7](02b-motores.md)**, que já fechou — sem o motor ter saído do `vssh-client/`,
 > o item 1 não teria como existir. **Independente da [Onda 7](06-portabilidade.md)**, cujo item 2
 > continua parado numa decisão de produto e não bloqueia nada aqui.
+>
+> ### O que esta onda ensinou, e é uma coisa só
+>
+> **Sete afirmações escritas nesta base — cinco delas nesta roadmap — eram falsas, e nenhuma
+> falhava.** Uma frase escrita não é uma medida, e a distância entre as duas não aparece: o
+> documento continua legível, o código continua compilando, a suíte continua verde.
+>
+> | A afirmação | O que a medida disse |
+> |---|---|
+> | "nenhum `UI_MODE` bifurcando código em lugar nenhum do shell" ([0c](0c-colapso-de-variantes.md)) | 3 ramos vivos, 2 observadores mortos, 1 regra de CSS |
+> | "conserto de uma linha" (item 5) | não havia `pintar()` para chamar — faltava o RECORTE |
+> | "a chave nova guarda caminhos" (item 4) | esconderia a mesma pasta em TODO servidor |
+> | "`//acesso-rapido` herda a guarda de graça" (item 3) | não herdava; virava `/acesso-rapido` no host |
+> | "os recentes" na tela (item 3) | não existe fonte de dado nenhuma |
+> | "o espaço livre" (item 3) | só existia `df /`, da máquina inteira |
+> | "o `[data-theme]` fica de propósito" (`design-tokens.css`) | o próprio comentário se desmentia na frase seguinte |
+>
+> E duas foram MINHAS, escritas dias antes: o "zero call sites de jQuery" do item 1c, e o
+> `.show()` traduzido como "apagar o inline" que deixou o hambúrguer três dias sem abrir.
 
 Cinco itens, e um assunto só: **o shell foi construído por cima do Xpra HTML5 Client, e ainda
 carrega a fundação de outra casa.** A [Onda 2.7](02b-motores.md) tirou o *protocolo* do Xpra de
@@ -545,9 +570,9 @@ isso porque medi, não porque suponho.
 
 ---
 
-## 3. "Computador" morre; nasce "Acesso Rápido"
+## 3. ✅ "Computador" morreu; nasceu o "Acesso Rápido"
 
-Hoje, `FileBrowserWindow.js:403` é um item de lateral com `data-path="/"` e o rótulo
+`FileBrowserWindow.js:403` era um item de lateral com `data-path="/"` e o rótulo
 **Computador**. Clicar nele lista o `/` de um Linux: `bin`, `boot`, `dev`, `etc`, `proc`, `sys`,
 `usr`, `var`. Duas coisas erradas nisso, e a segunda é a que importa:
 
@@ -562,15 +587,78 @@ Hoje, `FileBrowserWindow.js:403` é um item de lateral com `data-path="/"` e o r
 > medido ao lado, e não uma árvore de sistema.
 
 **Ela reusa o espaço de caminho que a [Onda 6](05-arquivos-de-rede.md) abriu.** As raízes de rede
-vivem em `//rede/<id>/…`, com barra dupla, e `safePath()` normaliza `//` → `/` — de forma que um
-caminho desses vazando para uma rota de shell **quebra alto** em vez de virar `/rede/...` em
-silêncio. `//acesso-rapido` herda essa guarda de graça, sem um `if` novo em lugar nenhum.
+vivem em `//rede/<id>/…`, com barra dupla.
 
-O `/` continua alcançável digitando `/` na barra de endereço. Ele deixa de ser **oferecido**.
+O `/` continua alcançável digitando `/` na barra de endereço. Ele deixou de ser **oferecido**.
+
+### ⚠ "Herda essa guarda de graça, sem um `if` novo" — não herdava
+
+Esta seção dizia que `safePath()` normaliza `//` → `/`, de forma que um caminho virtual vazando
+para uma rota **quebra alto** em vez de virar `/rede/...` em silêncio. **As duas metades estão
+erradas, e a segunda é a que importa.**
+
+`safePath()` recusava **um prefixo**, `//rede/`, com um `throw` explícito. `//acesso-rapido` não
+começa com ele: passava direto, normalizava para `/acesso-rapido` — um caminho POSIX
+perfeitamente válido — e a pessoa leria *"não encontrado"*. Exatamente o silêncio que a frase
+prometia evitar. (E a normalização `//` → `/` nunca foi o que "quebra alto": ela produz um caminho
+válido que não existe, e isso é indistinguível de um erro de digitação. Quem quebra alto é o
+`throw`.)
+
+**E a primeira generalização que eu tentei estava errada.** Recusar todo `//` parece a regra limpa
+e não é: barra dupla acontece por **acidente**, em concatenação — `home + '/' + rel` quando `home`
+termina em barra. O `raiz-so-leitura.test.js` guardava isso desde a Onda 6, com o sintoma escrito
+(*"o gerenciador parou de abrir uma pasta"*), e ficou vermelho no minuto seguinte.
+
+A regra certa não é sintática, é de **registro**: cada espaço virtual se declara por NOME em
+`ESPACOS_VIRTUAIS`, e o portão pergunta à lista. `//home/ana` continua virando `/home/ana`;
+`//acesso-rapido` é recusado, com uma mensagem própria — *"isto não é um lugar"* e *"ainda não
+funciona aqui"* são respostas diferentes para quem lê. **Espaço novo é uma linha, e já nasce
+coberto** — que é o que esta seção dizia, agora sendo verdade em vez de suposição.
+
+### ⚠ Duas das sete coisas prometidas nesta tela não tinham fonte de dado
+
+A descrição acima lista *"a pasta pessoal, as pastas do perfil, as montagens deste servidor, as
+pastas de rede do usuário, as fixadas, os recentes, e o espaço livre"*. Medidas as sete:
+
+- **Os recentes não existem.** Não há histórico persistido em lugar nenhum deste sistema — nem
+  chave de preferência, nem rota, nem tabela. Zero ocorrências. Construí-lo é uma chave nova, com
+  escopo por servidor (caminho é de um filesystem) e teto: **um item próprio, não um detalhe desta
+  tela.** Ficou de fora, e não está fingido.
+- **O espaço livre só existia para `/`**, da máquina inteira, dentro de `/api/system/info`. Por
+  montagem, não existia — e é justamente o número que faz esta tela ser o "Meu Computador" do XP em
+  vez da barra lateral repetida no meio da janela: **num ambiente remoto o disco é de outra
+  pessoa**, e a pergunta que se faz olhando a tela é "ainda dá para eu gravar aqui". Foi
+  construído: rota `/fs/df`, **um exec para N caminhos**.
+
+Medida que não vem simplesmente não aparece — sem barra, sem número. **Zero seria mentira, e é
+"disco cheio" o que a pessoa leria.**
+
+### As duas decisões que a medição forçou
+
+**A tela não passa pela lista virtualizada.** A virtualização do gerenciador depende de célula de
+tamanho **uniforme** — a posição de qualquer índice é aritmética, sem observador —, e cabeçalho de
+grupo com barra de capacidade quebra essa aritmética. São poucas dezenas de linhas, sem nada a
+virtualizar. É o que esta seção já dizia sem saber: *"uma **tela**, não um caminho"*.
+
+**`/fs/df` se declara `lado: 'aberto'`** no contrato de raiz. `df` mede um **filesystem**, e uma
+raiz remota não é um: perguntar quanto cabe numa raiz WebDAV pelo `df` mediria o disco de quem
+hospeda o cache — número certo sobre a coisa errada, pior que número nenhum. A guarda de contagem
+do [contrato](05-arquivos-de-rede.md) ficou vermelha no minuto em que a rota nasceu e cobrou a
+linha lá.
+
+### O que saiu de graça
+
+A trilha tinha um `if` para a lixeira. O segundo lugar virtual é a véspera do terceiro que alguém
+esquece, então virou lista: `virtuais: [{path, rotulo}]`. E a tela lê `LateralDeArquivos.LUGARES`
+— a **mesma** lista da barra, não uma cópia — e passa as montagens por `FsList.visiveis`, de forma
+que o interruptor do item 4 vale aqui também. Sem isso, seria a única tela onde esconder não
+funciona.
+
+**Guarda:** `acesso-rapido.test.js`, 21 casos, **refutação 27/27**.
 
 ---
 
-## 4. As pastas do administrador podem ser desligadas
+## 4. ✅ As pastas do administrador podem ser desligadas
 
 `FsList.montagensDoServidor()` (`FsList.js:100-113`) lista os diretórios de `/media`, com o
 desembrulho de `/media/<usuario>/`. **Não há registro nenhum por trás disso** — a identidade de uma
@@ -586,12 +674,60 @@ hoje é a lista sem botão Remover (Onda 6, item 7). Ela ganha um interruptor po
 
 **A chave precisa entrar no schema, senão a tela mente.** `src/utils/settings-schema.ts:24-30` já
 carrega o comentário do defeito que isso causa — chave fora de `ALLOWED_KEYS` faz o `PUT` responder
-200 e o servidor descartar em silêncio. Então: `ALLOWED_KEYS`, `DEFAULTS` (`[]`) e `SANITIZE`
-(lista de strings, caminho absoluto, sem `..`, sem byte nulo, com teto), os três de uma vez.
+200 e o servidor descartar em silêncio. Então: `ALLOWED_KEYS`, `DEFAULTS` e `SANITIZE`, os três de
+uma vez.
+
+### ⚠ "A chave nova guarda caminhos" — e isso estaria errado
+
+O parágrafo acima diz que *"a identidade de uma montagem de servidor é o caminho dela, e mais
+nada"*. É verdade **dentro de um servidor**, e a chave não vive dentro de um: as Configurações são
+do **usuário** e viajam entre servidores. `/media/dados` é um caminho de **um** filesystem — uma
+lista só de caminhos esconderia a pasta do laboratório **e a de casa**, e a pessoa veria uma
+montagem sumir num servidor onde nunca mexeu.
+
+O `AppGrants` já teve e já corrigiu exatamente este erro na [Onda 7](06-portabilidade.md), com o
+motivo escrito no arquivo dele: *"caminho é de um filesystem específico, e sem esse nível um grant
+de `/home/ana/dados` no servidor A valeria no servidor B"*. Mesmo formato — `{ serverId:
+[caminhos] }` —, mesma leitura de servidor, e a mesma poda de servidor vazio **nas duas pontas**:
+se só uma podasse, o corpo encolheria no servidor e reapareceria no próximo GET.
+
+### Onde o filtro fica, e por que não é onde parece
+
+`FsList.montagensDoServidor()` continua devolvendo **tudo**. O filtro é aplicado na barra lateral,
+**ao desenhar** — não ao buscar. Duas consequências, e as duas são o item:
+
+- a seção de Configurações precisa das montagens **todas**, porque é ela quem oferece o
+  interruptor. Se ela filtrasse, a pasta escondida sumiria da única tela onde dá para reexibi-la;
+- filtrar ao desenhar faz mexer no interruptor **redesenhar** a barra, sem uma ida a `/media`.
+
+E não há evento novo: `FsList.ocultarMontagem` grava em `VsshSettings`, e quem precisa saber assina
+a chave — que é o que o `FileBrowserWindow` já fazia com `userMounts`. Um `CustomEvent` próprio
+seria um segundo mecanismo de aviso ao lado de um que existe, e o segundo é sempre o que alguém
+esquece de disparar.
+
+### O interruptor virou primitivo
+
+`SettingsWindow.interruptor(marcado, aoMudar)`, oferecido pelo contexto das seções. Sem isso, a
+lista dinâmica montaria o `.ds-switch` na mão — duas noções do mesmo controle, e a primeira vez que
+a folha mudasse uma delas ficaria para trás.
+
+**Guarda:** `montagem-que-o-usuario-esconde.test.js`, 10 casos, **refutação 28/28**.
+
+### ⚠ E um byte NUL entrou de novo — a guarda estava olhando o outro diretório
+
+Um escape mal montado num script de edição gravou um NUL literal em `settings-schema.ts`. O arquivo
+compila, `tsc` passa, `eslint` passa, os 1.200 testes passam — e o `grep` passa a tratar o fonte
+como **binário**, de forma que as varreduras que sustentam metade desta suíte param de enxergá-lo
+sem avisar ninguém.
+
+A guarda de NUL existia desde o primeiro caso, na mesma onda. Ela olhava **só o `vssh-client/`**,
+porque foi lá que o primeiro caiu. **Guarda que escolhe onde olhar responde sobre onde olhou** — a
+mesma lição que o item 1c já tinha registrado, repetida. Agora ela varre o repositório inteiro:
+cliente, servidor, testes e ferramentas.
 
 ---
 
-## 5. O ambiente passa a se medir
+## 5. ✅ O ambiente passou a se medir
 
 > Um gerenciador de tarefas do VSSH: quanto **os nossos** vssh-apps e o shell consomem — não a
 > máquina inteira, que é o que "Sobre → Recursos" já mostra.
@@ -608,8 +744,25 @@ const t = setInterval(() => { if (!el.isConnected) return; }, 30000);
 O corpo do intervalo tem **uma instrução, e é um `return`**. Ele dispara a cada 30 s e não faz
 nada. O painel mostra o primeiro `fetch` para sempre — e o comentário acima descreve um custo que
 não é pago porque o trabalho não acontece. Duas linhas acima no mesmo arquivo (`:437`) está a
-versão que funciona: `if (el.isConnected) pintar();`. **Conserto de uma linha, e ele entra nesta
-onda porque é o mesmo assunto: medida que se apresenta como viva.**
+versão que funciona: `if (el.isConnected) pintar();`.
+
+#### ⚠ "Conserto de uma linha" — não era
+
+**Não existia `pintar()` para chamar.** O `fetch` inteiro estava solto no construtor da seção, e o
+tique não tinha o que invocar. O que faltava era o **recorte** — o mesmo que a seção vizinha já
+tinha, e é por isso que a dela funciona há meses. Entrou junto uma trava de pedido em voo: o tique
+é de 30 s e a medida vem de um exec por SSH; sem ela, um servidor lento faria dois pedidos se
+atropelarem e o painel piscar entre respostas fora de ordem.
+
+**Medida congelada é pior que medida ausente.** A ausente ninguém acredita: o painel estaria vazio
+e a pergunta apareceria sozinha. A congelada é indistinguível de medida **estável** — 6,1 GiB
+parados por uma hora pode ser um servidor tranquilo. Só se descobre comparando com outra fonte, e
+ninguém compara o que não tem motivo para duvidar.
+
+**Guarda:** `medida-que-parece-viva.test.js` — todo corpo de `setInterval`/`setTimeout` do shell,
+achado por contagem de chaves, tem de ter **efeito**. A primeira versão perguntava *"chama alguma
+coisa?"* e acusou cinco `setTimeout` legítimos que só soltam uma trava (`_arrastando = false`):
+atribuição é trabalho, e a pergunta certa é mais larga. **Refutação 8/8.**
 
 ### A metade do servidor: já tem fundação
 
@@ -621,8 +774,14 @@ escritas no código:
 - **Um comando, não N.** O pool de SSH tem teto de ~8 canais **por servidor**
   (`ssh-exec.ts:152-157`, citado em `vssh-apps.ts`). Uma consulta por app derrubaria o teto com
   cinco apps abertos. Um `bash -c` lê todos os `run.pid` e todos os `/proc` de uma vez.
-- **CPU% precisa de duas amostras.** O portal guarda o contador anterior e divide pelo tempo
-  decorrido — assim continua sendo **um** exec por tique, em vez de um exec que dorme.
+- **CPU% precisa de duas amostras.** O contador anterior fica no **cliente**, e não no portal: é
+  o cliente que faz o polling, e ele já tem a resposta passada em mãos. Guardá-lo no servidor
+  exigiria um mapa por (usuário, servidor, app) com política de expiração, para poupar exatamente
+  nada — o custo do primeiro tique é mostrar um traço em vez de um percentual, uma vez.
+  > E há um terceiro jeito de errar isso, que não estava previsto aqui: **presumir 100 jiffies/s**.
+  > Jiffy não é constante do universo, é configuração de kernel — num kernel de 250 o percentual
+  > sai 2,5× errado, e errado de um jeito **plausível**, que é o pior: ninguém desconfia de "40% de
+  > CPU". O `getconf CLK_TCK` vem no mesmo exec.
 - **O teto ao lado do uso.** A [Onda 4](04-runtime-composicao.md#limites-de-recurso---concluído) já
   põe cada app num `systemd-run --user --scope` com `resources` do manifesto. Mostrar uso *sem* o
   limite é a metade que engana — e foi exatamente ali que apareceu um `MemoryHigh` cem vezes acima
@@ -649,6 +808,32 @@ no navegador"*, e a tela não vai fingir que responde.
 > embutido a se declarar, e o motor de navegação embute a web de terceiros por procuração. Fica
 > como medição própria, não como pressuposto desta onda.
 
+### O que a construção obrigou a consertar
+
+**O parse foi para `src/utils/uso-de-apps.ts`, módulo folha.** Importar `vssh-apps.ts` num teste
+levanta a pilha inteira de SSH e Redis e o processo nunca termina — foi por isso que
+`limites-de-recurso.test.js` mede aquele arquivo **lendo o texto**. Guarda que mede texto é o que
+sobra quando a regra mora atrás dessa parede, e a regra aqui é pura.
+
+**O comando remoto não tem sequência de escape nenhuma, e isso é deliberado:** `grep -z` em vez de
+`tr "\0" "\n"`. Escape mal montado já gravou um byte NUL literal nesta base duas vezes nesta onda,
+e o modo de falha é silencioso em todas as camadas.
+
+### ⚠ E a própria bancada de refutação tinha o defeito que ela procura
+
+Ela escrevia a mutação, rodava, e restaurava **depois**. Morreu num `timeout` no meio, e a fonte
+ficou mutada — num arquivo novo, ainda não versionado, então nem `git checkout` o traria de volta.
+A mutação virou "código", e o teste seguinte ficou vermelho **acusando o produto de um defeito da
+bancada**.
+
+Agora: tudo que será tocado é copiado **antes** da primeira mutação, a restauração vive num
+`finally`, e há outra em `process.on('exit')` e nos sinais. É a mesma ideia dos três consertos —
+**a restauração não pode depender de o caminho feliz acontecer.**
+
+**Guarda:** `medir-o-ambiente.test.js`, 15 casos, **refutação 31/31**. Um ataque sobreviveu à
+primeira versão — `limites` aceitando array, porque `typeof [] === 'object'` — e virou conserto na
+fonte.
+
 ---
 
 ## A ordem, e por que ela é essa
@@ -659,10 +844,10 @@ no navegador"*, e a tela não vai fingir que responde.
 | — | **publicar o motor 0.3.0 nos servidores** | | 1a |
 | 1b | ✅ **feito** — `js/janela/arrastar.js`, e o shell tem **zero** call sites de jQuery | `vssh-sso` | — |
 | 1c | ✅ **feito** — os três arquivos apagados; o JS do shell caiu **2,25 → 1,44 MB (−36%)** | `vssh-sso` | — |
-| 2 | Partir o `FileBrowserWindow.js` | `vssh-sso` | — |
-| 3 | Acesso Rápido | `vssh-sso` | 2 |
-| 4 | Desligar montagem do servidor | `vssh-sso` | 2 |
-| 5 | Monitor de recursos (+ o `setInterval` congelado) | `vssh-sso` | — |
+| 2 | ✅ **feito** — seis módulos, 3.562 → 2.827 linhas, e a área de trabalho com 11 dos 13 verbos | `vssh-sso` | — |
+| 3 | ✅ **feito** — Acesso Rápido, `/fs/df`, e o registro de espaços virtuais | `vssh-sso` | 2 |
+| 4 | ✅ **feito** — `montagensOcultas` por servidor, e o interruptor virou primitivo | `vssh-sso` | 2 |
+| 5 | ✅ **feito** — `/api/apps/usage`, o painel de janelas, e o `setInterval` descongelado | `vssh-sso` | — |
 
 **A única dependência dura é 1a → 1c**, e ela atravessa repositórios. As colunas 1, 2 e 5 correm em
 paralelo. 1b pode acontecer antes de 1a: reescrever o arraste do shell não mexe no do motor, que
@@ -695,4 +880,15 @@ O que falta, e o que esta onda precisa construir:
   declaração e dois arquivos vendorizados; os 134 call sites do motor ficam onde estão. Eles são
   problema de quem mantém o motor, e o motor pode não estar instalado.
 - **Não liga isolamento cross-origin.**
+- **Não constrói os "recentes"** do Acesso Rápido. Não há fonte de dado, e criá-la é uma chave de
+  preferência nova com escopo por servidor e teto — item próprio, não detalhe de tela.
+- **Não tira os 16 seletores `[data-theme="tuff"] .algo`** que sobraram em quatro folhas. Eles não
+  são mortos (o atributo *é* `tuff`), mas qualificam num valor constante. Tirar o qualificador
+  baixa a especificidade de (0,2,0) para (0,1,0), e `.taskbar-icon-btn`, `.tb-dd-item` e
+  `.vssh-fallback-option` **têm regra concorrente sem ele**, hoje vencida por especificidade. Sem
+  teste visual nesta suíte, seria trocar uma mentira por um risco de regressão silenciosa — a
+  guarda trava o número, que só pode encolher.
+- **Não faz renomeação inline nem soltar-para-enviar na área de trabalho** — os dois verbos que
+  faltam dos treze. O segundo tem dono: o handler global do `index.html` já reivindica esse gesto
+  para a transferência de arquivo do Xpra.
 - **Não reescreve o `TilingManager`.** O arraste novo entrega os mesmos cinco ganchos.
