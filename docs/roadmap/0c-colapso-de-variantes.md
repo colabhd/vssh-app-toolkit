@@ -4,9 +4,50 @@
 > **Independente das Ondas 1 e 2**, mas **pré-requisito da [2.6](02-apis-de-shell.md) e da dívida
 > de `design-tokens.css`** registrada na [Onda 0b](00-limpeza-de-terreno.md).
 >
-> **Resultado: −1850 / +323 linhas em 40 arquivos, mais 6 arquivos deletados.** Nenhum `UI_MODE`
-> e nenhum `data-theme` bifurcando código em lugar nenhum do shell. Ver
-> [o que ficou de fora](#o-que-ficou-de-fora-e-por-quê) no fim.
+> **Resultado: −1850 / +323 linhas em 40 arquivos, mais 6 arquivos deletados.** Ver
+> [o que ficou de fora](#o-que-ficou-de-fora-e-por-quê) no fim, e a
+> [correção de 2026-08-09](#-a-frase-de-resultado-desta-onda-estava-errada) logo abaixo.
+
+### ⚠ A frase de resultado desta onda estava errada
+
+Este banner dizia, em 2026-08-02:
+
+> *"Nenhum `UI_MODE` e nenhum `data-theme` bifurcando código em lugar nenhum do shell."*
+
+**Era falso nas duas metades, e ficou falso por sete dias** — até você reparar, olhando o handler
+do hambúrguer: *"`window.UI_MODE === 'taskbar'` — mas agora só tem taskbar"*.
+
+| Sobrou | Onde |
+|---|---|
+| **3** `if (window.UI_MODE === 'taskbar')` | `VsshWindow.js`, `DesktopPropertiesWindow.js` (dentro de um `if (false)` — morto duas vezes) e o handler do hambúrguer em `index.html` |
+| **2** `MutationObserver` de `data-theme` | um por janela de arquivos, um por editor de texto — vigiando um atributo escrito **uma vez**, com literal, no boot |
+| **1** regra `html.mode-dock` | `desktop.css` |
+| **17** seletores `[data-theme="tuff"]` | quatro folhas |
+
+**Por que a frase pôde ser escrita:** ela descreve a *intenção* da onda, e a onda mediu o que
+apagou — não o que sobrou. Contar remoções responde "quanto saiu", nunca "sobrou algo". São
+perguntas diferentes, e só a segunda é a que o banner afirmava.
+
+**Por que uma condição morta é pior que código morto:** código morto não faz nada; condição morta
+**ensina errado**. Quem lê `if (UI_MODE === 'taskbar')` conclui que existe um caso em que não é, e
+passa a considerá-lo. Custa atenção toda vez — e custa mais justamente quando se está caçando um
+defeito. No dia em que o hambúrguer não abria, aquele `if` foi um suspeito que precisou ser
+descartado à mão, porque *"a condição é falsa"* e o defeito real produzem **o mesmo sintoma**: o
+menu não abre.
+
+**A frase agora é medida**, não afirmada: `variante-que-nao-existe.test.js`, refutação **15/15**.
+Ela fecha inclusive a volta do dock por **concatenação** (`'mode-' + mode`), que a primeira versão
+da guarda deixava passar porque o literal `mode-dock` nunca chega a aparecer — e essa era
+exatamente a forma que o boot tinha.
+
+**O que NÃO foi feito, e por quê:** os 16 seletores `[data-theme="tuff"] .algo` restantes ficaram.
+Não são mortos — o atributo *é* `tuff` —, mas qualificam num valor constante. Tirar o qualificador
+baixa a especificidade de (0,2,0) para (0,1,0), e `.taskbar-icon-btn`, `.tb-dd-item` e
+`.vssh-fallback-option` **têm regra concorrente sem ele**, hoje vencida por especificidade. Sem
+teste visual nesta suíte, seria trocar uma mentira por um risco de regressão silenciosa. A guarda
+trava o número: ele só pode encolher. O `design-tokens.css` saiu porque lá era outra coisa —
+`:root, [data-theme="tuff"]` na mesma regra, com o alternativo incapaz de casar qualquer coisa que
+o `:root` não casasse.
 
 O shell tem duas variantes que ninguém usa: o tema **`neon`** e o modo de UI **`dock`**. O custo
 delas não é o código parado — é que **toda adição de UI precisa ser pensada duas vezes**. É uma
