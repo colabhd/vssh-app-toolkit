@@ -1,7 +1,7 @@
 # Onda 8 — O shell deixa de ser um fork do cliente Xpra
 
-> **Estado:** 🟡 em execução — **1a e 1b ✅ feitos.** O shell tem **zero** call sites de jQuery; o
-> `1c` (apagar os arquivos) espera só o motor 0.3.0 chegar aos servidores · **Atualizado:** 2026-08-08
+> **Estado:** 🟡 em execução — **o item 1 fechou.** O jQuery saiu do shell: 824 KB a menos em toda
+> sessão, o JS caiu de 2,25 para 1,44 MB, e o arraste é um módulo nativo só. Seguem os itens 2 a 5 · **Atualizado:** 2026-08-08
 > **Repos:** `vssh-sso` + `vsshapp-xpra`
 > **Depende da [2.7](02b-motores.md)**, que já fechou — sem o motor ter saído do `vssh-client/`,
 > o item 1 não teria como existir. **Independente da [Onda 7](06-portabilidade.md)**, cujo item 2
@@ -237,11 +237,28 @@ Sobre a memória, a conta continua sendo conta e não medida: 830 KB de fonte s�
 **quanto** exige `performance.memory` com e sem os três arquivos. Isso ainda não foi medido, e o
 texto não vai afirmar número nenhum antes disso.
 
-### 1c. Os três arquivos saem — `vssh-sso`
+### 1c. ✅ Os três arquivos saíram — `vssh-sso`
 
-`index.html:36-38` perde as três linhas; `js/lib/jquery*.js` são apagados. Os sete call sites
-restantes viram DOM nativo — `.show()`/`.hide()` são `style.display`, `.mousedown()` é
-`addEventListener`, e o `$(function(){})` do `MenuCustom.js` é `DOMContentLoaded`.
+`index.html` perdeu as três linhas e `js/lib/` ficou só com o `hmac.js`. **O JS do shell caiu de
+2,25 para 1,44 MB — 36% —, e isso em toda sessão**, inclusive nas de ambiente sem motor X11 nenhum
+instalado, que é onde esse peso nunca teve o que fazer.
+
+> **⚠ E o "zero call sites" que este documento afirmou depois do 1b estava errado.** Eram **nove**,
+> e estavam nos `<script>` **inline do `index.html`**: `$("#upload")`, `$("div.window canvas").css()`,
+> o dropdown da taskbar inteiro e um `$(document).ready`. A guarda que eu tinha escrito varria só os
+> arquivos `.js` — e **uma varredura que escolhe onde olhar responde sobre onde olhou, não sobre o
+> shell.** Quem pegou foi o `client-undefined-refs`, que é guarda de outro assunto, e só depois de a
+> biblioteca sumir.
+
+E **duas guardas minhas mediam texto em vez de estrutura**, as duas repelidas só depois de
+consertadas: a de junção casava `"js/lib/jquery-ui.js"` em qualquer ponto do manifesto do motor — e
+esse nome aparece lá **duas** vezes, no array e na tabela `__XPRA_JA_TENHO`, então tirá-lo do array
+deixava verde. E a de ordem de carga procurava a string `js/janela/arrastar.js`, que **o comentário
+que eu escrevi no `index.html` explicando a remoção contém** — ela achava o comentário, no topo do
+arquivo, e passava para qualquer ordem.
+
+Guarda final: 10 casos, **refutação 16/16**, e a de junção **rodou de verdade** (achou o pacote do
+motor irmão e conferiu o manifesto dele).
 
 ---
 
@@ -382,7 +399,7 @@ no navegador"*, e a tela não vai fingir que responde.
 | 1a | ✅ O motor vendoriza e declara o jQuery dele — **0.3.0** | `vsshapp-xpra` | — |
 | — | **publicar o motor 0.3.0 nos servidores** | | 1a |
 | 1b | ✅ **feito** — `js/janela/arrastar.js`, e o shell tem **zero** call sites de jQuery | `vssh-sso` | — |
-| 1c | Apagar `jquery*.js` e as três linhas do `index.html` | `vssh-sso` | **1a instalado** e 1b |
+| 1c | ✅ **feito** — os três arquivos apagados; o JS do shell caiu **2,25 → 1,44 MB (−36%)** | `vssh-sso` | — |
 | 2 | Partir o `FileBrowserWindow.js` | `vssh-sso` | — |
 | 3 | Acesso Rápido | `vssh-sso` | 2 |
 | 4 | Desligar montagem do servidor | `vssh-sso` | 2 |
