@@ -1,7 +1,7 @@
 # Onda 8 — O shell deixa de ser um fork do cliente Xpra
 
-> **Estado:** 🟡 em execução — **1a ✅ feito** (o motor 0.3.0 adotou o jQuery), **1b medido** e a
-> medida mudou a justificativa dele · **Atualizado:** 2026-08-08
+> **Estado:** 🟡 em execução — **1a e 1b ✅ feitos.** O shell tem **zero** call sites de jQuery; o
+> `1c` (apagar os arquivos) espera só o motor 0.3.0 chegar aos servidores · **Atualizado:** 2026-08-08
 > **Repos:** `vssh-sso` + `vsshapp-xpra`
 > **Depende da [2.7](02b-motores.md)**, que já fechou — sem o motor ter saído do `vssh-client/`,
 > o item 1 não teria como existir. **Independente da [Onda 7](06-portabilidade.md)**, cujo item 2
@@ -125,13 +125,14 @@ positiva. Dois defeitos do próprio instrumento caíram junto — o recorte do m
 primeiro `[` ao último `]` do arquivo (o comentário que explicava a fragilidade a demonstrou), e a
 guarda de "o carregador lê a tabela" passava verde porque um **comentário** citava o nome dela.
 
-### 1b. O arraste vira nativo — `vssh-sso`
+### 1b. ✅ O arraste virou nativo — `vssh-sso`
 
-Um módulo só, `js/janela/arrastar.js`, substituindo as **duas** cópias de `_setupDragResize`
+`js/janela/arrastar.js` substituiu as **duas** cópias de `_setupDragResize`
 (`VsshWindow.js:638` e `VsshDialogs.js:164`) por uma. É a mesma lição de sempre: **um portão, não
 dois**. O diálogo não é um caso especial — é o caso geral com `resize: false`.
 
-O que ele precisa preservar, porque cada um já custou um defeito e está comentado no código:
+Nove call sites de jQuery no shell viraram **zero**. O que ele preserva, porque cada um já custou
+um defeito e está comentado no código:
 
 - o `distance: 5` que impede arraste acidental em clique rápido (`VsshWindow.js:655`);
 - o `cancel` que abre exceção para controles nativos — sem ele, `mousedown` num `<select>` cai na
@@ -139,7 +140,22 @@ O que ele precisa preservar, porque cada um já custou um defeito e está coment
 - o `guard` de tela cheia que impede o canvas do Xpra de roubar o mouse durante o arraste;
 - o `containment` fixado no `mousedown`, **antes** do início do arraste (`VsshWindow.js:677-683`);
 - os ganchos do `TilingManager` — `onDragStart` / `onDrag` / `onDragStop` / `onResize` /
-  `onResizeStop`.
+  `onResizeStop`, com o `ui` de resize mantendo as quatro chaves que ele lê.
+
+**A decisão que não era óbvia: o `transform` é um DELTA, commitado em `left`/`top` ao soltar.** Sem
+isso, todo mundo que lê `_div.style.left` passaria a ler a posição errada — `toggleMaximized`,
+`WindowStateManager`, `_syncProxy`, `applyTile`. Durante o arraste ninguém lê (o `onDrag` usa as
+coordenadas do ponteiro), então o delta pode viver no `transform` até o `stop`, e aí a fonte de
+verdade volta a ser uma só.
+
+**E a bancada virou a rede de regressão dele.** O sujeito **D** passou a ser o módulo de verdade,
+servido de `vssh-client/js/janela/` — porque comparar o jQuery UI com a minha *reprodução* do
+substituto não prova nada sobre o produto. Na primeira corrida ele não saiu do lugar em 150
+quadros: o módulo escuta `pointer*` e o arraste sintético só disparava `mouse*`. Quem pegou foi a
+conferência de deslocamento; **sem ela a bancada teria publicado "0 layouts, 0 ms" para o produto.**
+Depois do conserto: **0,02 layouts por quadro contra 0,99** do jQuery UI.
+
+Guarda: `tests/unit/arraste-nativo.test.js`, 8 casos, **refutação 13/13**.
 
 ### ✅ A previsão foi medida — e ela acertou o mecanismo e errou o tamanho
 
@@ -365,7 +381,7 @@ no navegador"*, e a tela não vai fingir que responde.
 |---|---|---|---|
 | 1a | ✅ O motor vendoriza e declara o jQuery dele — **0.3.0** | `vsshapp-xpra` | — |
 | — | **publicar o motor 0.3.0 nos servidores** | | 1a |
-| 1b | ✅ medido · falta o `arrastar.js` no lugar das duas cópias | `vssh-sso` | — |
+| 1b | ✅ **feito** — `js/janela/arrastar.js`, e o shell tem **zero** call sites de jQuery | `vssh-sso` | — |
 | 1c | Apagar `jquery*.js` e as três linhas do `index.html` | `vssh-sso` | **1a instalado** e 1b |
 | 2 | Partir o `FileBrowserWindow.js` | `vssh-sso` | — |
 | 3 | Acesso Rápido | `vssh-sso` | 2 |
