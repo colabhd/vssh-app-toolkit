@@ -1,9 +1,14 @@
-# Os dois critérios de projeto
+# Os três critérios de projeto
 
-> **Estado:** vigente · **Atualizado:** 2026-08-01
+> **Estado:** vigente · **Atualizado:** 2026-08-10
 
-Duas perguntas antes de construir qualquer coisa. Puxam em direções opostas, e é por isso que
-precisam ser feitas juntas: a primeira decide **como entregar**, a segunda decide **onde guardar**.
+**⚠ Este arquivo se chamava "Os dois critérios" e cobrava três.** O 3.3 nasceu depois, na 2.4, foi
+escrito aqui embaixo e o título ficou para trás — de modo que a página se anunciava com dois e
+terminava exigindo três. Corrigido: são **três**, e o terceiro é critério como os outros.
+
+Três perguntas antes de construir qualquer coisa. As duas primeiras puxam em direções opostas, e é
+por isso que precisam ser feitas juntas: a primeira decide **como entregar**, a segunda decide **onde
+guardar**. A terceira decide se aquilo pode ser considerado pronto.
 
 ---
 
@@ -181,9 +186,17 @@ o limite existe.
 
 ## Como aplicar
 
-Todo item das Ondas 2, 4 e 5 atravessa as **três** perguntas antes de virar tarefa. Se a resposta da
-primeira for "sim, o navegador faz", ainda falta checar os dois limites. Se a resposta da segunda for
-"não sobrevive", o item não está pronto para ser executado — só para ser redesenhado. E a terceira
-não é etapa de polimento no fim: é condição de pronto, do mesmo jeito que as outras duas.
+**Todo item de qualquer onda, e todo vssh-app, atravessa as três perguntas antes de virar tarefa.**
+Se a resposta da primeira for "sim, o navegador faz", ainda falta checar os dois limites. Se a
+resposta da segunda for "não sobrevive", o item não está pronto para ser executado — só para ser
+redesenhado. E a terceira não é etapa de polimento no fim: é condição de pronto, do mesmo jeito que
+as outras duas.
+
+> **⚠ Aqui estava escrito "todo item das Ondas 2, 4 e 5", e isso estava errado** — não por citar
+> ondas a menos, mas pelo que a lista deixava de fora. **Nenhum vssh-app passava pelo 3.3**, porque
+> vssh-app não é item de onda: é pacote publicado por fora, e a única página que quem porta lê
+> inteira é [`../porting.md`](../porting.md). Ou seja, o critério que existe para o usuário esquecer
+> que está num navegador não alcançava exatamente as janelas que mais parecem uma página web dentro
+> de uma. A cobrança agora é por origem do trabalho, não por número de onda.
 
 A portabilidade não é só critério: virou entrega na [Onda 7](06-portabilidade.md).

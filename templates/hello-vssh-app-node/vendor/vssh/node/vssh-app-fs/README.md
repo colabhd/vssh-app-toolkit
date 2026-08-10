@@ -147,9 +147,11 @@ qualquer outro processo do mesmo usuário Linux alcança, e este handler dá lei
 grafo. A comparação é feita sobre o SHA-256 dos dois lados com `timingSafeEqual`, para não vazar
 prefixo coincidente pelo tempo nem quebrar com comprimentos diferentes.
 
-Uma rota fica de fora da checagem por decisão de quem monta o handler, não da lib: o healthcheck do
-lifecycle bate direto na porta, sem passar pelo proxy, então não tem o header. Ver
-`backend/server.js`.
+**⚠ Estava escrito aqui que o healthcheck "bate direto na porta, sem passar pelo proxy, então não
+tem o header", e isso está errado desde a Onda 4:** a sondagem do lifecycle vai **com** o
+`X-Vssh-App-Token`. Deixar o healthcheck de fora da checagem continua sendo escolha de quem monta o
+handler — e não custa nada, porque a rota só devolve `ok` —, mas **não é mais obrigatório**, e não
+há motivo para isentar qualquer outra. Ver `backend/server.js`.
 
 ## Portar para outro runtime
 

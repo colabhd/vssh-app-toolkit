@@ -56,11 +56,17 @@ persistência do datascript, git, plugins, updater, proxy do sistema, controles 
 por User-Agent, e ativá-lo troca três implementações que já funcionam no navegador por IPC a
 implementar no servidor:
 
-| | modo web (de graça) | modo Electron (a implementar) |
+| | modo web (já implementado) | modo Electron (a implementar) |
 |---|---|---|
 | Busca full-text | dentro do navegador | `search-blocks`, `rebuild-indice`, `transact-blocks`, `truncate-indice` → índice FTS server-side |
 | Persistência do DB | IndexedDB | `saveGraph`, `getSerializedGraph`, `readGraphTxIdInfo`, `deleteGraph` |
 | URL de asset | relativa, o navegador resolve | protocolo `assets://`, que não existe fora do Electron |
+
+> **⚠ A coluna dizia "modo web (de graça)", e isso estava errado.** IndexedDB não sai de graça: pelo
+> critério 3.2 ([`../roadmap/criterios.md`](../roadmap/criterios.md#32--isso-sobrevive-à-troca-de-máquina))
+> ele é **dívida** — o grafo do usuário fica preso àquela máquina e àquele navegador. O que o modo
+> web dá de graça é **não ter de implementar** os quatro handlers agora; a durabilidade continua em
+> aberto e é dela que o port se lembra depois. A frase certa é "já implementado", não "de graça".
 
 Isso vale para toda app dual-target (Electron + web), que é justamente a classe que faz sentido
 virar um vssh-app. Para app Electron-*only*, o renderer normalmente usa `require('fs')` direto ou
@@ -141,10 +147,16 @@ contra o diretório instalado.
   (`_tools/`) precisa estar no `.gitignore`, e o clone do upstream precisa ficar fora do repo —
   senão o `cp -a` copia gigabytes a cada publicação.
 
-**Healthcheck e token.** O `healthcheckPath` é pollado pelo lifecycle direto na porta, sem passar
-pelo proxy, então não carrega `X-Vssh-App-Token`. Um app que exija o token em todas as rotas precisa
-isentar essa uma, ou o healthcheck nunca passa e o clique de "abrir app" fica pendurado até o teto
-de ~15s.
+**Healthcheck e token — e esta lição estava errada.** Estava escrito aqui que *"o `healthcheckPath`
+é pollado direto na porta, sem passar pelo proxy, então não carrega `X-Vssh-App-Token`; um app que
+exija o token em todas as rotas precisa isentar essa uma"*. **Mudou na Onda 4**: a sondagem vai
+**com** o header. Gatear a rota de healthcheck é permitido, e isentá-la deixou de ter motivo.
+
+Vale registrar por que a versão antiga era pior do que "desatualizada": com a sondagem sem header,
+um app com gate respondia `403`, `403` não é 5xx, e isso **contava como pronto** — o portal declarava
+servindo um app do qual nunca tinha visto resposta. Hoje `401`/`403` não contam. O teto de ~15s
+continua valendo, e continua sendo o motivo de o healthcheck ter de responder sem depender de setup
+pesado.
 
 ---
 

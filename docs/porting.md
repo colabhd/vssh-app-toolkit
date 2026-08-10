@@ -3,16 +3,43 @@
 Árvore de decisão, e o que cada caminho custa. As regras vieram de um port real levado até rodar
 num servidor — ver [lessons/logseq-port.md](lessons/logseq-port.md).
 
-## A decisão, em uma pergunta
+## A decisão, em duas perguntas
 
-**O app já roda num navegador hoje?**
+> **⚠ Esta página fazia uma pergunta só, e isso estava errado.** A árvore era ordenada por *custo de
+> rodar*, terminava em *"o shim resolve"*, e não mencionava **uma única vez** o que o ambiente
+> oferece a um app — nem linkava [`api.md`](api.md), que é o inventário disso. Quem entrava por aqui
+> nunca era levado à página que descreve como um app vira cidadão do ambiente, e o resultado
+> previsível é um app que sobe, aparece num iframe e não é cidadão de nada. **Rodar é a primeira
+> pergunta, não a única.**
 
-| Situação | Caminho | Custo |
+### 1. O app já roda num navegador hoje? — decide o custo de **rodar**
+
+| Situação | Caminho | Custo de rodar |
 |---|---|---|
 | Sim, tem build web (dual-target) | Rodar o **modo web** + `fsa-polyfill` | Baixo — normalmente sem fork |
 | Não, é Electron-only | **Extrair o renderer** e medir o buraco (abaixo) | Médio; o resto vira backend próprio |
 | Não, é Tauri | Extrair o frontend + `tauri-shim` | Baixo a médio |
 | Não, e é GUI nativa (Qt/GTK) | Não portar: rodar como janela X11 no Xpra | Zero, enquanto houver Xpra |
+
+### 2. O que ele contribui com o ambiente? — decide o custo de **integrar**
+
+Não se responde com o mesmo dado da primeira, e é a coluna que decide se o port entregou um
+**aplicativo** ou um servidor dentro de um iframe. A referência completa é [`api.md`](api.md);
+abaixo, o que costuma ser pedido:
+
+| O que se quer | Custo de integrar | Onde está |
+|---|---|---|
+| Diálogo, notificação, seletor de arquivo, "abrir com" | **zero** — já pronto | `vssh.dialog.*`, `vssh.notify`, `vssh.pickFile`, `vssh.openWith` |
+| Ler e gravar arquivos do usuário | **zero** — já pronto | `fsa-polyfill`, a FSA padrão do W3C |
+| Janela de verdade: título, abas, menu de contexto do cabeçalho | baixo | `window.richChrome`, `vssh.window.*` |
+| Ser aberto ao clicar num arquivo | baixo | `opens.extensions` + o evento `open-context` |
+| Substituir um launcher embutido (terminal, editor, navegador…) | baixo | `handles` |
+| Preferências dentro da tela de Configurações do ambiente | baixo | `contributes.settings` (o único mecanismo de contribuição completo que existe hoje) |
+| Item no menu de contexto do ambiente, ou no ícone do Launchpad | **não existe** | é o item 4 da [Onda 9](roadmap/08-editor-do-ambiente.md) |
+
+**A regra que sai daí:** um app que respondeu "nada" à segunda pergunta não está pronto para ser
+portado — está pronto para ser **redesenhado**. É o mesmo formato do critério 3.2 em
+[`roadmap/criterios.md`](roadmap/criterios.md), e pela mesma razão.
 
 ---
 
@@ -30,6 +57,13 @@ implementações que já funcionam no navegador por IPC a implementar no servido
 
 O que o modo web costuma pedir é acesso a arquivos — e é exatamente o que o `fsa-polyfill` entrega,
 **sem o app rodar backend de filesystem nenhum**.
+
+> **⚠ E a coluna "IndexedDB" não é um ponto ganho — este texto a vendia como se fosse.** Pelo
+> critério 3.2 ([`roadmap/criterios.md`](roadmap/criterios.md#32--isso-sobrevive-à-troca-de-máquina)),
+> **todo estado guardado no navegador é dívida**: quem troca de máquina perde. A leitura certa é que
+> o modo web te poupa de **implementar** persistência agora, não que a persistência esteja resolvida.
+> A verdade vai para o ambiente remoto; o que fica no navegador é cache reconstruível. Um port que
+> encerra com o grafo do usuário só em IndexedDB passou na primeira pergunta e reprovou na segunda.
 
 **Um limite do polyfill que vale conhecer antes de portar.** O `File` devolvido por `getFile()` é
 preguiçoso: busca o conteúdo só quando alguém pede de verdade. Isso é o que torna viável abrir um
@@ -116,6 +150,10 @@ O resultado de (2) é a lista de classe (c) daquele app. **Se for curta e as cha
 (ler/escrever arquivo, abrir diálogo), o shim resolve.** Se for longa ou envolver processamento
 pesado, aquilo é o backend do vssh-app — e escrevê-lo é o trabalho do port, não um contratempo.
 
+**"O shim resolve" fecha a primeira pergunta, não o port.** Ele responde *roda?*, e a página parava
+aqui. Falta a segunda: com o renderer no ar, volte à tabela de integrar — porque é ali que se decide
+se o que subiu é um aplicativo do ambiente ou uma página hospedada dentro dele.
+
 Ponto de referência: o Logseq tem **98** `defmethod handle` no processo main. Um app com esse
 perfil não é "quase pronto" — mas também não precisaria de todos eles, porque o modo web dele já
 resolve busca, persistência e assets sem nenhum.
@@ -163,8 +201,18 @@ por fragmento (`#/rota`) não precisa.
 **não substitui** verificar o artefato. Confira que os arquivos referenciados pelo `index.html`
 publicado existem de verdade no diretório instalado.
 
-**Healthcheck e token.** O healthcheck é pollado direto na porta, sem passar pelo proxy — então não
-carrega `X-Vssh-App-Token`. Isente essa rota do seu gate, ou o app nunca abre.
+**Healthcheck e token — e o que estava escrito aqui estava errado.** Esta página dizia *"o
+healthcheck é pollado direto na porta, sem passar pelo proxy, então não carrega
+`X-Vssh-App-Token`; isente essa rota do seu gate"*. **Isso mudou na Onda 4**: a sondagem vai **com**
+o header, o mesmo que o proxy injeta. Você **pode** gatear a rota de healthcheck como qualquer
+outra, e não há motivo para deixar uma rota aberta. Isentar continua funcionando — é uma rota a
+menos protegida, não um erro.
+
+O que mudou junto, e é a razão de a frase antiga ser perigosa: antes a sondagem ia sem header, um
+app com gate respondia `403`, e `403` não é 5xx — **contava como pronto**. O portal declarava servindo
+um app do qual nunca tinha visto uma resposta de verdade. Hoje `401`/`403` na sondagem significam
+"recusou uma requisição credenciada" e **não** contam como pronto. Um `404` conta (o servidor
+respondeu), então confira o caminho: `healthcheckPath` errado vira teatro sem ninguém avisar.
 
 **Patch para integrar com o ambiente, nunca para substituir o que o ambiente já oferece.** É a
 regra que decide se um fork envelhece bem. Um patch que troca a camada de armazenamento do app
@@ -172,6 +220,16 @@ reabre a cada bump do upstream e cresce sem parar. Um patch que apenas informa a
 ambiente já resolve — por exemplo, que a permissão de arquivo já foi concedida e sobrevive ao
 reload, ao contrário do que vale num navegador — é pequeno e degrada bem: se apodrecer num bump, o
 pior caso é o app voltar a perguntar.
+
+**E "normalmente sem fork", lá na primeira tabela, responde só a primeira pergunta.** As duas frases
+conviviam a 150 linhas de distância como se não se falassem: uma vendia o port sem fork, a outra
+dava a regra de como forkar. Quem lê as duas junto chega onde deveria — o fork não é o custo de
+**rodar**, é às vezes o custo de **integrar**, e aparece quando a segunda pergunta precisa de algo
+que o upstream não expõe por opção nenhuma. Quando aparecer, a regra acima é o teto: se a lista de
+patches deixa de ser "informar o ambiente" e passa a ser "trocar uma camada", o desenho está errado,
+não o upstream. O caso trabalhado é a [Onda 9](roadmap/08-editor-do-ambiente.md), onde uma constante
+de módulo do VS Code (`extensionGalleryService.ts:35`) não é alcançável por nenhuma opção de
+construção — e o patch que a corrige tem uma linha.
 
 **Log desde a primeira linha.** Use `lib/node/app-log.js`. Frame minificado sustenta hipótese; o
 log do backend, que nomeia operação e caminho, dá a resposta.

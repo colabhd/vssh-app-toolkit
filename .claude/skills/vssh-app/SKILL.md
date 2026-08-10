@@ -570,6 +570,22 @@ como está:
   Isso é um sinal de que expor a UI dela "como está" não é o caminho certo — prefira a extração
   acima (motor puro + frontend/backend seus) a tentar contornar TLS/headers em runtime.
 
+**⚠ E este gatilho estava incompleto — ele é acidental.** Os dois sinais acima são *a ferramenta
+recusou o iframe*. Se ela **deixa** ser posta num iframe, a doutrina nunca dispara, e o port termina
+em servidor + iframe sem ninguém ter decidido isso. O gatilho que faltava é o de propósito:
+
+- **A UI original vai ficar por cima da do ambiente?** Barra de título dela dentro da janela do
+  shell, seletor de arquivo dela em vez do do desktop, menu de contexto dela por cima do nosso,
+  notificação dela em vez do centro de notificações — cada um desses é uma camada duplicada que o
+  usuário vê. Quando a lista passa de um ou dois, **quem serve a página tem de ser você**, e a
+  pergunta deixa de ser "a ferramenta aceita iframe?" e passa a ser "ela expõe um jeito de o
+  hospedeiro servir a própria página?". Muitas expõem — o VS Code chama isso de *embedder*, e é o
+  que o github.dev usa.
+
+O caso trabalhado é a [Onda 9](../../../docs/roadmap/08-editor-do-ambiente.md): o code-server aceita
+iframe sem reclamar, e por isso passou anos como servidor + iframe; o que decidiu a extração foi a
+segunda pergunta, não a primeira.
+
 ## Apps tipo `engine` (backend-only, sem janela)
 
 Todo o mecanismo descrito até aqui — manifest, `vssh-app-install`/`vssh-app-run`, alocação de
