@@ -672,18 +672,58 @@ gerenciador de arquivos, notificar pelo `vssh.notify` em vez do toast interno, e
 workbench montado a carrega sem passar pela galeria. Refuta: removê-la de
 `additionalBuiltinExtensions`; o teste tem de ficar vermelho por ausência, não por erro de rede.
 
-## 6. 📋 O portão do body parser
+## 6. ✅ O portão do body parser — **feito**, e a medida corrigiu duas coisas do que estava escrito aqui
 
-`app.ts:96-97` registra `express.json()` e `express.urlencoded()` **globais**, com o limite default de
-**100 kb**, e `setupProxyRoutes(app)` só entra em `:169`. **Todo vssh-app de hoje leva 413 em POST
-JSON acima de 100 kb, antes de a requisição chegar ao proxy.** Nenhum app atual bate nisso — é
-latente, não vivo — e um workbench o acordaria.
+`app.ts:96-97` registrava `express.json()` e `express.urlencoded()` **globais**, com o limite default
+de **100 kb**, e `setupProxyRoutes(app)` só entrava em `:169`. O diagnóstico estava certo; **as duas
+frases que descreviam a consequência estavam erradas**, e as duas para menos.
 
-Não subir o limite global: registrar o proxy **antes** dos parsers, ou isentar `/:serverId/proxy/`.
-**Um portão, não um `if` por app.**
+**⚠ "leva 413" — não levava. Levava 500 "Erro interno".** Medido contra o portal de pé: o
+`PayloadTooLargeError` do body-parser subia até o error handler de `app.ts`, que respondia **500 para
+qualquer erro** e descartava o `err.status`. A diferença não é cosmética — 413 diz *"seu corpo é
+grande demais"* e 500 diz *"o portal quebrou"*, com uma mensagem mandando **tentar de novo mais
+tarde**, isto é, repetir exatamente o que não pode dar certo. Quem escreve o app procuraria o defeito
+no lugar errado.
 
-**Guarda:** POST JSON de 200 kb para `/x/proxy/app/y/` chega íntegro. Refuta: devolver
-`setupProxyRoutes` para depois dos parsers.
+| POST para uma rota de proxy | antes | depois |
+|---|---|---|
+| JSON 1 kB | 404 (chega ao roteamento) | 404 |
+| JSON 200 kB | **500** | 404 |
+| urlencoded 200 kB | **500** | 404 |
+| octet-stream 200 kB | 404 | 404 |
+
+**⚠ "é latente, não vivo" — metade dele estava vivo, e não é sobre tamanho.** Consumir o stream tem
+dois efeitos que não dependem de 100 kb nenhum:
+
+- quem repassa o corpo por `req.pipe()` — **o proxy PAC do navegador embutido** (`pac-proxy.ts:58`) —
+  mandava o `Content-Length` original com **zero byte atrás dele**. Medido com `http-proxy-3` e um
+  alvo que conta bytes: **0 de N prometidos**, e o outro lado esperando;
+- e o que existia para tapar isso era **reescrever o corpo a partir do objeto**
+  (`JSON.stringify(req.body)`), o que entrega ao app **bytes diferentes dos que o cliente mandou**.
+  Qualquer backend que confira assinatura ou hash sobre o corpo cru quebra — em silêncio, e só nos
+  pedidos com corpo. Com corpo `{}` era pior: não escrevia nada e deixava o `Content-Length` de pé.
+
+**O conserto é a frase, não o remendo:** *o corpo de um pedido proxiado é do outro lado, e o portal
+não o toca*. Quem sabe quais rotas são essas é o `proxy.ts`, **ao lado dos mounts que ele descreve** —
+não uma segunda lista no `app.ts`. O PAC entra pelo mesmo teste que ele próprio usa (URL em forma
+absoluta), porque ele não se reconhece pelo caminho. E a reescrita **saiu**: ela era o conserto de um
+dano que o portal causava a si mesmo, e sumiu com a causa.
+
+**Nas rotas do próprio portal o teto continua valendo** — ali o corpo é nosso e o limite protege a
+memória do processo. O que mudou é o error handler reaproveitar status 4xx, então agora ele **se
+chama 413**.
+
+**Guarda:** `tests/unit/corpo-do-proxy.test.js`, **9 casos**, refutação **9/9**. Três deles são de
+junção — todo `app.use` de proxy tem de estar coberto pelo predicado, que é o ataque nº 1 aqui
+(*acrescentar um mount novo e seguir a vida*) — e dois medem o **mecanismo** com `express` e
+`http-proxy-3` de verdade contra um alvo que conta bytes, porque "o corpo chega íntegro" é afirmação
+sobre o que chega, não sobre o que sai. Suíte do `vssh-sso`: **1.387 testes, 1.376 passando, 0
+falhas**.
+
+> **E um caso vermelho foi do instrumento.** A guarda de junção expande o padrão do express
+> (`/:serverId/proxy/:service?`) para um caminho de verdade, e a primeira expansão devolvia `/x` —
+> media outra coisa e teria passado verde com a lista vazia. O caso agora recusa qualquer expansão
+> que ainda tenha `:` sobrando.
 
 ## 7. ✅ A documentação para de recomendar o atalho — **feito**
 
@@ -760,7 +800,7 @@ acompanhada do que a desmente, ali perto?"*.
 | 3a | 📋 `changeOrigin`/`xfwd` ganham dono medido | `vssh-sso` | 3 |
 | 4 | 📋 o contrato de contribuição | toolkit + `vssh-sso` | — |
 | 5 | 📋 a extensão VSSH | `vsshapp-vscode` | 2, 4 |
-| 6 | 📋 o portão do body parser | `vssh-sso` | — |
+| 6 | ✅ **feito** — o corpo de um pedido proxiado é do outro lado; e "413" era 500 | `vssh-sso` | — |
 | 7 | ✅ **a revisão da documentação — feita** | toolkit | — (o que dependia de 0b e 2 ficou de fora, e está dito no item) |
 
 **A dependência dura é uma só, e é onde a onda pode machucar alguém:** enquanto um servidor não tiver
