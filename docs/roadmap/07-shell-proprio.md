@@ -6,9 +6,9 @@
 > "Computador" virou **Acesso Rápido**, a montagem do servidor pode ser **escondida**, e o
 > ambiente passou a **se medir**. · **Atualizado:** 2026-08-09
 >
-> **1.246 testes, 0 falhas.** SEIS guardas novas, com refutação: 10/10 (o hambúrguer), 15/15 (as
-> variantes que não existem), 8/8 (a medida congelada), 28/28 (a montagem escondida), 27/27 (o
-> Acesso Rápido) e 31/31 (o gerenciador de tarefas).
+> **1.253 testes, 0 falhas.** SEIS guardas novas, com refutação: 10/10 (o hambúrguer), 15/15 (as
+> variantes que não existem), 8/8 (a medida congelada), 28/28 (a montagem escondida), 35/35 (o
+> Acesso Rápido, depois do redesenho) e 31/31 (o gerenciador de tarefas).
 >
 > **Repos:** `vssh-sso` + `vsshapp-xpra`
 > **Depende da [2.7](02b-motores.md)**, que já fechou — sem o motor ter saído do `vssh-client/`,
@@ -17,7 +17,7 @@
 >
 > ### O que esta onda ensinou, e é uma coisa só
 >
-> **Sete afirmações escritas nesta base — cinco delas nesta roadmap — eram falsas, e nenhuma
+> **Oito afirmações escritas nesta base — seis delas nesta roadmap — eram falsas, e nenhuma
 > falhava.** Uma frase escrita não é uma medida, e a distância entre as duas não aparece: o
 > documento continua legível, o código continua compilando, a suíte continua verde.
 >
@@ -28,6 +28,7 @@
 > | "a chave nova guarda caminhos" (item 4) | esconderia a mesma pasta em TODO servidor |
 > | "`//acesso-rapido` herda a guarda de graça" (item 3) | não herdava; virava `/acesso-rapido` no host |
 > | "os recentes" na tela (item 3) | não existe fonte de dado nenhuma |
+> | "a tela mostra o que é seu, com espaço ao lado" (item 3) | metade dela era a barra lateral repetida, e a raiz tinha sumido |
 > | "o espaço livre" (item 3) | só existia `df /`, da máquina inteira |
 > | "o `[data-theme]` fica de propósito" (`design-tokens.css`) | o próprio comentário se desmentia na frase seguinte |
 >
@@ -581,15 +582,72 @@ isso porque medi, não porque suponho.
    que o pesquisador tem os recursos *dele*, que não dependem daquela máquina; `/etc` é o oposto
    exato disso.
 
-> No lugar entra **Acesso Rápido** — uma **tela**, não um caminho: a pasta pessoal, as pastas do
-> perfil, as montagens deste servidor, as pastas de rede do usuário, as fixadas, os recentes, e o
-> espaço livre. É o "Meu Computador" do XP: a primeira coisa que se vê é o que é seu, com espaço
-> medido ao lado, e não uma árvore de sistema.
+> No lugar entra **Acesso Rápido** — uma **tela**, não um caminho: **a raiz do servidor**, as
+> montagens deste servidor, e as pastas de rede do usuário, cada uma com o espaço livre ao lado.
+> É o "Meu Computador" do XP: onde as coisas cabem, e não uma árvore de sistema.
+
+### ⚠ E a primeira versão desta tela estava errada — o relato foi direto
+
+> *"O acesso rápido ficou meio ruim, não tem como acessar a raiz do servidor, ali as pastas
+> ficaram redundantes com o painel lateral. Eu queria era algo meio ali a raiz e as pastas de
+> rede."*
+
+Eu tinha desenhado quatro grupos: **as pastas do perfil**, as montagens, as pastas de rede e **as
+fixadas**. Três coisas erradas, e as três procedem:
+
+1. **A raiz sumiu sem substituto.** Escrevi abaixo que ela *"deixa de ser OFERECIDA e continua
+   alcançável digitando `/` na barra de endereço"* — o que é verdade e não basta. **Trocar um
+   atalho visível por um comando que só quem já sabe descobre não é remover uma pegadinha: é
+   remover uma função.**
+2. **Metade da tela era a barra lateral outra vez.** "As suas pastas" e "Fixadas" mostravam
+   exatamente o que fica a dez centímetros dali, à esquerda, o tempo todo. Duas cópias do mesmo,
+   na mesma janela, ao mesmo tempo — e eu ainda tinha escrito uma guarda para garantir que as
+   duas listas não divergissem, o que trata o sintoma da duplicação como se fosse a solução dela.
+3. **O que faltava era o resto.** A raiz e as pastas de rede.
+
+**E o meu argumento para matar o "Computador" não sobrevive a esta forma.** Eu escrevi que ele
+*"era o único lugar do gerenciador que mostrava a MÁQUINA em vez do AMBIENTE"*. O que mostra a
+máquina é **despejar `/etc` na tela** — que era o que o item antigo fazia, abrindo `/` direto. A
+raiz numa lista, com o espaço livre ao lado, ao lado das montagens e das pastas de rede, não é a
+máquina: **é onde as coisas cabem.** É exatamente o "Meu Computador" que o parágrafo acima dizia
+querer, e eu o tinha construído sem a parte do computador.
+
+A divisão passa a ser por **onde a coisa mora**:
+
+| | |
+|---|---|
+| **barra lateral** | Início, Desktop, Downloads, Documentos, … e as fixadas |
+| **esta tela** | a raiz do servidor, as montagens de `/media`, as pastas de rede |
+
+### ⚠ E um segundo relato, com o mesmo sintoma e outra causa
+
+> *"Quando eu atualizei a página e ele restaurou a janela e estava no acesso rápido, ele apareceu
+> «pasta vazia»."*
+
+Duas causas, e a segunda é a pior:
+
+- **`_setState('empty')` quando o modelo saía vazio** — e no desenho antigo ele **saía** ao
+  restaurar: `_homeDir` ainda era `null` (a descoberta é assíncrona) e as montagens ainda não
+  tinham chegado, então os quatro grupos nasciam vazios. A raiz sempre presente mata isso, mas o
+  estado errado continuava alcançável — e *"Pasta vazia"* é a pior frase possível para *"ainda não
+  sei"*, porque descreve uma pasta que não existe.
+- **`t.items = []` numa aba que o resto da janela trata como LISTA.** `_patch` reconstrói o grid a
+  partir de `t.items` — **apagando a tela** e mostrando o vazio no lugar —, e `_softReload` pede
+  `t.path` ao servidor, que recusa `//acesso-rapido` com razão. `_flushPatches` chama `_patch`
+  **direto**, ao fim de um arraste, sem passar por `_render`: soltar um arquivo na tela a apagaria.
+
+A aba passou a **declarar o que é** (`telaVirtual`), e os três funis perguntam — `_patch`,
+`_softReload` e `_updateStatus`. Um `if` por chamador seria a vigésima chance de esquecer um, e o
+esquecido apareceria como a tela sumindo depois de um gesto, sem nada ligando uma coisa à outra.
+É a mesma forma do `t.isTrash`, que a lixeira já tinha por este exato motivo.
 
 **Ela reusa o espaço de caminho que a [Onda 6](05-arquivos-de-rede.md) abriu.** As raízes de rede
 vivem em `//rede/<id>/…`, com barra dupla.
 
-O `/` continua alcançável digitando `/` na barra de endereço. Ele deixou de ser **oferecido**.
+O `/` continua alcançável digitando `/` na barra de endereço — **e agora também é a primeira
+linha desta tela**, com ícone próprio e o espaço livre medido. O que morreu foi o atalho que o
+abria DIRETO, despejando `bin`, `boot`, `dev`, `etc`, `proc`, `sys`, `usr`, `var` na cara de quem
+clicou esperando ver os próprios discos.
 
 ### ⚠ "Herda essa guarda de graça, sem um `if` novo" — não herdava
 
@@ -654,7 +712,8 @@ esquece, então virou lista: `virtuais: [{path, rotulo}]`. E a tela lê `Lateral
 que o interruptor do item 4 vale aqui também. Sem isso, seria a única tela onde esconder não
 funciona.
 
-**Guarda:** `acesso-rapido.test.js`, 21 casos, **refutação 27/27**.
+**Guarda:** `acesso-rapido.test.js`, 28 casos, **refutação 35/35** — e os quatro defeitos
+relatados entram como ataque, cada um com o nome do que se via na tela.
 
 ---
 
