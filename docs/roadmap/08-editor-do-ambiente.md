@@ -244,7 +244,7 @@ schema como escape declarado para runtime de terceiro, e **o ambiente não usa n
 
 **O que falta para virar entrega, e é implementação e não medida:** a ponte precisa completar um
 handshake de verdade. `connect()` de pé prova que o transporte está aberto, não que o protocolo
-atravessa — e essa é a primeira guarda da onda do xpra, não uma sonda.
+atravessa — e essa é a primeira guarda da **[Onda 10](09-motor-x11.md)**, não uma sonda.
 
 ### E o F2 deixou de ser cenário: doze backends de outras contas responderam
 
@@ -622,7 +622,7 @@ acompanhada do que a desmente, ali perto?"*.
 | 0a | ✅ **medido** — OpenSSH 10.2 nas duas pontas, `/home` ext4, socket no `$HOME` testado, F2 rodado | — | — |
 | 0b | ✅ **o contrato** — `transport`, `escutar()`, o portão do `vssh-app-run`, os cinco manifestos, o `minShellVersion` | toolkit + `vssh-sso` | 0a |
 | 0c | 📋 **o caminho do portal** — `_appHttpCode` por `--unix-socket`, túnel, `socketPath` no proxy e no upgrade, supervisor | `vssh-sso` | 0b |
-| 0d | 📋 **a orquestração de porta morre** — os onze lugares, o `nextLoopback` e o teto de 254 | `vssh-sso` | 0c |
+| 0d | 📋 **a orquestração de porta morre** — os onze lugares, o `nextLoopback` e o teto de 254 | `vssh-sso` | 0c + ⛔ [Onda 10, item 2](09-motor-x11.md) |
 | 1 | 📋 o pacote e a entrega por `installCommand` | `vsshapp-vscode` | 0c |
 | 2 | 📋 o fork: workbench nosso + o patch da plataforma | `vsshapp-vscode` | 1 |
 | — | **publicar e instalar em TODOS os servidores** | | 1, 2 |
