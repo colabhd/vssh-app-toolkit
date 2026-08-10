@@ -172,7 +172,8 @@
         "entrypoint": { "type": "string", "description": "Relativo à raiz do pacote. Deve bindar no endereço que o `transport` decide: socket unix em $VSSH_APP_SOCKET (padrão para app novo) ou TCP em 127.0.0.1:$VSSH_APP_PORT." },
         "transport": {
           "enum": ["socket", "tcp"],
-          "description": "Onde o backend escuta. 'socket': um socket unix em $VSSH_APP_SOCKET, dentro de ~/.vssh-apps/<id>/, que já é 0700 — a permissão de arquivo faz o que a conferência de X-Vssh-App-Token só promete, e o app deixa de ter porta alcançável por qualquer outra conta Linux da máquina (medido: 14 de 23 portas de app responderam a um GET sem token, 12 delas de contas alheias). 'tcp': o modelo antigo, 127.0.0.1:$VSSH_APP_PORT — só para runtime que não sabe bindar socket unix, e aí a porta exposta passa a ser uma escolha escrita aqui em vez de um padrão silencioso. AUSENTE significa 'tcp', para nenhum manifesto já instalado mudar de comportamento sozinho; app novo declara 'socket'."
+          "default": "socket",
+          "description": "Onde o backend escuta. 'socket' (padrão): um socket unix em $VSSH_APP_SOCKET, dentro de ~/.vssh-apps/<id>/, que já é 0700 — a permissão de arquivo faz o que a conferência de X-Vssh-App-Token só promete, e o app deixa de ter porta alcançável por qualquer outra conta Linux da máquina (medido: 14 de 23 portas de app responderam a um GET sem token, 12 delas de contas alheias). 'tcp': o modelo antigo, 127.0.0.1:$VSSH_APP_PORT, e hoje há UM caso legítimo no ambiente — o xpra, cujo listener de WebSocket só aceita HOST:PORT (medido em 6.5.2). Declarar 'tcp' é escolher expor uma porta, e a escolha fica escrita aqui em vez de ser um padrão silencioso."
         },
         "installCommand": {
           "type": "string",

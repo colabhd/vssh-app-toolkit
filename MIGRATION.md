@@ -7,6 +7,54 @@ antes de fazê-lo.**
 
 ---
 
+# v3 → v4 — o TCP sai da lib, e um portão toma o lugar dele
+
+A v3 durou pouco de propósito. Ela entregou o socket **e** manteve `VSSH_APP_PORT` como alternativa,
+para um app novo sobreviver num servidor cujo `vssh-app-run` fosse velho. Isso era um band-aid, e o
+defeito dele é de tempo: **funcionava**, escrevia um aviso num `run.log` que ninguém está lendo, e
+deixava a porta exposta enquanto isso. O problema aparecia tarde, longe de quem podia consertá-lo.
+
+Na v4 `escutar()` **só binda socket unix**. O que protege a compatibilidade agora é um portão:
+
+```jsonc
+{
+  "minShellVersion": "4.1.0",          // a release em que o lifecycle passou a entregar o socket
+  "backend": { "runtime": "node", "transport": "socket", … }
+}
+```
+
+O **portal** confere isso antes de oferecer e de iniciar o app, contra a versão declarada em
+`vssh-client/build-info.json`. Um pacote novo num portal antigo é recusado ali, com os dois números
+na mensagem — em vez de subir e não receber endereço nenhum.
+
+Quem confere é o portal, e não o `vssh-app-install`, por uma razão simples: o `install` roda no
+servidor Linux, e o servidor **não sabe** a versão do portal. Uma conferência que não tem o dado é
+uma conferência que se acha feita sem ter sido.
+
+## O que muda no seu app
+
+Se você já migrou para a v3, é uma linha no manifesto (`minShellVersion`) e um `lib-sync`. O código do
+backend não muda: `escutar(server)` continua igual.
+
+Se você ainda estava na v2, siga a seção seguinte e já declare o `minShellVersion`.
+
+**Um detalhe do erro, que existe para poupar depuração:** `escutar()` distingue *"não veio endereço
+nenhum"* de *"veio só `VSSH_APP_PORT`"*. O segundo não é variável faltando — é um servidor com
+`vssh-app-run` anterior à Onda 9, e a mensagem diz isso pelo nome (`VSSH_APP_SERVIDOR_ANTIGO`), em
+vez de mandar quem depura procurar no app o que está no provisionamento.
+
+## O único TCP que sobra, e ele tem nome
+
+`backend.transport: "tcp"` continua no schema, e hoje há **um** caso no ambiente: o **xpra**. Medido
+na 6.5.2 — o listener de WebSocket dele aceita só `HOST:PORT`, e `--bind-ws=<caminho>` responde
+`xpra initialization error`. Ele não usa esta lib (é `runtime: binary`, lê `$VSSH_APP_PORT` no
+próprio `entrypoint.sh`), então a saída do ramo TCP daqui não o afeta.
+
+Esse último TCP morre quando o xpra parar de servir o próprio HTML — medido também: com
+`--html=off` o WebSocket continua respondendo `101`, então servir o frontend sempre foi papel nosso.
+
+---
+
 # v2 → v3 — o endereço deixa de ser uma porta
 
 **Uma mudança só, e ela é do contrato, não das libs.** Até a v2, o contrato escrito no schema e na

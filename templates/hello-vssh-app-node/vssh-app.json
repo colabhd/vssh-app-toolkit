@@ -1,7 +1,7 @@
 {
   "id": "hello-world-node",
   "name": "Hello World (Node)",
-  "version": "1.3.0",
+  "version": "4.0.0",
   "icon": "icon.svg",
   "category": "Utility",
   "description": "Template de vssh-app com backend Node e galeria das capacidades do ambiente — ponte com o desktop, File System Access, bandeja, som, impressão, duas janelas sobre um backend só, e o que o ambiente decide por um app: limite de recurso, GPU e cofre de segredos.",
@@ -23,8 +23,10 @@
   "contributes": {
     "settings": "configuracoes.js"
   },
+  "minShellVersion": "4.1.0",
   "backend": {
     "runtime": "node",
+    "transport": "socket",
     "entrypoint": "backend/server.js",
     "installCommand": "node --version",
     "healthcheckPath": "/healthz"

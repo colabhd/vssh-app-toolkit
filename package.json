@@ -1,7 +1,7 @@
 {
   "name": "vssh-app-toolkit",
-  "version": "3.0.0",
-  "//version": "Major 3 porque o ENDERECO de um vssh-app deixou de ser necessariamente uma porta. Ate a v2 o contrato era bindar em 127.0.0.1:VSSH_APP_PORT, escrito no schema e na SKILL; desde a Onda 9 o lifecycle pode mandar VSSH_APP_SOCKET no lugar. Um app vendorizado em 2.x nao conhece essa variavel: num servidor que so manda socket ele binda uma porta que ninguem procura, e o sintoma e janela em branco, nao erro. O gate de major do vssh-app-publish transforma isso numa publicacao recusada, com o comando do conserto junto. Ver MIGRATION.md. Major 2 foi bumpado porque as libs carregavam breaking changes reais desde a v1 (permissao que parou de mentir granted, getFile preguicoso, timeout default de 0 para 600s).",
+  "version": "4.0.0",
+  "//version": "Major 4 porque o ramo TCP SAIU do escutar(): a lib so binda socket unix. A v3 aceitava VSSH_APP_PORT como alternativa para um app novo sobreviver num servidor velho — funcionava, avisava num run.log que ninguem le, e deixava a porta exposta enquanto isso. Quem protege essa compatibilidade agora e o requires.vssh do manifesto, conferido pelo portal antes de iniciar o app: um portao onde o erro e barato, e nao um fallback em runtime. Major 3 foi o contrato: o endereco de um app deixou de ser necessariamente uma porta. Major 2 foram breaking changes reais das libs desde a v1. Ver MIGRATION.md.",
   "private": true,
   "description": "Ferramentas e bibliotecas para construir e publicar vssh-apps",
   "license": "MIT",

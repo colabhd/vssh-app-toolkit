@@ -1,7 +1,7 @@
 {
   "id": "print-engine",
   "name": "Motor de Impressão",
-  "version": "1.0.0",
+  "version": "4.0.0",
   "type": "engine",
   "kind": "service",
   "category": "Engine",
@@ -12,8 +12,10 @@
     "memoryMax": "1G",
     "tasksMax": "256"
   },
+  "minShellVersion": "4.1.0",
   "backend": {
     "runtime": "node",
+    "transport": "socket",
     "entrypoint": "backend/server.js",
     "healthcheckPath": "/healthz"
   }
