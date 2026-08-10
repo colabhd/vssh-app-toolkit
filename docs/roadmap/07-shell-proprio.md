@@ -4,11 +4,11 @@
 > em toda sessão; o JS caiu de 2,25 para 1,44 MB), o `FileBrowserWindow` foi de 3.562 para 2.827
 > linhas em seis módulos, a área de trabalho ganhou 11 dos 13 verbos que lhe faltavam,
 > "Computador" virou **Acesso Rápido**, a montagem do servidor pode ser **escondida**, e o
-> ambiente passou a **se medir**. · **Atualizado:** 2026-08-09
+> ambiente passou a **se medir**. · **Atualizado:** 2026-08-10
 >
-> **1.253 testes, 0 falhas.** SEIS guardas novas, com refutação: 10/10 (o hambúrguer), 15/15 (as
-> variantes que não existem), 8/8 (a medida congelada), 28/28 (a montagem escondida), 35/35 (o
-> Acesso Rápido, depois do redesenho) e 31/31 (o gerenciador de tarefas).
+> **1.256 testes, 0 falhas.** SEIS guardas novas, com refutação: 10/10 (o hambúrguer), 15/15 (as
+> variantes que não existem), 8/8 (a medida congelada), 28/28 (a montagem escondida), 41/41 (o
+> Acesso Rápido, depois do redesenho e dos quatro relatos) e 31/31 (o gerenciador de tarefas).
 >
 > **Repos:** `vssh-sso` + `vsshapp-xpra`
 > **Depende da [2.7](02b-motores.md)**, que já fechou — sem o motor ter saído do `vssh-client/`,
@@ -17,7 +17,7 @@
 >
 > ### O que esta onda ensinou, e é uma coisa só
 >
-> **Oito afirmações escritas nesta base — seis delas nesta roadmap — eram falsas, e nenhuma
+> **Nove afirmações escritas nesta base — seis delas nesta roadmap — eram falsas, e nenhuma
 > falhava.** Uma frase escrita não é uma medida, e a distância entre as duas não aparece: o
 > documento continua legível, o código continua compilando, a suíte continua verde.
 >
@@ -31,9 +31,11 @@
 > | "a tela mostra o que é seu, com espaço ao lado" (item 3) | metade dela era a barra lateral repetida, e a raiz tinha sumido |
 > | "o espaço livre" (item 3) | só existia `df /`, da máquina inteira |
 > | "o `[data-theme]` fica de propósito" (`design-tokens.css`) | o próprio comentário se desmentia na frase seguinte |
+> | "a recusa ficou depois da captura do ponteiro" (guarda do item 3) | media a ordem no texto; o ataque desistia **depois** de apagar a seleção |
 >
-> E duas foram MINHAS, escritas dias antes: o "zero call sites de jQuery" do item 1c, e o
-> `.show()` traduzido como "apagar o inline" que deixou o hambúrguer três dias sem abrir.
+> E três foram MINHAS, escritas dias ou horas antes: o "zero call sites de jQuery" do item 1c, o
+> `.show()` traduzido como "apagar o inline" que deixou o hambúrguer três dias sem abrir, e a
+> última linha da tabela — **a guarda que eu escrevi contra o defeito, e que o deixou passar**.
 
 Cinco itens, e um assunto só: **o shell foi construído por cima do Xpra HTML5 Client, e ainda
 carrega a fundação de outra casa.** A [Onda 2.7](02b-motores.md) tirou o *protocolo* do Xpra de
@@ -649,6 +651,51 @@ linha desta tela**, com ícone próprio e o espaço livre medido. O que morreu f
 abria DIRETO, despejando `bin`, `boot`, `dev`, `etc`, `proc`, `sys`, `usr`, `var` na cara de quem
 clicou esperando ver os próprios discos.
 
+### ⚠ E um terceiro e um quarto relato — e é a mesma causa de fundo dos dois anteriores
+
+> *"Quando eu clico ali na raiz do servidor não acontece nada."*
+> *"Além disso, quando eu clico em acesso rápido, ele buga as outras pastas."*
+
+**O laço de seleção comia o clique.** Ele é armado **uma vez por aba**, sobre `.fb-body`, e o
+`ignorar` dele lista `.fm-item` — mas os itens da tela são `.fb-ar-item`. Pressionar sobre a raiz
+**começava um retângulo de seleção**, e ao soltar o laço engolia o clique seguinte, que é o
+conserto escrito no item 1c para o hambúrguer. Bastava **um pixel** de movimento entre apertar e
+soltar; parado, o clique passava — e é por isso que o defeito parecia intermitente.
+
+`ignorar` não resolveria: é um seletor de **elemento**, e a área vazia da tela não casa seletor
+nenhum. A pergunta certa não era qual elemento — era **se a área ainda é uma lista**. O laço ganhou
+um gancho `ativo`, e a janela responde `() => !t.telaVirtual`.
+
+**E a grade era emprestada e nunca devolvida.** `t.telaVirtual = true` estava num lugar e
+`t.gridEl.className = 'fb-grid fb-ar'` noutro, e só a primeira era desfeita ao sair: a grade seguia
+com o layout da tela (`display:block`, padding) em **toda pasta visitada depois**. Reescrever a
+`className` inteira ainda apagava junto o `fb-grid--list` que o `_patch` gerencia. Emprestar um
+elemento e devolvê-lo são **a mesma decisão**, e separá-las em duas linhas distantes é criar a
+chance de fazer metade — viraram `_marcarTela(t, ehTela)`, e a guarda exige que não exista uma
+segunda atribuição por fora.
+
+**É o terceiro defeito da mesma família nesta tela**, e agora dá para nomear a família: eu construí
+uma coisa que **não é uma lista** dentro de uma janela cujos gestos, classes e funis todos presumem
+lista. Cada presunção apareceu separada — `_patch`, `_softReload`, `_updateStatus`, a `className`,
+e agora o laço — e a resposta foi a mesma cada vez: **a aba declara o que é, e quem tem gesto
+pergunta.** O que muda com o quarto caso é o alcance: não é só o que a janela *desenha*, é o que ela
+*escuta*.
+
+### ⚠ E a guarda que eu escrevi para isso deixou o ataque passar
+
+A primeira versão da guarda perguntava se `podeLacar()` aparece **antes de `setPointerCapture`** no
+texto do arquivo. Um dos 41 ataques passou por ela inteiro: mover a recusa para depois de
+`aoMudar(new Set())` mantém a ordem no texto — e mesmo assim **apaga a seleção da tela** antes de
+desistir. A recusa vale para o gesto inteiro, não para a captura.
+
+**Guarda de ordem responde sobre onde a linha está; a pergunta era o que o gesto faz.** Foi para a
+bancada de `laco-preso.test.js`, que já tinha o DOM de mentira: aperta o ponteiro numa área
+desligada e cobra rastro nenhum — seleção intacta, sem captura, sem ouvinte, sem caixa, e o `click`
+seguinte passando inteiro.
+
+É o **quarto** defeito de instrumento desta onda, e o terceiro da mesma forma: medir o que é fácil
+de alcançar em vez do que se quer saber.
+
 ### ⚠ "Herda essa guarda de graça, sem um `if` novo" — não herdava
 
 Esta seção dizia que `safePath()` normaliza `//` → `/`, de forma que um caminho virtual vazando
@@ -712,8 +759,9 @@ esquece, então virou lista: `virtuais: [{path, rotulo}]`. E a tela lê `Lateral
 que o interruptor do item 4 vale aqui também. Sem isso, seria a única tela onde esconder não
 funciona.
 
-**Guarda:** `acesso-rapido.test.js`, 28 casos, **refutação 35/35** — e os quatro defeitos
-relatados entram como ataque, cada um com o nome do que se via na tela.
+**Guarda:** `acesso-rapido.test.js`, 30 casos, mais 1 na bancada de `laco-preso.test.js`;
+**refutação 41/41** — e os **seis** defeitos relatados entram como ataque, cada um com o nome do
+que se via na tela.
 
 ---
 
