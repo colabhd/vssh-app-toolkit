@@ -1,6 +1,6 @@
 # Roadmap do ecossistema vssh-app
 
-> **Atualizado:** 2026-08-08
+> **Atualizado:** 2026-08-10
 
 Este diretório é o plano vivo do ecossistema VSSH — portal (`vssh-sso`), shell de desktop
 (`vssh-client/`) e este toolkit. Não é um documento de uma vez só: **cada arquivo tem cabeçalho
@@ -43,6 +43,7 @@ Duas consequências que precisam estar ditas antes de qualquer tabela:
 | [05b-navegacao-de-arquivos.md](05b-navegacao-de-arquivos.md) | Onda 6b — a navegação de arquivos, medida: 95% da latência é nossa |
 | [06-portabilidade.md](06-portabilidade.md) | Onda 7 — continuidade entre máquinas |
 | [07-shell-proprio.md](07-shell-proprio.md) | Onda 8 — o shell deixa de ser um fork do cliente Xpra: o jQuery sai, o gerenciador de arquivos se parte, e o ambiente passa a se medir |
+| [08-editor-do-ambiente.md](08-editor-do-ambiente.md) | Onda 9 — o **socket vira o endereço** de todo vssh-app, e o VS Code vira nosso: workbench sobre um fork, e apps que passam a **contribuir** com o ambiente em vez de só consumi-lo |
 
 **A numeração não é sequência total.** Ondas 0, 6, 7 e 8 não dependem das outras e podem correr em
 paralelo. Só a Onda 2 depende da 1; a Onda 3 é pré-requisito real do arquétipo **A3** — A4 e A5
@@ -71,6 +72,21 @@ torna isso urgente e não apenas desejável é a [Onda 5](04-runtime-composicao.
 ela congela um contrato PÚBLICO, para gente de fora do repositório. Com dois perfis, esse contrato
 exporta *"em que perfil eu estou"*; com motores, *"que motores existem aqui"* — e contrato publicado
 não se reescreve numa tarde.
+
+A **[Onda 9](08-editor-do-ambiente.md) termina a frase que a 2.7 começou.** A 2.7 apagou
+`/proxy/desktop/` e a porta `20000 + uid`; o code-server ficou para trás com `10000 + uid`, três
+linhas abaixo do comentário que declara a porta aritmética um erro de desenho (`proxy.ts:451-469`).
+**A 2.7 tirou a aritmética da porta; o passo 0 da 9 tira a porta** — o endereço de um vssh-app passa
+a ser um socket unix derivado da identidade, e com ele somem a alocação, o cache, a reconciliação, o
+espelhamento do `-L` e o teto de 254 servidores que existia por causa dele. É mudança de contrato da
+plataforma, não preparação para o editor.
+
+O que a torna 9 e não 2.8 é a outra metade: **o pedido não era encanamento melhor, era uma janela
+que fosse do ambiente** — e a leitura da fonte do VS Code mostrou que a diferença entre "servidor num
+iframe" e "aplicação do ambiente" é **quem serve a página**, e que uma linha do produto
+(`extensionGalleryService.ts:35`) só é alcançável por fork. O item 4 dela é o que sobra quando a
+pergunta é levada a sério para qualquer app, e não só para o editor: hoje um vssh-app **consome** o
+ambiente e quase não **contribui** com ele.
 
 ## Estado
 
@@ -149,6 +165,15 @@ não se reescreve numa tarde.
 | 8 | [Shell próprio](07-shell-proprio.md) — item 3: "Computador" vira **Acesso Rápido** | vssh-sso | 📋 planejado · hoje é `data-path="/"` — a raiz de um Linux, e o único lugar do gerenciador que mostra a **máquina** em vez do ambiente. A tela nova reusa o espaço `//` da Onda 6, então herda a guarda do `safePath()` sem um `if` novo |
 | 8 | [Shell próprio](07-shell-proprio.md) — item 4: desligar a pasta de rede do administrador | vssh-sso | 📋 planejado · o administrador **propõe**, o usuário **dispõe**: interruptor, não botão Remover — `montagensDoServidor()` lista `/media` a cada vez, e "remover" voltaria na listagem seguinte |
 | 8 | [Shell próprio](07-shell-proprio.md) — item 5: gerenciador de tarefas do ambiente | vssh-sso | 📋 planejado · a metade do servidor tem fundação (`run.pid` já é lido, `/proc/<pid>` dá CPU e RSS, e a Onda 4 já põe o teto ao lado). A metade do navegador **não é o que o pedido supõe**: sem isolamento cross-origin a API de memória não existe, e app em iframe de mesma origem divide renderer — logo não há número por app. Achado junto: o painel "Recursos" está **congelado** desde sempre (`setInterval` cujo corpo é um `return`) |
+| 9 | [Editor do ambiente](08-editor-do-ambiente.md) — **passo 0: o endereço de um vssh-app deixa de ser uma porta** | toolkit + vssh-sso | 📋 planejado · **onze lugares sabem a porta**, e `_reconcileAppPort` (`vssh-apps.ts:361-368`) só existe porque dois deles discordam. O `-L` espelha o mesmo número dos dois lados (`ssh-tunnel.ts:125`), e daí vem o teto de **254 servidores** do `nextLoopback` (`server-register.ts:8-19`). Um caminho de socket é **derivado da identidade**: não se aloca, não se cacheia, não se reconcilia, e o diretório 0700 faz o que o token só promete. Medido: `http-proxy-3` aceita `socketPath` (`common.js:50`) e o upgrade WS usa o mesmo `setupOutgoing` (`ws-incoming.js:174`) |
+| 9 | [Editor do ambiente](08-editor-do-ambiente.md) — item 1: o pacote `vsshapp-vscode` e a entrega | `vsshapp-vscode` | 📋 planejado · **medido**: `/usr/lib/code-server` são **617 MB** e `~/.local/share/code-server` são **719 MB por usuário** num `/home` com 89% de uso. Vendorizar está morto (`git archive` + POST único, e o GitHub recusa >100 MB); a saída é `installCommand`, que roda com `cwd` gravável no install como root (`vssh-app-install:335`) e vai para `/opt/vssh-apps/` pelo `rsync` de `:348`. Nasce com `transport: "socket"` — o primeiro app do passo 0 |
+| 9 | [Editor do ambiente](08-editor-do-ambiente.md) — item 2: o workbench é nosso, sobre um fork | `vsshapp-vscode` | 📋 planejado · o VS Code web tem API de embedder pública (`web.api.ts`): `workspaceProvider`, `productConfiguration`, `commands.executeCommand` de qualquer comando, tema, cofre, prefixo. **E o fork é o único lugar que alcança** a resolução de plataforma (`extensionGalleryService.ts:35`), o renderizador do menu de contexto e o seletor de arquivo — os três são constante de módulo ou `registerSingleton` |
+| 9 | [Editor do ambiente](08-editor-do-ambiente.md) — item 2a: o patch da plataforma de extensão | `vsshapp-vscode` | 📋 planejado · **a premissa do pedido era meia verdade.** `debugpy` veio `linux-x64` e `python 2026.4.0` veio `universal` na mesma conta, no mesmo dia — porque há **duas** resoluções que discordam: a listagem usa `isWeb → web` (`:35,1153`) e o install remoto refaz com `linux-x64` (`abstractExtensionManagementService.ts:751`). O dano é visível no `ps`: o pacote genérico não traz o binário `pet` e cai num language server pior |
+| 9 | [Editor do ambiente](08-editor-do-ambiente.md) — item 3: `/proxy/vscode/` deixa de ser um endereço | vssh-sso | 📋 planejado · a cirurgia da [2.7](02b-motores.md) no inquilino que sobrou: a porta `10000+uid`, o cookie injetado em HTTP **e** em WS, o handshake `curl -X POST /login` dentro do servidor, `provisioning/code-server.ts` **inteiro (782 linhas)**, seis endpoints e três pins de versão que **não descrevem a máquina** (dizem `4.126.0`; ela roda `4.127.0`) |
+| 9 | [Editor do ambiente](08-editor-do-ambiente.md) — item 4: o contrato de contribuição | toolkit + vssh-sso | 📋 planejado · **hoje um app consome o ambiente e não contribui com ele.** Um mecanismo completo (`contributes.settings`) e uma superfície com registro (`SettingsRegistry`); `ContextMenu.js:823-831` não tem `register` e todo item é array literal no shell. Entram menu de contexto, jump list do ícone, ordem e ícone no "Abrir com", `opens.mimeTypes` roteado — com **precedência declarada**, porque dois apps vão querer o mesmo item |
+| 9 | [Editor do ambiente](08-editor-do-ambiente.md) — item 5: a extensão VSSH servida pelo próprio app | `vsshapp-vscode` | 📋 planejado · `additionalBuiltinExtensions` aceita *"location of the extension where it is hosted"* (`web.api.ts:248-254`) — é o caminho para tudo o que o embedder não alcança, já que `asMenuId` só conhece **dois** `MenuId` (`web.factory.ts:76-81`). É por ela que o ambiente contribui de volta com o editor |
+| 9 | [Editor do ambiente](08-editor-do-ambiente.md) — item 6: o portão do body parser | vssh-sso | 📋 planejado · **defeito latente da plataforma, achado de passagem**: `express.json()` global em `app.ts:96` com limite de 100 kb, e `setupProxyRoutes` só em `:169` — todo vssh-app leva 413 em POST JSON maior que isso |
+| 9 | [Editor do ambiente](08-editor-do-ambiente.md) — item 7: a documentação para de recomendar o atalho | toolkit | ✅ **concluído** · a árvore do `porting.md` passou a ter **duas perguntas** — o que custa rodar e o que custa **integrar** —, e ganhou o link para `api.md`, que a página não citava uma vez sequer. `criterios.md` virou "Os **três** critérios" e o 3.3 passou a alcançar **todo vssh-app** (a lista "Ondas 2, 4 e 5" isentava justamente as janelas que mais parecem página web). A doutrina da SKILL ganhou o gatilho de **propósito** — antes só disparava quando a ferramenta *recusava* o iframe. **E a frase errada do healthcheck tinha cinco cópias, não três**: eu contei a menos, e a quinta era o comentário do `templates/hello-vssh-app-node/backend/server.js`, de onde todo app novo nasce. Guarda `tests/docs-sem-atalho.test.js`, **10 casos, refutação 10/10** — que na primeira versão media dois arquivos e fingia medir cinco |
 
 ### E uma onda revisada rende tanto quanto uma executada
 
