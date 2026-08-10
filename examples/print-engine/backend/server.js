@@ -35,7 +35,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 
-const { escutar } = require('./vendor/vssh/node/app-listen');
+const { escutar } = require('vssh-app-toolkit/listen');
 const TOKEN = process.env.VSSH_APP_TOKEN || '';
 const DATA = process.env.VSSH_APP_DATA_DIR || os.tmpdir();
 

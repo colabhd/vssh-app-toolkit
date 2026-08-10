@@ -17,6 +17,7 @@
     "runtime": "node",
     "transport": "socket",
     "entrypoint": "backend/server.js",
+    "installCommand": "( [ \"${VSSH_APP_REBUILD:-}\" != 1 ] && test -d node_modules ) || npm ci --omit=dev",
     "healthcheckPath": "/healthz"
   }
 }

@@ -312,16 +312,30 @@ respostas JSON).
 ## Não reimplemente: as bibliotecas do toolkit
 
 Quatro problemas aparecem em todo app, e todo mundo erra do mesmo jeito na primeira vez. Já estão
-resolvidos em `lib/` — vendorize com `vssh-app-lib-sync` e commite o resultado, porque o publish
-empacota o que está versionado. Ressincronize quando o toolkit andar: o `.vssh-lib-version` diz de
-onde a sua cópia veio, e hoje **nada confere isso por você**.
+resolvidos em `lib/`, e **desde a v4 elas se instalam** (antes eram copiadas por um script próprio,
+`vssh-app-lib-sync`, que morreu por ter deixado dois apps com libs de outra major sem avisar):
 
 ```bash
-# libs de backend ao lado do backend; libs de frontend sob a raiz que o static-spa serve
-bash /caminho/do/toolkit/scripts/vssh-app-lib-sync . --parts fs,spa,log,sse,tray,notify --dest backend/vendor/vssh
-bash /caminho/do/toolkit/scripts/vssh-app-lib-sync . --parts web            --dest frontend/vendor/vssh
-git add backend/vendor/vssh frontend/vendor/vssh && git commit -m "sync vssh libs"
+npm i github:colabhd/vssh-app-toolkit#v4    # e commite o package-lock.json
 ```
+
+```js
+const { createAppLog } = require('vssh-app-toolkit/log');
+const { createStaticSpa } = require('vssh-app-toolkit/spa');
+const { escutar } = require('vssh-app-toolkit/listen');
+const { WEB_DIR, SHIMS } = require('vssh-app-toolkit/web');   // as libs de NAVEGADOR
+```
+
+No servidor, quem instala é o `installCommand` do manifesto — e ele não precisa de `git` nem de
+chave SSH no alvo (medido em `node:22-slim`, sem os dois, 1 s):
+
+```jsonc
+"installCommand": "( [ \"${VSSH_APP_REBUILD:-}\" != 1 ] && test -d node_modules ) || npm ci --omit=dev"
+```
+
+Se preferir levar o `node_modules` dentro do tarball, não o ignore no `.gitignore`: o publish
+empacota o que `git add -A` pega. O `vssh-app-publish` recusa publicar um app cujas libs sejam de
+outra **major**, e recusa também um app que declare a dependência sem levá-la nem instalá-la.
 
 | Peça | Resolve |
 |---|---|
@@ -338,15 +352,19 @@ Comece pelo `templates/hello-vssh-app-node/`, que já nasce com tudo isso ligado
 
 **Não construa essa UI.** O desktop já tem, e o app alcança por uma ponte de `postMessage` —
 carregue `lib/web/vssh-app-shim.js`. São **dois passos**, e esquecer o primeiro é o erro clássico:
-vendorize `lib/web/` sob a raiz do frontend (`--dest frontend/vendor/vssh`, acima) e só então aponte
-o `injectScripts` do `static-spa` para ele — sem tocar no seu HTML:
+o navegador é quem carrega essa lib, então alguém tem de **servi-la**. Ela mora no `node_modules`,
+fora da raiz da SPA; quem a põe numa URL é o `mounts`:
 
 ```js
-createStaticSpa({ root: 'frontend', injectScripts: ['vendor/vssh/web/vssh-app-shim.js'] })
+createStaticSpa({
+  root: 'frontend',
+  mounts: { '/_vssh/': WEB_DIR },                    // vssh-app-toolkit/web
+  injectScripts: SHIMS.map((s) => `_vssh/${s}`),     // shim primeiro, polyfill FSA depois
+})
 ```
 
-`injectScripts` **só injeta a tag `<script>`**; quem serve o arquivo é o `static-spa`, e ele só serve
-o que está sob `root`. Se a lib ficar em `backend/vendor/`, a tag aponta para 404 e o `vssh` nunca
+`injectScripts` **só injeta a tag `<script>`**; quem serve o arquivo é o `static-spa`, e ele só
+serve o que está sob `root` ou sob um `mounts`. Sem o mount a tag aponta para 404 e o `vssh` nunca
 existe — silenciosamente, porque a página carrega normalmente. Ver
 `templates/hello-vssh-app-node/`, que já vem com os dois passos ligados.
 
@@ -510,14 +528,14 @@ usuários ou peça para reabrirem o app.
 | | `templates/hello-vssh-app/` | `templates/hello-vssh-app-node/` |
 |---|---|---|
 | Runtime | Python 3 stdlib | Node stdlib |
-| Traz | o mínimo absoluto | libs do toolkit vendorizadas |
+| Traz | o mínimo absoluto | as libs do toolkit, por `npm i github:colabhd/vssh-app-toolkit#v4` |
 | Já vem com | — | log estruturado, gate de token timing-safe, healthcheck isento, SSE |
 | E também | — | a **galeria**: uma peça por capacidade do ambiente (ponte, FSA, `vssh.fs`, OPFS, bandeja, som, impressão, duas janelas sobre um backend só) |
 | Use quando | o app é pequeno e você quer ler tudo em 2 minutos | qualquer coisa que vá crescer |
 
 > **A galeria é para instalar, não só para ler.** Ela é a resposta a "este servidor faz isto?" —
-> cada peça diz o que PROVA, e a primeira delas (*Ambiente*) mostra a versão do shim vendorizado
-> no app ao lado da versão do shell daquele servidor, que é o que explica quase toda ausência.
+> cada peça diz o que PROVA, e a primeira delas (*Ambiente*) mostra a versão do shim que o app
+> carrega ao lado da versão do shell daquele servidor, que é o que explica quase toda ausência.
 > Ao copiar o template para um app seu, apague `frontend/galeria.js`, as peças de
 > `frontend/index.html` e as rotas `api/estado*` — o que sobra é o mínimo.
 
@@ -547,8 +565,9 @@ falhar silenciosamente pra alguns usuários (achado real construindo `terminal-l
 começou em Node antes de trocar por esse motivo).
 
 `scramjet-wisp/` é a referência pro tipo `"type": "engine"` (ver seção dedicada abaixo) —
-um backend Node com dependência npm real (vendorizada, não instalada via `npm install` no
-servidor-alvo), sem `frontend/` nem janela, consumido por uma feature já existente do cliente
+um backend Node com dependências npm reais, instaladas no servidor-alvo pelo `installCommand`
+(`npm ci --omit=dev`) — o caminho que a v4 generalizou para as libs do toolkit —, sem `frontend/`
+nem janela, consumido por uma feature já existente do cliente
 Xpra em vez de aberto pelo usuário.
 
 ## Empacotando uma ferramenta que já tem servidor/protocolo de rede próprio

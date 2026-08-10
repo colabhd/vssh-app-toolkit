@@ -54,8 +54,8 @@ function montarGaleria() {
     if (typeof vssh === 'undefined') {
       escrever('ambiente',
         'vssh AUSENTE: o shim não foi servido.\n' +
-        'Confira `injectScripts` em backend/server.js e se frontend/vendor/vssh/web/vssh-app-shim.js '
-        + 'existe. Tudo que depende da ponte está desligado nesta página.');
+        'Confira, em backend/server.js, o `mounts` e o `injectScripts` — e se o `npm ci` rodou '
+        + '(o shim vem de node_modules/vssh-app-toolkit). Tudo que depende da ponte está desligado nesta página.');
       return;
     }
 
@@ -572,8 +572,8 @@ function montarGaleria() {
       const meu = el ? ` · o app pediu el.volume=${el.volume}` : '';
       if (!temAudio) {
         escrever('audio', 'este shim é anterior à Onda 2.5 e não tem vssh.audio — o mixer do desktop '
-          + 'NÃO controla este app. Rode `vssh-app-lib-sync . --parts web --dest frontend/vendor/vssh`, '
-          + 'commite e reinstale.' + meu);
+          + 'NÃO controla este app. Rode `npm i github:colabhd/vssh-app-toolkit#v4`, '
+          + 'commite o lock e reinstale.' + meu);
         return;
       }
       escrever('audio', `ambiente: gain=${vssh.audio.gain().toFixed(2)} mudo=${vssh.audio.muted()}${meu}`);

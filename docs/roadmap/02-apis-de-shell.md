@@ -206,8 +206,8 @@ consertado** — pela mesma regra.
   `services/session.ts`;
 - `Client.js` ganhou **uma linha** — repassa `{type:'tray'}` como evento de DOM. Quem sabe o que é
   uma bandeja é o `TrayArea`, não o transporte: é a regra do `vssh-host.js` aplicada;
-- toolkit: `lib/node/vssh-tray.js` (escrita atômica, mesmo idioma do `status.json`), `--parts tray`
-  no `vssh-app-lib-sync`.
+- toolkit: `lib/node/vssh-tray.js` (escrita atômica, mesmo idioma do `status.json`), hoje
+  `require('vssh-app-toolkit/tray')` — na época, `--parts tray` no `vssh-app-lib-sync`.
 
 **Precedência janela > arquivo.** Um app pode ter os dois; sem a regra, o coletor sobrescreveria o
 item da janela a cada tick, trocando callbacks vivos por um POST e fazendo o ícone piscar de 5 em

@@ -167,10 +167,10 @@ de engolir o clique.
 `postMessage`. Um daemon que termina um backup às 3h **não tem janela** — e é exatamente ele
 que mais precisa avisar.
 
-**Use a lib do toolkit** — `vssh-app-lib-sync . --parts notify`:
+**Use a lib do toolkit** — `npm i github:colabhd/vssh-app-toolkit#v4`:
 
 ```js
-const { notify } = require('./vendor/vssh/node/vssh-notify.js');
+const { notify } = require('vssh-app-toolkit/notify');
 
 notify('Backup concluído: 4,2 GB em 12 min', { title: 'Backup', level: 'success' });
 
@@ -418,10 +418,10 @@ shell mais antigo que o seu app. Trate como "este ambiente não tem bandeja" e s
 esta ponte. E é justamente ele que mais precisa da bandeja: não tem janela nenhuma onde aparecer.
 
 Para ele o modelo se inverte: **estado por arquivo, ação por HTTP.** Use
-[`lib/node/vssh-tray.js`](../lib/node/vssh-tray.js) (`--parts tray` no `vssh-app-lib-sync`):
+[`lib/node/vssh-tray.js`](../lib/node/vssh-tray.js), por `require('vssh-app-toolkit/tray')`:
 
 ```js
-const { setTray, clearTray, clearTrayOnExit } = require('./vendor/vssh/node/vssh-tray.js');
+const { setTray, clearTray, clearTrayOnExit } = require('vssh-app-toolkit/tray');
 clearTrayOnExit();
 
 setTray({
@@ -746,13 +746,13 @@ existe ali. Use isto para esconder o que não faz sentido, nunca para degradar o
 
 ### TypeScript
 
-`lib/web/vssh-app-shim.d.ts` vem junto na vendorização e declara a superfície inteira. **Não é um
+`lib/web/vssh-app-shim.d.ts` vem no pacote instalado, ao lado do `.js`, e declara a superfície inteira. **Não é um
 módulo**: o shim entra por tag `<script>` e escreve em `window`, então o arquivo é uma declaração
 global — inclua-o e pronto.
 
 ```jsonc
 // tsconfig.json
-{ "include": ["src/**/*", "frontend/vendor/vssh/web/*.d.ts"] }
+{ "include": ["src/**/*", "node_modules/vssh-app-toolkit/lib/web/*.d.ts"] }
 ```
 
 Depois disso `vssh.` autocompleta, `window.vssh` tem tipo, e `caps.shellVersion` já vem como
@@ -777,9 +777,9 @@ autocompletar algo que quebra em produção.
 | `shellVersion` | a versão **declarada** do desktop que hospeda o app | o shell responde |
 | `libVersion` | a versão das libs do toolkit que **este app** carrega | está embutida no shim |
 
-Elas respondem perguntas diferentes e nenhuma das duas sozinha basta. O app é vendorizado: ele leva
-uma cópia das libs no tarball, e essa cópia envelhece independente do desktop, que é deployado por
-outra gente em outro momento. **Versão dessincronizada é a regra, não a exceção** — e sem o par,
+Elas respondem perguntas diferentes e nenhuma das duas sozinha basta. O app leva as libs consigo —
+no tarball ou instaladas pelo `installCommand` — e essa versão anda independente do desktop, que é
+deployado por outra gente em outro momento. **Versão dessincronizada é a regra, não a exceção** — e sem o par,
 um relato de "não funciona" não diz qual combinação estava em jogo.
 
 O uso mais barato, e o que se paga na primeira depuração remota, é carimbar o par no seu log:

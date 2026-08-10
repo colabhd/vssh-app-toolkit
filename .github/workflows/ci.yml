@@ -82,18 +82,32 @@ jobs:
           # 24 de propósito: é o Node que os servidores-alvo tendem a ter, e o smoke existe para
           # provar que o template sobe lá. Se alguma lib usar sintaxe mais nova, aparece aqui.
           node-version: '24'
-      # Exercita o template como um app real: sobe o backend na porta que o portal daria, e
+      # As libs do template vêm por npm desde a v4. Aqui elas vêm da ÁRVORE DE TRABALHO, e não da
+      # tag: o smoke existe para provar que o que está neste commit sobe. Instalar `#v4` faria o
+      # CI validar a versão já publicada e passar verde sobre uma quebra recém-introduzida.
+      - name: Libs do template = esta árvore
+        run: npm install --no-save --no-audit --no-fund "${GITHUB_WORKSPACE}"
+        working-directory: templates/hello-vssh-app-node
+
+      # Exercita o template como um app real: sobe o backend NO SOCKET que o portal daria, e
       # confere healthcheck, API, index servido pelo static-spa e SSE chegando sem buffer.
+      #
+      # Socket, e não porta: desde a v4 o `escutar()` só binda socket unix. Este smoke ainda
+      # exportava `VSSH_APP_PORT` — o app agora morre com `VSSH_APP_SERVIDOR_ANTIGO`, e a suíte
+      # unitária não pegava porque quem exercita o par lifecycle+lib é justamente este passo.
       - name: Smoke do template Node
         run: |
           cd templates/hello-vssh-app-node
-          VSSH_APP_PORT=45999 VSSH_APP_ID=hello-world-node \
+          SOCK="${RUNNER_TEMP}/hwn.sock"
+          # `curl --unix-socket` ignora o host da URL; ele existe só para a URL ser válida.
+          q() { curl --unix-socket "${SOCK}" "$@"; }
+          VSSH_APP_SOCKET="${SOCK}" VSSH_APP_ID=hello-world-node \
             VSSH_APP_DATA_DIR="${RUNNER_TEMP}/hwn" node backend/server.js &
-          for i in $(seq 1 20); do curl -fsS http://127.0.0.1:45999/healthz >/dev/null && break; sleep 0.5; done
-          curl -fsS http://127.0.0.1:45999/healthz | grep -q ok
-          curl -fsS http://127.0.0.1:45999/api/ping | grep -q '"pong":true'
-          curl -fsS http://127.0.0.1:45999/ | grep -q '<!DOCTYPE html>'
-          timeout 3 curl -sN http://127.0.0.1:45999/api/events | grep -q 'event: tick'
+          for i in $(seq 1 20); do q -fsS http://app/healthz >/dev/null 2>&1 && break; sleep 0.5; done
+          q -fsS http://app/healthz | grep -q ok
+          q -fsS http://app/api/ping | grep -q '"pong":true'
+          q -fsS http://app/ | grep -q '<!DOCTYPE html>'
+          timeout 3 q -sN http://app/api/events | grep -q 'event: tick'
           test -s "${RUNNER_TEMP}/hwn/app.log"
 
           # ── A ponte com o desktop ──────────────────────────────────────────────────────────
@@ -107,10 +121,14 @@ jobs:
           # template ("olá mundo não toca em arquivo do usuário"), e escopo mudou: ele agora é
           # também a galeria, e a peça de arquivos usa a API padrão do W3C. A propriedade que
           # sobrevive à mudança de escopo é esta: o que se injeta, se serve — e carimbado.
-          srcs=$(curl -fsS http://127.0.0.1:45999/ | grep -o '<script src="[^"]*"' | cut -d'"' -f2)
+          #
+          # Desde a v4 o shim vem do `node_modules`, servido por um `mounts` do static-spa — fora
+          # da raiz do bundle por construção. É o mesmo defeito com outra causa possível (o `npm
+          # ci` não rodou), e a mesma asserção o pega.
+          srcs=$(q -fsS http://app/ | grep -o '<script src="[^"]*"' | cut -d'"' -f2)
           test -n "$srcs"
           for s in $srcs; do
-            curl -fsS "http://127.0.0.1:45999/${s}" >/dev/null \
+            q -fsS "http://app/${s}" >/dev/null \
               || { echo "injetado mas NÃO servido: ${s}"; exit 1; }
             case "$s" in
               *\?v=*) ;;
@@ -119,17 +137,17 @@ jobs:
           done
           echo "$srcs" | grep -q 'vssh-app-shim.js'
           echo "$srcs" | grep -q 'galeria.js'
-          curl -fsS http://127.0.0.1:45999/vendor/vssh/web/vssh-app-shim.js | grep -q 'window.vssh'
+          q -fsS http://app/_vssh/vssh-app-shim.js | grep -q 'window.vssh'
 
           # ── A galeria: um backend, N janelas ───────────────────────────────────────────────
           #
           # Duas conexões, e quem incrementa NÃO é quem escuta: é essa assimetria que a peça
           # afirma. Sem a difusão, cada janela veria só o próprio clique — e o smoke passaria se
           # medisse a resposta do POST em vez do stream.
-          ( timeout 5 curl -sN http://127.0.0.1:45999/api/events > "${RUNNER_TEMP}/sse.txt" & )
+          ( timeout 5 q -sN http://app/api/events > "${RUNNER_TEMP}/sse.txt" & )
           sleep 1
-          curl -fsS -X POST http://127.0.0.1:45999/api/estado/incrementar >/dev/null
+          q -fsS -X POST http://app/api/estado/incrementar >/dev/null
           sleep 1
           grep -q '"contador":1' "${RUNNER_TEMP}/sse.txt" \
             || { echo "a mudança de estado não chegou a quem não clicou"; exit 1; }
-          curl -fsS http://127.0.0.1:45999/api/estado | grep -q '"contador":1'
+          q -fsS http://app/api/estado | grep -q '"contador":1'

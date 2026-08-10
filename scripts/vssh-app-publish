@@ -294,12 +294,17 @@ done <<< "${INFO}"
 [ -z "${WARN}" ] || anotar warning "validação parcial" "${WARN}"
 [ -z "${ERR}" ] || { echo "ERRO: vssh-app.json inválido (${ERR})." >&2; exit 1; }
 
-# ── 2b. A cópia vendorizada das libs sabe a idade que tem? ─────────────────────
+# ── 2b. As libs que o app leva são desta geração? ──────────────────────────────
 #
-# As libs de `lib/` são vendorizadas: o app commita uma cópia e ela vai no tarball. Isso é bom
-# para reprodutibilidade e ruim para diagnóstico — a cópia envelhece SEM DAR SINAL. O
-# `.vssh-lib-version` registra de onde ela veio desde sempre, e até aqui nenhum programa lia esse
-# arquivo: nem este script, nem o install, nem o portal.
+# Desde a v4 as libs de `lib/` chegam ao app por **npm** (`npm i github:colabhd/vssh-app-toolkit#v4`),
+# e não mais por um script de cópia. O que esta seção lê, portanto, é o `package.json` que o npm
+# instalou — um número que ele escreveu, não um marcador que alguém lembrou de atualizar.
+#
+# **A troca foi decidida por um defeito real, e vale registrar qual:** o `vssh-app-lib-sync` tinha
+# o ref default escrito à mão (`REF="v3"`); a v4 saiu, a linha ficou para trás, e dois apps
+# sincronizaram libs 3.0.0 contra um toolkit 4.0.0. Este gate pegou — no CI, depois do push, com a
+# mensagem apontando para o app enquanto a causa estava no script. Com npm, "que versão é esta?"
+# tem uma resposta só, e ela vem do lock.
 #
 # **Divergência de MAIOR recusa; o resto avisa.** A proporção não é arbitrária: o major deste
 # repositório só é bumpado quando as libs carregam breaking change real (ver o `//version` do
@@ -310,37 +315,68 @@ done <<< "${INFO}"
 # trazer o `package.json`), a conferência é pulada e dita em voz alta. Uma conferência que se acha
 # feita sem ter sido é pior que nenhuma.
 HERE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# O `|| true` não é decoração: sem `package.json` o `sed` sai 2, e sob `set -euo pipefail` esse 2
+# vira o exit do script INTEIRO — em silêncio, com o `2>/dev/null` engolindo a única pista. O
+# aviso "não conferi as libs" logo abaixo nunca chegaria a ser impresso justamente no caso que ele
+# existe para cobrir (o checkout esparso sem package.json). Achado pelo teste desta seção; é a
+# mesma armadilha que o `VSSH_APP_INSTALLED_HASH` documenta no vssh-app-run.
 NOSSA_LIB="$(sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-  "${HERE_ROOT}/package.json" 2>/dev/null | head -1)"
+  "${HERE_ROOT}/package.json" 2>/dev/null | head -1 || true)"
+
+# Resto da era da cópia. Não é aviso: um `vendor/vssh/` no pacote é código MORTO que o app pode
+# estar carregando em vez das libs instaladas — e as duas coisas com o mesmo nome é o defeito.
+LEGADO="$(find "${PKG}" -name .vssh-lib-version -not -path '*/.git/*' 2>/dev/null | head -1 || true)"
+if [ -n "${LEGADO}" ]; then
+  anotar error "libs copiadas à mão" \
+    "${LEGADO#${PKG}/} — a cópia vendorizada saiu na v4. Instale as libs:
+  npm i github:colabhd/vssh-app-toolkit#v${NOSSA_LIB%%.*}
+e troque os require('./vendor/vssh/node/<x>') por require('vssh-app-toolkit/<x>'). Ver MIGRATION.md."
+  exit 1
+fi
 
 if [ -z "${NOSSA_LIB}" ]; then
   anotar warning "libs não conferidas" \
-    "Não sei a versão deste toolkit (package.json ausente no checkout), então a idade das libs vendorizadas do app NÃO foi conferida."
+    "Não sei a versão deste toolkit (package.json ausente no checkout), então a versão das libs do app NÃO foi conferida."
 else
-  MARCADORES="$(find "${PKG}" -name .vssh-lib-version -not -path '*/.git/*' 2>/dev/null || true)"
-  [ -n "${MARCADORES}" ] || anotar notice "sem libs vendorizadas" \
-    "O app não vendoriza libs do toolkit (nenhum .vssh-lib-version)."
-  while IFS= read -r marcador; do
-    [ -n "${marcador}" ] || continue
-    DELE="$(sed -n 's/^lib_version=//p' "${marcador}" | head -1)"
-    ONDE="${marcador#${PKG}/}"
-    if [ -z "${DELE}" ]; then
-      anotar warning "libs sem procedência" \
-        "${ONDE} não registra lib_version (sincronizado por um toolkit antigo). Rode o vssh-app-lib-sync."
-      continue
+  # O que VAI no tarball: cada cópia instalada pelo npm dentro do pacote.
+  INSTALADAS="$(find "${PKG}" -path '*/node_modules/vssh-app-toolkit/package.json' -not -path '*/.git/*' 2>/dev/null || true)"
+  # O que o app DECLARA: qualquer package.json dele que cite o toolkit (o do repo ou o do backend).
+  DECLARA="$(grep -rl '"vssh-app-toolkit"' --include=package.json "${PKG}" 2>/dev/null \
+    | grep -v '/node_modules/' | head -1 || true)"
+
+  if [ -z "${INSTALADAS}" ]; then
+    if [ -z "${DECLARA}" ]; then
+      anotar notice "sem libs do toolkit" "O app não depende das libs deste toolkit."
+    elif grep -q 'npm ' "${PKG}/vssh-app.json"; then
+      # node_modules fora do tarball é escolha legítima: o `installCommand` instala no servidor, e
+      # é o que o scramjet-wisp já faz em produção. Só não dá para conferir a versão daqui.
+      anotar notice "libs instaladas no servidor" \
+        "${DECLARA#${PKG}/} declara o toolkit e o pacote não leva node_modules — o installCommand vai instalar no alvo. A versão NÃO foi conferida aqui."
+    else
+      anotar error "libs declaradas e ausentes" \
+        "${DECLARA#${PKG}/} depende de vssh-app-toolkit, o tarball não leva node_modules e o manifesto não tem installCommand que rode npm.
+O backend morreria no primeiro require. Escolha um: tire node_modules do .gitignore, ou declare
+  \"installCommand\": \"npm ci --omit=dev\""
+      exit 1
     fi
+  fi
+
+  while IFS= read -r pj; do
+    [ -n "${pj}" ] || continue
+    DELE="$(sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${pj}" | head -1)"
+    ONDE="${pj#${PKG}/}"
     [ "${DELE}" = "${NOSSA_LIB}" ] && continue
     if [ "${DELE%%.*}" != "${NOSSA_LIB%%.*}" ]; then
       # Este é `error` e não `warning` porque ele PARA a publicação: major diferente carrega
       # breaking change real (ver o `//version` do package.json).
       anotar error "libs de outra major" \
-        "${ONDE} traz libs ${DELE} e este toolkit é ${NOSSA_LIB}.
-Ressincronize:  vssh-app-lib-sync . --parts <as suas> --dest <o seu destino>"
+        "${ONDE} traz o toolkit ${DELE} e este é ${NOSSA_LIB}.
+Atualize:  npm i github:colabhd/vssh-app-toolkit#v${NOSSA_LIB%%.*}   (e commite o package-lock.json)"
       exit 1
     fi
     anotar warning "libs desatualizadas" \
-      "${ONDE} traz libs ${DELE}; este toolkit é ${NOSSA_LIB}. Compatível, mas vale ressincronizar."
-  done <<< "${MARCADORES}"
+      "${ONDE} traz o toolkit ${DELE}; este é ${NOSSA_LIB}. Compatível, mas vale atualizar."
+  done <<< "${INSTALADAS}"
 fi
 
 # ── 3. Empacota (só o que está versionado, quando é repo git) ──────────────────

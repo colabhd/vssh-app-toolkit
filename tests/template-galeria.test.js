@@ -65,23 +65,38 @@ test('toda peça tem onde escrever a resposta', () => {
 });
 
 test('o que o backend injeta existe em disco, e a ordem importa', () => {
-  const lista = SERVER.match(/injectScripts:\s*\[([\s\S]*?)\]/)?.[1];
+  const lista = SERVER.match(/injectScripts:\s*\[([\s\S]*?)\],/)?.[1];
   assert.ok(lista, 'não achei mais o injectScripts — o teste ficou obsoleto');
-  const srcs = [...lista.matchAll(/'([^']+)'/g)].map((m) => m[1]);
 
-  // O erro clássico, e o mais caro de descobrir: a lib vendorizada fora da raiz do frontend. A
-  // página carrega, a tag aponta para um 404 e `vssh` simplesmente não existe — sem erro nenhum
-  // que ligue uma coisa à outra.
+  // O erro clássico, e o mais caro de descobrir: a tag injetada aponta para um arquivo que
+  // ninguém serve. A página carrega inteira, `vssh` simplesmente não existe, e não há erro
+  // nenhum ligando uma coisa à outra.
+  //
+  // Desde a v4 as libs de navegador vêm do `node_modules` — fora da raiz do frontend por
+  // construção —, então "existe sob frontend/" deixou de ser a pergunta certa. A pergunta é se
+  // cada src cai numa das duas coisas que o static-spa serve: a raiz, ou um `mounts`.
+  const prefixo = SERVER.match(/mounts:\s*\{\s*'([^']+)':\s*WEB_DIR\s*\}/)?.[1];
+  assert.ok(prefixo, 'o backend não monta mais o WEB_DIR: as libs de navegador viram 404 silencioso');
+
+  const { WEB_DIR, SHIMS } = require('../lib/node/web-assets');
+  assert.ok(new RegExp(`SHIMS\\.map\\(\\(s\\) => \`${prefixo.slice(1)}\\$\\{s\\}\``).test(lista),
+    `o injectScripts não aponta mais os SHIMS para o prefixo montado ('${prefixo}')`);
+  for (const s of SHIMS) {
+    assert.ok(fs.existsSync(path.join(WEB_DIR, s)),
+      `SHIMS declara '${s}', que não existe em lib/web/: a tag injetada vira 404`);
+  }
+
+  const iShim = SHIMS.indexOf('vssh-app-shim.js');
+  const iFsa = SHIMS.indexOf('fsa-polyfill.js');
+  assert.ok(iShim >= 0, 'o shim saiu da injeção — nada da ponte funciona');
+  assert.ok(iFsa < 0 || iFsa > iShim,
+    'o polyfill de FSA é injetado ANTES do shim: ele depende do `vssh`, e a falha é um showDirectoryPicker que não existe');
+
+  const srcs = [...lista.matchAll(/'([^']+)'/g)].map((m) => m[1]);
   for (const src of srcs) {
     assert.ok(fs.existsSync(path.join(APP, 'frontend', src)),
       `injectScripts aponta para '${src}', que não existe sob frontend/: a tag vira 404 silencioso`);
   }
-
-  const iShim = srcs.findIndex((s) => s.endsWith('vssh-app-shim.js'));
-  const iFsa = srcs.findIndex((s) => s.endsWith('fsa-polyfill.js'));
-  assert.ok(iShim >= 0, 'o shim saiu da injeção — nada da ponte funciona');
-  assert.ok(iFsa < 0 || iFsa > iShim,
-    'o polyfill de FSA é injetado ANTES do shim: ele depende do `vssh`, e a falha é um showDirectoryPicker que não existe');
 
   // O código do app entra na injeção pelo carimbo: só o que é injetado ganha o hash do conteúdo na
   // URL, e é o carimbo que garante que uma reinstalação não sirva a versão velha de cache nenhum.

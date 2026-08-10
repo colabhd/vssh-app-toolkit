@@ -258,9 +258,9 @@ portal já usava para os assets do shell (`/b/<buildId>/…`, `src/utils/build-i
 bytes, então muda quando — e só quando — eles mudam: reinstalar a mesma versão mantém a URL e o
 cache do usuário sobrevive.
 
-> **A ressalva que sobra, e vale para quem escreve app:** o carimbo mora na lib **vendorizada**.
-> Um app que sincronizou `lib/node/` antes desta mudança continua com o mecanismo antigo até rodar
-> `vssh-app-lib-sync` de novo. O sintoma que este parágrafo descreve pode reaparecer num app
+> **A ressalva que sobra, e vale para quem escreve app:** o carimbo mora na lib que o app carrega.
+> Um app preso numa versão anterior a esta mudança continua com o mecanismo antigo até subir a
+> dependência (`npm i github:colabhd/vssh-app-toolkit#v4`; na época, um `vssh-app-lib-sync`). O sintoma que este parágrafo descreve pode reaparecer num app
 > desatualizado, e a causa será a versão da lib — não o mecanismo.
 
 **B — o backend ainda subindo. ✅ Fechado pelo healthcheck assíncrono.** `startApp` mata e reinicia

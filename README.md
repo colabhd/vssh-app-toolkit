@@ -18,7 +18,7 @@ padrão — **sem nenhum PAT/GitHub App**.
 | [`.claude/skills/vssh-app/SKILL.md`](.claude/skills/vssh-app/SKILL.md) | **Referência de autoria** (manifest, convenção de diretório, env vars, tipos `engine`, `richChrome`, `handles`, loop de teste, instalação/upgrade). Comece por aqui. |
 | [`lib/`](lib/) | **Bibliotecas compartilhadas** — o que todo app reimplementava. Ver abaixo. |
 | [`scripts/vssh-app-publish`](scripts/vssh-app-publish) | Empacota + publica um app no Worker. Roda em CI e localmente. |
-| [`scripts/vssh-app-lib-sync`](scripts/vssh-app-lib-sync) | Copia `lib/` para dentro do repo do seu app (vendorizado). |
+| [`package.json`](package.json) | Este repositório **é** o pacote npm das libs: `npm i github:colabhd/vssh-app-toolkit#v4`. Não há mais script de cópia. |
 | [`.github/workflows/_publish-app-reusable.yml`](.github/workflows/_publish-app-reusable.yml) | Reusable workflow que o CI do seu repo de app chama com um `uses:`. |
 | [`templates/hello-vssh-app/`](templates/hello-vssh-app/) | Template de partida (Python 3 stdlib, zero deps). Copie e adapte. |
 | [`templates/hello-vssh-app-node/`](templates/hello-vssh-app-node/) | Template Node **e galeria**: log estruturado, gate de token e SSE — e uma peça por capacidade do ambiente, para instalar num servidor e conferir com as mãos. |
@@ -32,22 +32,25 @@ padrão — **sem nenhum PAT/GitHub App**.
 Nenhuma tem dependência npm e nenhuma lê variável de ambiente: quem traduz o ambiente VSSH em
 config é o backend do app.
 
-**São vendorizadas, não instaladas**, e o motivo é um só: o `vssh-app-publish` empacota o que está
-**versionado** — o que não estiver commitado não chega ao servidor. Para as libs de `lib/web/` há
-ainda uma razão estrutural: elas são carregadas pelo navegador por tag `<script>` e precisam ficar
-sob a raiz que o `static-spa` serve, então uma cópia para lá existe de qualquer forma.
+**São instaladas por npm** — `npm i github:colabhd/vssh-app-toolkit#v4` — e importadas por
+subcaminho: `require('vssh-app-toolkit/listen')`, `/log`, `/spa`, `/sse`, `/fs`, `/tray`,
+`/notify`, `/web`.
 
-> **Uma justificativa que costumava aparecer aqui foi removida por ser falsa:** *"o servidor-alvo
-> pode não ter registry npm acessível num exec não-interativo por SSH"*. Ela entrou num único
-> commit de desenho, em três documentos ao mesmo tempo, e nunca foi medida — o servidor-alvo
-> alcança o registry. O que é verdade e vale a mesma cautela é outra coisa, essa sim vinda de um
-> caso real: dependência de **CDN externo em runtime** quebra num servidor sem internet
-> (ver [`docs/lessons/logseq-port.md`](docs/lessons/logseq-port.md)).
+> **Isto aqui dizia o contrário até a v4, e vale dizer por que mudou.** A regra era *"são
+> vendorizadas, não instaladas"*, com o `vssh-app-lib-sync` copiando `lib/` para dentro do repo do
+> app e um `.vssh-lib-version` carimbando a idade da cópia. O argumento — o publish empacota o que
+> está versionado — continua verdadeiro, e **não era o problema**. O problema foi este: o script
+> tinha o ref default escrito à mão (`REF="v3"`), a v4 saiu, a linha ficou para trás, e dois apps
+> sincronizaram libs 3.0.0 contra um toolkit 4.0.0 sem nada avisar até o CI. Um mecanismo de
+> versão feito em casa tinha a própria versão para esquecer.
 >
-> **O custo da vendorização era a cópia envelhecer em silêncio, e ele está pago.** O
-> `.vssh-lib-version` carimba a versão das libs, o `vssh-app-publish` a confere e **recusa** quando
-> a major diverge, e o app reporta o par shell+libs em runtime por `vssh.capabilities()`. Ver
-> [Versionamento](#versionamento).
+> Com npm, "que versão é esta?" tem uma resposta só, e ela vem do `package-lock.json`. O que o
+> publish continua fazendo é o portão de major — só que lendo o `package.json` que o npm
+> instalou, e não um marcador que alguém precisava lembrar de atualizar.
+>
+> **E as libs de `lib/web/`, que o navegador carrega?** Elas ficam no `node_modules`, fora da raiz
+> da SPA. Quem resolve isso é o `mounts` do `static-spa` — mesma confinação, mesmo 304, mesmo
+> carimbo de conteúdo que o bundle tem. Ver [Ligando ao seu app](#ligando-ao-seu-app).
 
 ### Backend (`lib/node/`) — `require()`adas pelo seu processo
 
@@ -70,21 +73,43 @@ sob a raiz que o `static-spa` serve, então uma cópia para lá existe de qualqu
 | `lib/web/electron-shim.js` | Superfície padrão do Electron (`dialog`, `shell`, `clipboard`, `Notification`, controles de janela) mapeada para o shim. Para portar um app Electron sem reescrever as chamadas. |
 | `lib/web/tauri-shim.js` | Idem para a superfície padrão do Tauri (`fs`, `dialog`, `shell`, `notification`, `path`). |
 
-### Vendorizando
-
-**Dois destinos, e a distinção importa:** as libs de backend ficam ao lado do backend; as de
-frontend precisam ficar **sob a raiz que o `static-spa` serve**, senão a tag injetada por
-`injectScripts` aponta para 404.
+### Ligando ao seu app
 
 ```bash
 # no repo do seu app
-bash /caminho/do/toolkit/scripts/vssh-app-lib-sync . --parts fs,spa,log,sse --dest backend/vendor/vssh
-bash /caminho/do/toolkit/scripts/vssh-app-lib-sync . --parts web            --dest frontend/vendor/vssh
-git add backend/vendor/vssh frontend/vendor/vssh && git commit -m "sync vssh libs"
+npm i github:colabhd/vssh-app-toolkit#v4      # e commite o package-lock.json
 ```
 
-O template [`templates/hello-vssh-app-node/`](templates/hello-vssh-app-node/) já vem com os dois
-lados ligados — copie de lá em vez de montar à mão.
+```js
+const { createStaticSpa } = require('vssh-app-toolkit/spa');
+const { escutar } = require('vssh-app-toolkit/listen');
+const { WEB_DIR, SHIMS } = require('vssh-app-toolkit/web');
+
+const spa = createStaticSpa({
+  root: path.join(__dirname, '..', 'frontend'),
+  mounts: { '/_vssh/': WEB_DIR },                       // as libs de navegador, do node_modules
+  injectScripts: SHIMS.map((s) => `_vssh/${s}`),        // a ordem já vem certa em SHIMS
+});
+```
+
+**A parte que todo mundo esquece, e que o `mounts` existe para resolver:** as libs de `lib/web/`
+são carregadas **pelo navegador**, então alguém tem de servi-las. Sem o mount, a tag `<script>` é
+injetada, aponta para 404, a página carrega inteira e o `vssh` simplesmente não existe — sem erro
+nenhum ligando uma coisa à outra.
+
+**No servidor**, quem instala é o `installCommand` do manifesto:
+
+```jsonc
+"installCommand": "( [ \"${VSSH_APP_REBUILD:-}\" != 1 ] && test -d node_modules ) || npm ci --omit=dev"
+```
+
+Medido: o `npm ci` resolve este pacote pelo tarball do codeload, **sem precisar de `git` nem de
+chave SSH** no alvo (`node:22-slim` sem os dois, 1 s). Se você preferir levar o `node_modules`
+dentro do tarball, basta não ignorá-lo no `.gitignore` — o publish empacota o que `git add -A`
+pega.
+
+O template [`templates/hello-vssh-app-node/`](templates/hello-vssh-app-node/) já vem com tudo isso
+ligado — copie de lá em vez de montar à mão.
 
 **Precisa dar ao app acesso aos arquivos do usuário** (a home, não uma raiz privada)? Não é o
 `vssh-app-fs`: é o polyfill da File System Access API, que fala com o `/api/fs/*` do portal pelo
@@ -150,39 +175,46 @@ fica de fora), verifica o sha256 e faz `POST /v1/publish/app`. Ver `--help`.
 
 ## Versionamento
 
-**Referencie por tag: `@v2`.** Uma tag, e não um branch — puxar de `main` faz a validação do seu CI
-mudar debaixo de você a cada commit deste repositório, inclusive num push que você não viu. Bumps
-compatíveis movem a `v2`; uma mudança incompatível cria a `v3`.
+**Referencie por tag: `@v4`.** Uma tag, e não um branch — puxar de `main` faz a validação do seu CI
+(e as suas libs) mudarem debaixo de você a cada commit deste repositório, inclusive num push que
+você não viu. Bumps compatíveis movem a `v4`; uma mudança incompatível cria a `v5`.
 
-É o default em toda parte: `tools_ref` do reusable e `--ref` do `vssh-app-lib-sync`.
+É o mesmo número nos dois lugares: `tools_ref` do reusable e o `#v4` da dependência npm.
 
 > **Não use `@v1`.** Ela é do toolkit **original**, anterior à criação de `lib/`, `schema/` e
-> `docs/`. Um repo pinado ali publica com **validação mínima**, e o `vssh-app-lib-sync --ref v1`
-> falha com "lib/ não encontrado no tarball".
+> `docs/`. Um repo pinado ali publica com **validação mínima**.
 
 ### Como você fica sabendo que está desatualizado
 
-O `vssh-app-publish` lê o `.vssh-lib-version` da sua cópia vendorizada e compara com a versão do
+O `vssh-app-publish` lê o `package.json` que o npm instalou no seu app e compara com a versão do
 toolkit que está rodando:
 
 | | |
 |---|---|
 | **major** diferente | **recusa publicar** — outra major carrega breaking change real |
 | menor ou patch | avisa, e publica |
-| sem `lib_version` | avisa: a cópia veio de um toolkit anterior ao carimbo |
+| `vendor/vssh/` ainda no pacote | **recusa** — cópia da era anterior à v4, código morto competindo com as libs instaladas |
+| declara a dependência, não leva `node_modules` e não tem `installCommand` com npm | **recusa** — o backend morreria no primeiro `require`, no servidor |
+| instala no alvo pelo `installCommand` | avisa que a versão **não** foi conferida aqui |
 
 No GitHub Actions esses avisos são **anotações** (`::warning::`), não linhas de log. A diferença é
 deliberada e vem de um caso real: o `aviso: schema não encontrado` da tag `v1` passou meses
 despercebido em repos que publicavam com validação mínima achando que validavam — porque a única
 pista era uma linha no meio do log.
 
-> **E o npm?** Publicar `lib/` como pacote npm foi **considerado e decidido contra**. O que ele
-> acrescentaria é um empurrão proativo (dependabot avisando que saiu versão nova); o que custa é o
-> primeiro credential da história deste repositório — e "sem nenhum PAT/GitHub App" é a razão de
-> ele ser público. Além disso, o npm não removeria a vendorização: o publish empacota o que está
-> **versionado**, então a cópia continuaria sendo commitada, com um passo a mais antes. O gatilho
-> que reabriria a decisão é o toolkit passar a distribuir algo que **não** é vendorizado — um CLI
-> que se rodaria com `npx`. Ver [`docs/roadmap/03-toolkit.md`](docs/roadmap/03-toolkit.md#a-cópia-vendorizada-não-sabe-a-idade-que-tem).
+> **"E o npm?" — esta seção respondia "considerado e decidido contra", e a decisão foi revertida na
+> v4.** O argumento antigo tinha duas pernas: (i) publicar no registry exigiria o primeiro
+> credential da história deste repositório, e (ii) o npm não removeria a vendorização, porque o
+> publish empacota o que está versionado.
+>
+> A perna (i) supunha o **registry**, e é aí que ela cai: `npm i github:colabhd/vssh-app-toolkit#v4`
+> instala direto do repositório público, sem token nenhum e sem `npm publish` — medido, inclusive
+> num container sem `git` e sem `ssh`. A perna (ii) era verdadeira e não sustentava a conclusão:
+> continuar copiando à mão custou libs 3.0.0 publicadas contra um toolkit 4.0.0, porque o script de
+> cópia tinha um número de versão próprio para esquecer. Levar o `node_modules` no tarball
+> continua possível — a diferença é que agora quem faz a cópia é o npm, e quem sabe a versão é o
+> lock. Ver [MIGRATION.md](MIGRATION.md) e
+> [`docs/roadmap/03-toolkit.md`](docs/roadmap/03-toolkit.md#a-cópia-vendorizada-não-sabe-a-idade-que-tem).
 
 ## Migrando de `colabhd/vssh-sso`
 

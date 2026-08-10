@@ -1,0 +1,12 @@
+{
+  "name": "hello-vssh-app-node",
+  "version": "4.0.0",
+  "private": true,
+  "description": "Template de vssh-app com backend Node — copie este diretório para começar o seu.",
+  "license": "MIT",
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "vssh-app-toolkit": "github:colabhd/vssh-app-toolkit#v4"
+  },
+  "//dependencies": "A tag, e não um branch: puxar de `main` faz a sua cópia mudar debaixo de você entre dois installs. O `npm install` resolve a tag e grava o COMMIT no package-lock.json; o `npm ci` do servidor usa o lock, então o que roda no alvo é exatamente o que você testou. Para subir de geração um dia: `npm i github:colabhd/vssh-app-toolkit#v5` e commite o lock."
+}

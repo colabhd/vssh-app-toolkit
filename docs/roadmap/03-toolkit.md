@@ -282,7 +282,35 @@ conferência que se acha feita sem ter sido é pior que nenhuma. (O `sparse-chec
 passou a trazer o `package.json`; um repo pinado num ref antigo continua publicando, só sem esta
 conferência, e sabendo disso.)
 
-#### O npm foi considerado e decidido CONTRA
+#### O npm foi considerado e decidido CONTRA — e a decisão foi REVERTIDA na v4
+
+> ⚠️ **O que está escrito abaixo era a decisão de então, e ela caiu.** Fica no lugar, porque o
+> raciocínio importa e o erro dele é instrutivo. **A v4 instala as libs por
+> `npm i github:colabhd/vssh-app-toolkit#v4`; o `vssh-app-lib-sync` foi apagado.**
+>
+> **O que derrubou a decisão foi um defeito, não uma preferência.** O script de cópia tinha o ref
+> default escrito à mão (`REF="v3"`). A v4 saiu, a linha ficou para trás, e dois apps sincronizaram
+> libs 3.0.0 contra um toolkit 4.0.0. O gate desta seção pegou os dois — **funcionando exatamente
+> como projetado**, e ainda assim tarde: no CI, depois do push, com a mensagem apontando para o app
+> enquanto a causa estava no script. O mecanismo que existia para "a cópia não envelhecer calada"
+> tinha, ele mesmo, um número de versão para esquecer.
+>
+> **E as três linhas da tabela abaixo, uma a uma:**
+>
+> - *"custaria o primeiro credential"* — **falso, e o erro é de premissa**: supunha `npm publish`
+>   num **registry**. `npm i github:<owner>/<repo>#<tag>` instala do repositório público, sem token
+>   nenhum. Medido inclusive num container **sem `git` e sem `ssh`** (`node:22-slim`): o npm resolve
+>   pelo tarball do codeload, em 1 s;
+> - *"não resolveria a vendorização"* — **verdadeiro, e não sustentava a conclusão**. O publish
+>   continua empacotando o que está versionado, e levar o `node_modules` no tarball continua sendo
+>   uma opção. O que mudou de dono foi a CÓPIA: quem a faz é o npm, e quem sabe a versão é o
+>   `package-lock.json`;
+> - *"um dependabot avisa antes; um gate impede"* — continua verdadeiro, e agora existem os dois:
+>   o gate ficou (lendo o `package.json` que o npm instalou) e o empurrão proativo veio junto.
+>
+> **O gatilho previsto abaixo — "o dia em que o toolkit distribuir algo que não é vendorizado" —
+> não foi o que aconteceu.** O que aconteceu foi o custo do lado escolhido aparecer inteiro. Vale
+> anotar: o gatilho estava escrito, era razoável, e ainda assim mirava o lugar errado.
 
 A decisão ficou em aberto de propósito até os três passos existirem — *"decidir com o custo real em
 mãos"*. Com eles em mãos, o custo virou:

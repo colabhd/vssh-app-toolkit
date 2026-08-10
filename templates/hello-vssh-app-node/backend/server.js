@@ -2,9 +2,10 @@
 
 // Hello World (Node) — template de partida para um vssh-app com backend Node.
 //
-// Zero dependência npm: só a stdlib do Node e as libs do toolkit vendorizadas em
-// `backend/vendor/vssh/` (ressincronize com `vssh-app-lib-sync`). O servidor-alvo pode não ter
-// acesso a registry npm num exec não-interativo por SSH, então o que está commitado é o que roda.
+// Uma dependência npm, e ela é o toolkit: `npm i github:colabhd/vssh-app-toolkit#v4`. O resto é
+// stdlib do Node. Quem instala no servidor é o `installCommand` do manifesto (`npm ci --omit=dev`),
+// e o lock commitado é o que fixa a versão — medido: o `npm ci` resolve o pacote pelo tarball do
+// codeload, sem precisar de `git` nem de chave SSH no alvo.
 //
 // O que este template já faz por você, e que a primeira versão de todo app esquece:
 //   - log estruturado em $VSSH_APP_DATA_DIR desde a primeira linha (é o que salva a depuração
@@ -17,10 +18,11 @@ const crypto = require('node:crypto');
 const http = require('node:http');
 const path = require('node:path');
 
-const { createStaticSpa } = require('./vendor/vssh/node/static-spa');
-const { createAppLog } = require('./vendor/vssh/node/app-log');
-const { openSseStream } = require('./vendor/vssh/node/sse');
-const { escutar } = require('./vendor/vssh/node/app-listen');
+const { createStaticSpa } = require('vssh-app-toolkit/spa');
+const { createAppLog } = require('vssh-app-toolkit/log');
+const { openSseStream } = require('vssh-app-toolkit/sse');
+const { escutar } = require('vssh-app-toolkit/listen');
+const { WEB_DIR, SHIMS } = require('vssh-app-toolkit/web');
 
 // Onde este backend escuta é decisão do lifecycle, não deste arquivo: socket unix em
 // $VSSH_APP_SOCKET (o padrão desde a Onda 9) ou TCP em $VSSH_APP_PORT. Quem lê as duas variáveis,
@@ -39,15 +41,16 @@ const spa = createStaticSpa({
   root: path.join(__dirname, '..', 'frontend'),
 
   // A PONTE COM O DESKTOP, em dois passos — esquecer o primeiro é o erro clássico:
-  //   1. a lib precisa estar SOB `root`, porque é o navegador que a carrega (por isso ela é
-  //      vendorizada em `frontend/vendor/vssh/`, e não junto das libs de backend);
-  //   2. `injectScripts` só acrescenta a tag <script> antes do </head> do index — quem SERVE o
-  //      arquivo é este mesmo `createStaticSpa`, e ele só serve o que está sob `root`.
-  // Com a lib no lugar errado a página carrega normalmente, a tag aponta para 404 e o `vssh`
-  // simplesmente não existe — sem erro nenhum que ligue uma coisa à outra.
-  // A ORDEM importa: o polyfill de File System Access depende do `vssh` que o shim publica, então
-  // ele vem SEMPRE depois. Trocar a ordem não dá erro nenhum — dá um `showDirectoryPicker` que
-  // não existe, que é bem pior de descobrir.
+  //   1. o navegador é quem carrega a lib, então alguém tem de SERVI-LA. Ela mora no
+  //      `node_modules`, fora da raiz do bundle, e é o `mounts` abaixo que a põe numa URL;
+  //   2. `injectScripts` só acrescenta a tag <script> antes do </head> do index — quem serve o
+  //      arquivo é este mesmo `createStaticSpa`.
+  // Sem o mount a página carrega normalmente, a tag aponta para 404 e o `vssh` simplesmente não
+  // existe — sem erro nenhum que ligue uma coisa à outra.
+  // A ORDEM importa, e por isso ela vem pronta em `SHIMS`: o polyfill de File System Access
+  // depende do `vssh` que o shim publica. Trocar a ordem não dá erro nenhum — dá um
+  // `showDirectoryPicker` que não existe, que é bem pior de descobrir.
+  mounts: { '/_vssh/': WEB_DIR },
   //
   // O polyfill é injetado porque este template é também a GALERIA: a seção "Arquivos do usuário"
   // usa a API padrão do W3C, e é assim que um app real alcança a home. Se o seu app não mexe em
@@ -58,11 +61,7 @@ const spa = createStaticSpa({
   // index, para ganhar o carimbo de conteúdo na URL: só o que é injetado é carimbado, e o carimbo
   // é o que garante que uma reinstalação não sirva a versão velha de nenhum cache do caminho.
   // Quem tem build (Vite e afins) já recebe um nome com hash e não precisa disto.
-  injectScripts: [
-    'vendor/vssh/web/vssh-app-shim.js',
-    'vendor/vssh/web/fsa-polyfill.js',
-    'galeria.js',
-  ],
+  injectScripts: [...SHIMS.map((s) => `_vssh/${s}`), 'galeria.js'],
 
   // Descomente se o seu app usa roteamento HTML5 (History API) em vez de fragmento:
   // spaFallback: true,

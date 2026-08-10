@@ -1,13 +1,12 @@
 # Migração
 
-As libs deste toolkit são **vendorizadas e commitadas** pelos apps (`scripts/vssh-app-lib-sync`),
-não instaladas em runtime. Isso significa que nada abaixo atinge um app automaticamente: a mudança
-só chega quando alguém roda o `lib-sync` de novo, deliberadamente. **Leia a seção da sua major
-antes de fazê-lo.**
+As libs deste toolkit são **instaladas por npm** desde a v4 — `npm i github:colabhd/vssh-app-toolkit#v4`.
+Nada abaixo atinge um app automaticamente: a mudança só chega quando alguém sobe a dependência,
+deliberadamente. **Leia a seção da sua major antes de fazê-lo.**
 
 ---
 
-# v3 → v4 — o TCP sai da lib, e um portão toma o lugar dele
+# v3 → v4 — o TCP sai da lib, um portão toma o lugar dele, e as libs passam a se instalar
 
 A v3 durou pouco de propósito. Ela entregou o socket **e** manteve `VSSH_APP_PORT` como alternativa,
 para um app novo sobreviver num servidor cujo `vssh-app-run` fosse velho. Isso era um band-aid, e o
@@ -31,10 +30,65 @@ Quem confere é o portal, e não o `vssh-app-install`, por uma razão simples: o
 servidor Linux, e o servidor **não sabe** a versão do portal. Uma conferência que não tem o dado é
 uma conferência que se acha feita sem ter sido.
 
+## As libs se instalam; o `vssh-app-lib-sync` morreu
+
+**Ele morreu por ter falhado, e o modo da falha é o argumento.** O script tinha o ref default
+escrito à mão (`REF="v3"`); a v4 saiu, a linha ficou para trás, e dois apps sincronizaram libs
+3.0.0 contra um toolkit 4.0.0. O portão do `vssh-app-publish` pegou os dois — no CI, depois do
+push, com a mensagem apontando para o app enquanto a causa estava no script. Um mecanismo de versão
+feito em casa tinha a própria versão para esquecer.
+
+```bash
+npm i github:colabhd/vssh-app-toolkit#v4     # commite o package-lock.json
+git rm -r backend/vendor/vssh frontend/vendor/vssh
+```
+
+```diff
+-const { escutar } = require('./vendor/vssh/node/app-listen');
+-const { createStaticSpa } = require('./vendor/vssh/node/static-spa');
++const { escutar } = require('vssh-app-toolkit/listen');
++const { createStaticSpa } = require('vssh-app-toolkit/spa');
++const { WEB_DIR, SHIMS } = require('vssh-app-toolkit/web');
+```
+
+Os subcaminhos são `listen`, `log`, `spa`, `sse`, `fs`, `tray`, `notify`, `web`.
+
+**As libs de navegador (`lib/web/`) precisam de uma linha a mais**, e é a única parte que não é
+troca mecânica: elas passam a morar no `node_modules`, fora da raiz que o `static-spa` serve. Quem
+as põe numa URL é o `mounts`, que é novo:
+
+```diff
+ createStaticSpa({
+   root: BUNDLE,
+-  injectScripts: ['vendor/vssh/web/vssh-app-shim.js', 'vendor/vssh/web/fsa-polyfill.js'],
++  mounts: { '/_vssh/': WEB_DIR },
++  injectScripts: SHIMS.map((s) => `_vssh/${s}`),
+ })
+```
+
+Um mount é o mesmo código que serve o bundle apontando para outro diretório: mesmo confinamento por
+`realpath`, mesmo 304, mesmo `?v=<hash>`. Se o seu app servia os shims por uma rota escrita à mão
+(o Logseq servia), **apague a rota** — ela provavelmente não carimbava, e o carimbo existe por causa
+de um bug real com esse exato arquivo.
+
+**No servidor**, declare quem instala:
+
+```jsonc
+"installCommand": "( [ \"${VSSH_APP_REBUILD:-}\" != 1 ] && test -d node_modules ) || npm ci --omit=dev"
+```
+
+Medido: `npm ci` resolve este pacote pelo tarball do codeload, **sem `git` e sem chave SSH** no alvo
+(`node:22-slim` sem os dois, 1 s). A alternativa é levar o `node_modules` no tarball — basta não
+ignorá-lo no `.gitignore`, já que o publish empacota o que `git add -A` pega.
+
+O portão do publish mudou junto: ele lê o `package.json` que o npm instalou, recusa **major**
+divergente, recusa um `vendor/vssh/` remanescente (código morto competindo com as libs instaladas)
+e recusa declarar a dependência sem levá-la nem instalá-la.
+
 ## O que muda no seu app
 
-Se você já migrou para a v3, é uma linha no manifesto (`minShellVersion`) e um `lib-sync`. O código do
-backend não muda: `escutar(server)` continua igual.
+Se você já migrou para a v3, é uma linha no manifesto (`minShellVersion`), a troca dos `require`
+acima e o `npm i`. O comportamento do backend não muda: `escutar(server)` continua igual.
 
 Se você ainda estava na v2, siga a seção seguinte e já declare o `minShellVersion`.
 
@@ -125,8 +179,9 @@ A escolha declarada não é o defeito que ele persegue.
 
 ## Nota para quem opera
 
-`vssh-app-lib-sync` passou a puxar de **`v3`** por padrão. Um `--ref v2` continua funcionando e
-continua entregando as libs antigas — o que ele não entrega é o `app-listen.js`.
+Esta seção dizia que o `vssh-app-lib-sync` passara a puxar de **`v3`** por padrão. **Esse default
+escrito à mão é justamente o que quebrou na v4**, e o script não existe mais — a instalação é
+`npm i github:colabhd/vssh-app-toolkit#v4`. Ver a seção da v4, acima.
 
 ---
 
