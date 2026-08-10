@@ -10,7 +10,7 @@
     "id": {
       "type": "string",
       "pattern": "^[a-z0-9-]+$",
-      "description": "Imutável — vira path, porta e sentinel. Trocar o id é publicar outro app."
+      "description": "Imutável — vira path, ENDEREÇO (~/.vssh-apps/<id>/app.sock) e sentinel. Dizia 'porta' até a Onda 9, quando o endereço deixou de ser alocado e passou a ser derivado de (HOME, id). Trocar o id é publicar outro app."
     },
     "name": { "type": "string", "description": "Nome exibido. Default: o próprio id." },
     "version": {
@@ -182,7 +182,7 @@
         "healthcheckPath": {
           "type": "string",
           "default": "/",
-          "description": "Pollado direto na porta pelo lifecycle, até 15x/1s. Desde a Onda 4 a sondagem vai COM o header X-Vssh-App-Token, então gatear esta rota é permitido e isentá-la não é mais necessário (a descrição anterior, que mandava isentar, estava errada). NÃO contam como pronto: 000, 5xx e 401/403. Um 404 CONTA — o servidor respondeu —, então confira o caminho."
+          "description": "Pollado direto no endereço do app pelo lifecycle (socket unix, via `curl --unix-socket`), até 15x/1s. Desde a Onda 4 a sondagem vai COM o header X-Vssh-App-Token, então gatear esta rota é permitido e isentá-la não é mais necessário (a descrição anterior, que mandava isentar, estava errada). NÃO contam como pronto: 000, 5xx e 401/403. Um 404 CONTA — o servidor respondeu —, então confira o caminho."
         }
       }
     },

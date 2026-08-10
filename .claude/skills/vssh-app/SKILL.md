@@ -24,14 +24,16 @@ falta num app concreto.
 ## Antes de codar: checklist de decisão
 
 - **Precisa de lógica própria no servidor, ou é só HTML/CSS/JS estático?** Mesmo estático, ainda
-  precisa de um processo escutando numa porta — o proxy do portal encaminha para uma porta TCP,
-  não serve um diretório diretamente.
+  precisa de um processo escutando — o proxy do portal encaminha para o endereço do app, não serve
+  um diretório diretamente. Esse endereço é um **socket unix** desde a Onda 9 (ver abaixo).
 - **Precisa de estado que sobreviva entre execuções** (índice, cache, arquivos gerados)? Vai em
   `VSSH_APP_DATA_DIR`. Nunca escreva em `/opt/vssh-apps/<id>/` — é root-owned e somente leitura.
 - **Precisa de tempo real (WebSocket)?** O proxy encaminha WS automaticamente, sem configuração
   extra — trate como qualquer outra rota do seu backend.
-- **Qual runtime?** Qualquer um que saiba bindar em `127.0.0.1:$VSSH_APP_PORT` — `python3`/
-  `node`/`binary` são os declarados no manifest, mas o mecanismo é agnóstico de linguagem.
+- **Qual runtime?** Qualquer um que saiba bindar num **socket unix** em `$VSSH_APP_SOCKET` —
+  `python3`/`node`/`binary` são os declarados no manifest, mas o mecanismo é agnóstico de
+  linguagem. Um runtime que só saiba bindar porta declara `backend.transport: "tcp"` e assume o
+  que isso custa (ver "Onde o backend escuta").
 - **Precisa de diálogo, confirmação, notificação ou seletor de arquivo?** Não construa essa UI —
   use `lib/web/vssh-app-shim.js` do frontend (`vssh.dialog.*`, `vssh.notify`, `vssh.pickFile`).
   Isso fala com o desktop por `postMessage`, **sem passar pelo Xpra**, então funciona igual num
@@ -258,22 +260,35 @@ servidor). Vendorizar = commitar; se quiser reconstruir no alvo, deixe a pasta n
 
 | Variável | Descrição |
 |---|---|
-| `VSSH_APP_PORT` | Porta TCP em `127.0.0.1` onde o backend **deve** bindar. |
+| `VSSH_APP_SOCKET` | **O endereço, desde a Onda 9.** Caminho de um socket unix em `~/.vssh-apps/<id>/`, diretório que já é 0700. É onde o backend **deve** bindar. |
+| `VSSH_APP_PORT` | Só chega a apps que declaram `backend.transport: "tcp"`. Porta TCP em `127.0.0.1`. |
 | `VSSH_APP_BASE_PATH` | Valor literal `/proxy/app/<id>/` (**sem** serverId) — é o que o processo do backend recebe (`key-provisioner.ts`, `startApp`). **NÃO** é a URL pública completa que o navegador usa: essa inclui o serverId (`/<serverId>/proxy/app/<id>/`, ver `src/proxy.ts`). Só importa se o backend emitir URLs absolutas; com `fetch()` relativo não precisa — não construa link absoluto a partir desta variável sem prefixar o serverId separadamente (você não tem como saber o serverId aqui de qualquer forma). |
 | `VSSH_APP_DATA_DIR` | `~/.vssh-apps/<id>/data` — único diretório gravável garantido. |
 | `VSSH_APP_ID` | O próprio `id` do manifest. |
-| `VSSH_APP_TOKEN` | Opcional/defesa-em-profundidade: valor opaco gerado por instância de app rodando, injetado pelo proxy como header `X-Vssh-App-Token` em toda requisição/upgrade que ele encaminha pra esse app. Apps que concedem acesso sensível (shell, arquivos) podem checar esse header e recusar qualquer conexão que não tenha vindo pelo proxy autenticado — útil porque a porta em si é só loopback, mas ainda alcançável por outro processo do mesmo usuário Linux. Apps que não se importam (ex. `hello-world`) simplesmente não checam nada. |
+| `VSSH_APP_TOKEN` | Opcional/defesa-em-profundidade: valor opaco gerado por instância de app rodando, injetado pelo proxy como header `X-Vssh-App-Token` em toda requisição/upgrade que ele encaminha pra esse app. Apps que concedem acesso sensível (shell, arquivos) podem checar esse header e recusar qualquer conexão que não tenha vindo pelo proxy autenticado — útil porque o socket é 0600 do dono, mas ainda alcançável por outro processo do MESMO usuário Linux (e, até a Onda 9, o endereço era uma porta de loopback — alcançável por QUALQUER conta da máquina, o que foi medido e é a razão da troca). Apps que não se importam (ex. `hello-world`) simplesmente não checam nada. |
 
 Sem modelo de permissão além de "roda como o usuário Linux dono da sessão" — mesmo modelo de
 confiança que code-server e Xpra usam para qualquer outro processo do usuário.
 
-### Alocação de porta
+### Onde o backend escuta
 
-`VSSH_APP_PORT` é alocado automaticamente pelo portal por (usuário SSH, app id) — hash
-determinístico md5(sshUser:appId) na faixa 40000-49999, verificado contra `ss -tlnp` no servidor
-real e cacheado 24h no Redis (`_allocateAppPort` em `key-provisioner.ts`). Quem escreve o app
-nunca escolhe nem hardcoda uma porta, e colisão entre dois usuários já é resolvida pelo
-mecanismo — não é algo para se preocupar ao implementar.
+**Esta seção dizia "Alocação de porta", e a mudança é de fundo:** o endereço de um vssh-app não é
+mais ALOCADO de um recurso escasso, é **derivado da identidade** — `$HOME/.vssh-apps/<id>/app.sock`.
+O portal deriva o mesmo caminho, então não há o que combinar, nem cache que possa divergir, nem
+colisão entre usuários.
+
+O motivo não é limpeza: **o loopback não tem dono.** Qualquer conta Linux da máquina alcançava a
+porta do backend do vizinho, e isso foi medido — 23 portas de app escutando, 14 responderam a um
+`GET /` sem token (10×200, 4×500), **12 delas de outras contas**. Um socket em diretório 0700 faz
+com permissão de arquivo o que a conferência de `X-Vssh-App-Token` só promete.
+
+Quem usa as libs não faz nada disto à mão: `escutar(server)` do `vssh-app-toolkit/listen` lê o
+endereço, limpa socket órfão (só `SIGKILL` deixa um) e falha alto quando não veio endereço nenhum.
+
+> **Um app novo não precisa mais pensar em porta.** Se o seu runtime não souber bindar socket unix,
+> declare `backend.transport: "tcp"` no manifesto: aí — e só aí — o portal aloca uma porta por
+> (usuário, app) e a entrega em `$VSSH_APP_PORT`. Hoje há **um** caso assim no ambiente, o xpra,
+> cujo listener de WebSocket só aceita `HOST:PORT` (medido na 6.5.2).
 
 ### Rastreamento de processo (PID file)
 
@@ -296,13 +311,13 @@ meu-app/
     index.html             # o backend serve isto em GET /
     ...
   backend/
-    main.py                 # entrypoint — deve bindar em 127.0.0.1:$VSSH_APP_PORT
+    main.py                 # entrypoint — deve bindar no socket unix de $VSSH_APP_SOCKET
     requirements.txt         # opcional
 ```
 
 O backend serve tanto os arquivos estáticos do frontend quanto qualquer API própria (ex:
 `/api/ping`, `/api/search`) — o proxy do portal encaminha tudo sob
-`/<serverId>/proxy/app/<id>/*` para `127.0.0.1:$VSSH_APP_PORT/*`, WebSocket incluído.
+`/<serverId>/proxy/app/<id>/*` para o endereço do app (`$VSSH_APP_SOCKET`), WebSocket incluído.
 
 **Use `fetch()` com URLs relativas** (`fetch('api/ping')`, não `fetch('/api/ping')`) — assim o
 frontend funciona sem alterações sob o prefixo `/proxy/app/<id>/`. Só recorra a
@@ -450,13 +465,22 @@ O ciclo mais curto, e o que você vai usar 90% do tempo: o backend só precisa d
 nada no mecanismo exige um servidor VSSH para ele subir.
 
 ```bash
-VSSH_APP_PORT=45999 VSSH_APP_ID=meu-app VSSH_APP_DATA_DIR=/tmp/meu-app-data \
+SOCK=/tmp/meu-app.sock
+VSSH_APP_SOCKET=$SOCK VSSH_APP_ID=meu-app VSSH_APP_DATA_DIR=/tmp/meu-app-data \
   node backend/server.js          # ou python3 backend/main.py
 
-curl -fsS http://127.0.0.1:45999/healthz
-curl -fsS http://127.0.0.1:45999/api/ping
-open http://127.0.0.1:45999/
+# `--unix-socket` faz o trabalho; o host da URL existe só para ela ser válida.
+curl -fsS --unix-socket $SOCK http://app/healthz
+curl -fsS --unix-socket $SOCK http://app/api/ping
 ```
+
+**No Windows isto não roda**, e o motivo é do sistema: o Node não tem socket unix lá
+(`listen(caminho)` vira named pipe e responde `EACCES`). Use WSL ou um container — é a mesma razão
+pela qual as bancadas de backend dos apps são puladas no win32 dizendo por quê.
+
+> **Quer ver a página no navegador?** Um socket não tem URL. `socat TCP-LISTEN:8080,fork
+> UNIX-CONNECT:$SOCK` dá uma porta local para isso — na SUA máquina, não no servidor, que é onde a
+> porta era o problema.
 
 Acrescente `VSSH_APP_TOKEN=segredo` para exercitar o gate de token. **O healthcheck do portal vai
 COM o header `X-Vssh-App-Token`**, então você pode gatear a rota de healthcheck como qualquer

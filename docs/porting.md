@@ -182,6 +182,34 @@ grep -rn "#\[tauri::command\]" src-tauri/ | wc -l
 
 ---
 
+## Onde o backend do port escuta
+
+**Um vssh-app não escuta numa porta.** Desde a Onda 9 o endereço é um **socket unix** em
+`$VSSH_APP_SOCKET` (`~/.vssh-apps/<id>/app.sock`), derivado da identidade — não alocado. Se o seu
+backend é Node, a linha é uma:
+
+```js
+const { escutar } = require('vssh-app-toolkit/listen');   // npm i github:colabhd/vssh-app-toolkit#v4
+await escutar(server);
+```
+
+**Isto é onde um port costuma bater primeiro**, porque a ferramenta que você está portando quase
+sempre tem uma flag de porta e nenhuma de socket. Os três desfechos, em ordem de preferência:
+
+| A ferramenta | O que fazer |
+|---|---|
+| aceita bindar socket unix (a maioria dos runtimes HTTP) | passe `$VSSH_APP_SOCKET` e acabou |
+| não aceita, mas você serve a página | **sirva você** e deixe a ferramenta no protocolo dela — foi o caminho do motor X11 |
+| não aceita mesmo | declare `backend.transport: "tcp"` no manifesto e receba `$VSSH_APP_PORT` |
+
+A terceira linha **não é neutra, e o custo está medido**: o loopback não tem dono. Numa sondagem
+do ambiente, 23 portas de app estavam escutando, **14 responderam a um `GET /` sem token nenhum**
+(10×200, 4×500) e **12 delas eram de outras contas Linux** da mesma máquina. Declarar `tcp` é
+escolher isso — por isso a escolha fica escrita no manifesto em vez de ser um default silencioso.
+
+> No desenvolvimento local, um socket não tem URL para abrir no navegador. `socat
+> TCP-LISTEN:8080,fork UNIX-CONNECT:$VSSH_APP_SOCKET` resolve — na sua máquina, que é onde a porta
+> nunca foi o problema.
 ## Armadilhas que valem para qualquer port
 
 **Asset path absoluto e CDN de terceiro.** Bundlers embutem URL absoluta no release
