@@ -1,8 +1,10 @@
 # Onda 9 — O socket vira o endereço, e o VS Code vira nosso
 
-> **Estado:** 📋 **planejada — medida antes de escrita.** A leitura da fonte do VS Code
-> (`microsoft/vscode`, commit `66fe4158`, main de 2026-08-10) e uma sonda no servidor de produção
-> vieram **antes** dos itens, e mudaram três deles. · **Atualizado:** 2026-08-10
+> **Estado:** 🚧 **em execução — o passo 0 fechou; o fork começa agora.** A leitura da fonte do VS
+> Code (`microsoft/vscode`, commit `66fe4158`, main de 2026-08-10) e uma sonda no servidor de
+> produção vieram **antes** dos itens, e mudaram três deles. **O passo 0 (`0a`–`0d`) está fechado
+> nesta onda**, e o que restava do `0d` mudou de dono: virou o [item 5 da Onda 10](09-motor-x11.md),
+> porque é lá que ele deixa de ter assunto. · **Atualizado:** 2026-08-10
 >
 > **Repos:** `vssh-sso` + toolkit + um `vsshapp-vscode` novo
 >
@@ -379,6 +381,64 @@ devolver o `-L` para `127.0.0.1:<porta>`, trocar o default do transporte para `t
 voltar a logar como provisionador. A suíte do
 `vssh-sso` fica em **1.365 testes, 1.300 passando, 0 falhas**.
 
+### O terceiro defeito: um túnel que se declarava pronto olhando o lado errado
+
+Com o endereço certo, o dono certo e o app servindo, ainda sobrava um sintoma — e ele chegou de
+quem usa, na forma mais fácil de descartar: *"tive a impressão de que tive que abrir duas vezes"*.
+
+**Não era impressão, e a medida foi feita num container com sshd de verdade:**
+
+```
+ssh -L 45999:/caminho/de/um/socket/que/nao/existe  →  processo VIVO, porta local BINDADA, conexão ACEITA
+                                                       e só então: channel 2: open failed: connect failed
+```
+
+`ExitOnForwardFailure=yes` **não cobre isso** — ele vale para falha de **bind**, e o bind funciona.
+A consequência é a de sempre nesta onda, duas peças certas sozinhas mentindo juntas: o túnel entrava
+em `activeTunnels`, e daí em diante o proxy **pulava o `checkAppStatus`**, porque *"existe túnel"*
+era lido como *"o app está de pé"*. Todo pedido durante a subida virava ECONNRESET até o disjuntor
+agir. A segunda abertura funcionava porque aí o socket já existia.
+
+| A pergunta | socket ausente | socket presente |
+|---|---|---|
+| **nova** — o alvo sobrevive a uma graça de 250 ms? | `false` | `true` |
+| **antiga** — a porta local bindou? | `true` ← o defeito | `true` |
+
+A mesma medida deu a outra metade, e ela decidiu o conserto: **quando o socket nasce depois, o MESMO
+túnel passa a funcionar**. Então a espera é por o outro lado aparecer, e não derrubar e recriar.
+
+**E desistir agora MATA o `ssh`.** Antes, desistir deixava um forward vivo com canal morto de pé e
+registrado no mapa — o defeito montado, permanente, para todo pedido seguinte.
+
+**A conferência cara é só de socket.** Ela custa a graça inteira por tentativa; ligá-la em endereço
+de porta tornaria todo túnel do ambiente mais lento (SSH do usuário, OnlyOffice, app em `tcp`) por
+um defeito que só existe em socket. Em porta, aceitar continua sendo resposta.
+
+**Guarda:** `tests/unit/tunel-pronto.test.js`, **4 casos**, refutação **6/6** — inclusive a mutação
+que restaura o defeito original (*aceitar a conexão volta a bastar*).
+
+## ✅ O 0d saiu pela metade — e a outra metade mudou de onda
+
+**A metade que não dependia de ninguém:** a porta do túnel era escolhida **no servidor**, por um
+`ss -tlnp` remoto, porque era lá que o backend ia bindar. Com socket unix o backend não binda porta
+nenhuma — **o único lugar onde esse número existe é a ponta local do `-L`**. Continuar perguntando
+ao servidor é pagar uma ida de SSH por app para medir a coisa errada, e "medir a coisa errada" é
+como um número certo por acaso vira uma resposta em que todo mundo confia.
+
+Agora `alocarPortaLocal()` decide aqui: honra a preferida do hash quando ela está livre, varre a
+faixa quando não está (duas contas podem preferir a mesma porta, e o portal é um só), e **falha alto
+quando a faixa acaba** em vez de devolver uma porta ocupada. Só `transport: "tcp"` ainda pergunta ao
+servidor — e é dele que trata a outra metade.
+
+**Guarda:** mais **4 casos** em `tunel-pronto.test.js`, refutação **5/5**. Suíte do `vssh-sso`:
+**1.375 testes, 1.310 passando, 0 falhas**.
+
+**A outra metade mudou de onda, e não por conveniência.** Os onze lugares, o `nextLoopback` e o teto
+de 254 servidores não são trabalho esperando prioridade: **eles existem hoje para servir um app só**,
+o xpra, e enquanto ele declarar `tcp` apagá-los quebra o ambiente. Quem os deixa sem assunto é o
+item 2 da [Onda 10](09-motor-x11.md) — então o resto do 0d é **o item 5 de lá**, ao lado da medida
+que o autoriza, em vez de ficar aqui marcado como bloqueado para sempre.
+
 ## As duas guardas
 
 **`tests/unit/app-sem-porta.test.js`** — com `transport: "socket"`, o app serve HTTP **e** WebSocket
@@ -690,8 +750,9 @@ acompanhada do que a desmente, ali perto?"*.
 |---|---|---|---|
 | 0a | ✅ **medido** — OpenSSH 10.2 nas duas pontas, `/home` ext4, socket no `$HOME` testado, F2 rodado | — | — |
 | 0b | ✅ **o contrato** — `transport`, `escutar()`, o portão do `vssh-app-run`, os cinco manifestos, o `minShellVersion` | toolkit + `vssh-sso` | 0a |
-| 0c | ✅ **o caminho do portal** — endereço derivado com fonte única, sondagem por `--unix-socket` com `sudo -u`, o lado remoto do túnel; o cliente vai a **4.1.1** | `vssh-sso` | 0b |
-| 0d | 📋 **a orquestração de porta morre** — os onze lugares, o `nextLoopback` e o teto de 254 | `vssh-sso` | 0c + ⛔ [Onda 10, item 2](09-motor-x11.md) |
+| 0c | ✅ **o caminho do portal** — endereço derivado com fonte única, sondagem por `--unix-socket` com `sudo -u`, o lado remoto do túnel, o túnel logando como o **dono**, e o "pronto" medindo o **outro lado**; o cliente vai a **4.1.1** | `vssh-sso` | 0b |
+| 0d | ✅ **a porta do túnel é NOSSA** — decidida no portal, e o `ss -tlnp` remoto sobra só para `tcp` | `vssh-sso` | 0c |
+| — | ➜ **o resto do 0d virou o [item 5 da Onda 10](09-motor-x11.md)** — os onze lugares, o `nextLoopback` e o teto de 254 só ficam sem assunto quando o xpra sair do `tcp` | `vssh-sso` | ⛔ Onda 10, item 2 |
 | 1 | 📋 o pacote e a entrega por `installCommand` | `vsshapp-vscode` | 0c |
 | 2 | 📋 o fork: workbench nosso + o patch da plataforma | `vsshapp-vscode` | 1 |
 | — | **publicar e instalar em TODOS os servidores** | | 1, 2 |

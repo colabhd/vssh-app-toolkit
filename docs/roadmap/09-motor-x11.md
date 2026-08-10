@@ -7,10 +7,11 @@
 > **Repos:** `vsshapp-xpra` + `vssh-sso`
 >
 > **Depende do [passo 0 da Onda 9](08-editor-do-ambiente.md)**, que já entregou o contrato de
-> transporte. **É esta onda que fecha aquele passo:** enquanto ela não rodar, o `xpra` é o único app
-> do ambiente declarando `backend.transport: "tcp"` — e enquanto UM declarar, o `_reconcileAppPort`,
-> o cache de porta, o `nextLoopback` e o teto de **254 servidores** continuam de pé para servir a
-> ele.
+> transporte — e **herdou dele o item 5**. Enquanto esta onda não rodar, o `xpra` é o único app do
+> ambiente declarando `backend.transport: "tcp"`, e enquanto UM declarar, o `_reconcileAppPort`, o
+> cache de porta, o `nextLoopback` e o teto de **254 servidores** continuam de pé para servir a ele.
+> O item que os apaga era o `0d` da Onda 9 e **mudou de onda para cá**, porque é o item 2 daqui que o
+> autoriza — não fazia sentido ficar lá marcado como bloqueado por tempo indeterminado.
 >
 > ### O que a medida disse antes de a onda começar
 >
@@ -126,6 +127,39 @@ por app nenhum. Refuta: revendorizar a lib.
 
 ---
 
+## 5. 📋 A orquestração de porta morre — e ela mudou de onda para cá
+
+**Era o passo `0d` da [Onda 9](08-editor-do-ambiente.md), e ficar lá era um erro de endereço.** O
+passo 0 daquela onda trocou o endereço de um vssh-app de porta para socket, e o `0d` seria a
+consequência: apagar os onze lugares que sabem a porta. Só que eles **não sobrevivem por inércia** —
+sobrevivem porque **um app ainda declara `transport: "tcp"`**, e esse app é o xpra. Enquanto o item 2
+acima não fechar, apagar a orquestração quebra o ambiente. Quem a deixa sem assunto é esta onda, e
+por isso o item mora aqui, ao lado da medida que o autoriza.
+
+**O que já saiu com o 0c**, e não espera nada: a ponta **local** do `-L` passou a ser decidida no
+portal (`alocarPortaLocal`), então o `ss -tlnp` remoto sobra exclusivamente para `tcp` — isto é, para
+o xpra. É uma ida de SSH por app que morre no dia em que o item 2 fechar.
+
+**O que fica para este item**, quando o ambiente não tiver mais nenhum app em porta:
+
+| # | O que apaga | Por que ele existia |
+|---|---|---|
+| 1 | `_allocateAppPort` e a varredura remota | achar porta livre no servidor |
+| 2 | o cache Redis `app_port:` | não repetir a varredura |
+| 4–5 | ler `/proc/<pid>/environ` e o `_reconcileAppPort` | **existiam porque 2 e 4 discordavam** — endereço derivado não tem o que reconciliar |
+| 6–8 | o fallback `40000 + (UID % 10000)`, o `/dev/tcp` e a releitura do supervisor | o lifecycle escolhendo porta por conta própria |
+| 9–10 | o espelhamento do `-L` e o **`nextLoopback`** | a chave do túnel era `<loopback>:<porta>`, e um `127.0.0.x` por servidor **com teto de 254** existe por causa desse espelhamento |
+| 11 | o disjuntor indexado por porta | passa a ser indexado pelo endereço |
+
+**O teto de 254 servidores é o que este item entrega de verdade** — não é limpeza, é um limite de
+produto que ninguém escolheu.
+
+**Guarda:** a que já existe (`app-sem-porta.test.js`) estendida ao ambiente inteiro — `ss -tln` no
+servidor não mostra porta de app **nenhum**, com o xpra rodando. Refuta: devolver **um** app ao
+`tcp`; o teste tem de ficar vermelho por causa dele, e nomear qual.
+
+---
+
 ## A ordem, e por que ela é essa
 
 | # | O quê | Repo | Trava em |
@@ -135,15 +169,15 @@ por app nenhum. Refuta: revendorizar a lib.
 | — | **o ambiente fica sem nenhum app em porta** | | 2 |
 | 3 | 📋 as janelas viram `VsshWindow`; os 47 proxies saem | `vsshapp-xpra` + `vssh-sso` | 1 |
 | 4 | 📋 o jQuery sai do pacote | `vsshapp-xpra` | 3 |
-| — | ⛔ **[Onda 9, passo 0d](08-editor-do-ambiente.md)**: a orquestração de porta morre | `vssh-sso` | 2 |
+| 5 | 📋 **a orquestração de porta morre** — os onze lugares, o `nextLoopback` e o teto de **254** (era o `0d` da [Onda 9](08-editor-do-ambiente.md)) | `vssh-sso` | 2 |
 
 **O item 1 destrava tudo e não depende de nada**, porque servir o próprio frontend é o que todo
 vssh-app já faz. O item 3 não espera a ponte: assim que a página for nossa, o cliente é nosso para
 reformar.
 
-**E a dependência que sai desta onda para outra:** enquanto o item 2 não fechar, o `vssh-sso` não
-pode apagar a orquestração de porta — ela existe hoje **para servir um app só**, e o custo disso está
-medido: um `127.0.0.x` por servidor e um teto de 254.
+**E o item 5 é o único que toca o `vssh-sso`**, o que faz dele o fim da fila e não o começo: enquanto
+o item 2 não fechar, apagar a orquestração de porta quebra o ambiente — ela existe hoje **para servir
+um app só**, e o custo disso está medido: um `127.0.0.x` por servidor e um teto de 254.
 
 ## Verificação
 
