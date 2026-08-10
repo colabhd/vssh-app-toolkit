@@ -347,17 +347,31 @@ else
   if [ -z "${INSTALADAS}" ]; then
     if [ -z "${DECLARA}" ]; then
       anotar notice "sem libs do toolkit" "O app não depende das libs deste toolkit."
-    elif grep -q 'npm ' "${PKG}/vssh-app.json"; then
+    else
+    # A pergunta é "este app instala as libs no alvo?", e ela não se responde no TEXTO do
+    # manifesto: um `installCommand` legítimo é `bash backend/install.sh`, e o npm mora lá dentro.
+    # A primeira versão desta guarda fazia `grep -q 'npm ' vssh-app.json` e recusava exatamente esse
+    # caso — acusando o app de um defeito que era da própria pergunta. Agora ela SEGUE o comando:
+    # todo token do installCommand que seja um arquivo do pacote entra na busca, um nível.
+    ROTEIROS="${PKG}/vssh-app.json"
+    CMD_INSTALL="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("backend",{}).get("installCommand","") or "")' "${PKG}/vssh-app.json" 2>/dev/null || true)"
+    for tok in ${CMD_INSTALL}; do
+      if [ -f "${PKG}/${tok}" ]; then ROTEIROS="${ROTEIROS} ${PKG}/${tok}"; fi
+    done
+    # shellcheck disable=SC2086
+    if grep -q 'npm ' ${ROTEIROS}; then
       # node_modules fora do tarball é escolha legítima: o `installCommand` instala no servidor, e
       # é o que o scramjet-wisp já faz em produção. Só não dá para conferir a versão daqui.
       anotar notice "libs instaladas no servidor" \
         "${DECLARA#${PKG}/} declara o toolkit e o pacote não leva node_modules — o installCommand vai instalar no alvo. A versão NÃO foi conferida aqui."
     else
       anotar error "libs declaradas e ausentes" \
-        "${DECLARA#${PKG}/} depende de vssh-app-toolkit, o tarball não leva node_modules e o manifesto não tem installCommand que rode npm.
-O backend morreria no primeiro require. Escolha um: tire node_modules do .gitignore, ou declare
-  \"installCommand\": \"npm ci --omit=dev\""
+        "${DECLARA#${PKG}/} depende de vssh-app-toolkit, o tarball não leva node_modules e nada no installCommand (nem nos scripts que ele chama) roda npm.
+O backend morreria no primeiro require. Escolha um: tire node_modules do .gitignore, declare
+  \"installCommand\": \"npm ci --omit=dev\"
+ou ponha o npm dentro do script que o installCommand já chama."
       exit 1
+    fi
     fi
   fi
 

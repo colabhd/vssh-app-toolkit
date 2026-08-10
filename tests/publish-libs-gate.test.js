@@ -68,7 +68,7 @@ function rodar(app, { nossaVersao = '4.0.0' } = {}) {
 }
 
 /** Um pacote de app: manifesto, package.json opcional e node_modules opcional. */
-function app({ manifesto = {}, declara = false, instalada = null, legado = false } = {}) {
+function app({ manifesto = {}, declara = false, instalada = null, legado = false, script = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vssh-app-'));
   fs.writeFileSync(path.join(dir, 'vssh-app.json'), JSON.stringify({
     id: 'x', version: '1.0.0', backend: { runtime: 'node', entrypoint: 'b.js', ...manifesto },
@@ -81,6 +81,10 @@ function app({ manifesto = {}, declara = false, instalada = null, legado = false
     const nm = path.join(dir, 'node_modules', 'vssh-app-toolkit');
     fs.mkdirSync(nm, { recursive: true });
     fs.writeFileSync(path.join(nm, 'package.json'), JSON.stringify({ name: 'vssh-app-toolkit', version: instalada }, null, 2));
+  }
+  if (script) {
+    fs.mkdirSync(path.join(dir, path.dirname(script.caminho)), { recursive: true });
+    fs.writeFileSync(path.join(dir, script.caminho), script.corpo);
   }
   if (legado) {
     const v = path.join(dir, 'backend', 'vendor', 'vssh');
@@ -128,6 +132,37 @@ test('declarar sem levar, mas com installCommand que roda npm, é notice', seNao
   assert.equal(r.code, 0);
   assert.match(r.saida, /notice\|libs instaladas no servidor/);
   assert.match(r.saida, /NÃO foi conferida/);
+});
+
+
+test('installCommand que CHAMA um script com npm dentro é notice — a guarda segue o comando', seNaoTemBash, () => {
+  // O caso que fez esta guarda ser reescrita. O `vsshapp-vscode` declara
+  // `"installCommand": "bash backend/install.sh"`, e o `npm ci` mora no script — o que é a forma
+  // certa quando a instalação faz mais de uma coisa (lá ela também baixa e confere o motor).
+  //
+  // A versão anterior perguntava `grep -q 'npm ' vssh-app.json` e RECUSAVA a publicação: acusava o
+  // app de não instalar as libs quando o defeito era da pergunta, que media o texto do manifesto em
+  // vez do que o comando faz.
+  const r = rodar(app({
+    declara: true,
+    manifesto: { installCommand: 'bash backend/install.sh' },
+    script: { caminho: 'backend/install.sh', corpo: '#!/usr/bin/env bash\nnpm ci --omit=dev\n' },
+  }));
+  assert.equal(r.code, 0);
+  assert.match(r.saida, /notice\|libs instaladas no servidor/);
+});
+
+test('script chamado que NÃO roda npm continua sendo recusado', seNaoTemBash, () => {
+  // Seguir o comando não pode virar "aceitar qualquer comando": o que se procura continua sendo o
+  // npm, agora no lugar certo. Sem este caso, a guarda passaria a aprovar todo installCommand que
+  // apontasse para um arquivo existente.
+  const r = rodar(app({
+    declara: true,
+    manifesto: { installCommand: 'bash backend/install.sh' },
+    script: { caminho: 'backend/install.sh', corpo: '#!/usr/bin/env bash\necho nada a fazer\n' },
+  }));
+  assert.equal(r.code, 1);
+  assert.match(r.saida, /error\|libs declaradas e ausentes/);
 });
 
 test('app que não usa as libs passa, e o portão diz que não tinha o que conferir', seNaoTemBash, () => {
