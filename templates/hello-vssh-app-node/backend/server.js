@@ -20,10 +20,16 @@ const path = require('node:path');
 const { createStaticSpa } = require('./vendor/vssh/node/static-spa');
 const { createAppLog } = require('./vendor/vssh/node/app-log');
 const { openSseStream } = require('./vendor/vssh/node/sse');
+const { escutar } = require('./vendor/vssh/node/app-listen');
 
-// KeyError proposital se ausente: sem porta não há o que servir, e falhar alto no boot é melhor
-// que subir num lugar onde o proxy nunca vai encontrar.
-const PORT = Number(process.env.VSSH_APP_PORT);
+// Onde este backend escuta é decisão do lifecycle, não deste arquivo: socket unix em
+// $VSSH_APP_SOCKET (o padrão desde a Onda 9) ou TCP em $VSSH_APP_PORT. Quem lê as duas variáveis,
+// limpa socket órfão e falha alto quando não veio nenhuma é o `escutar()`, lá no fim.
+//
+// Base só para PARSING de URL relativa. Ela era `http://127.0.0.1:${PORT}` e isso amarrava o
+// roteamento ao transporte sem necessidade: num socket unix não existe porta, `${PORT}` vira `NaN`
+// e o `new URL` estoura em toda requisição. O host aqui nunca vai à rede.
+const BASE_URL = 'http://vssh-app.invalid';
 const APP_ID = process.env.VSSH_APP_ID || 'hello-world-node';
 const APP_TOKEN = process.env.VSSH_APP_TOKEN || null;
 
@@ -428,12 +434,15 @@ function tokenMatches(expected, received) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
+  const url = new URL(req.url, BASE_URL);
 
   try {
-    // O healthcheck é pollado pelo lifecycle do portal DIRETO na porta, sem passar pelo proxy —
-    // então não carrega o X-Vssh-App-Token. Se ele não for isento, o healthcheck nunca passa e o
-    // clique de "abrir app" fica pendurado até o teto de ~15s.
+    // O healthcheck é pollado pelo lifecycle do portal DIRETO na porta, até 15x/1s, bloqueando o
+    // clique de "abrir app". Desde a Onda 4 a sondagem vai COM o X-Vssh-App-Token, então gatear
+    // esta rota seria permitido — o comentário anterior aqui dizia que isentá-la era obrigatório,
+    // e isso estava errado. Ela fica isenta por outro motivo, que continua valendo: responde `ok`
+    // sem tocar em nada, e assim o healthcheck não depende do token estar certo para dizer se o
+    // processo subiu. O que NÃO conta como pronto é 000, 5xx e 401/403.
     if (url.pathname === '/healthz') {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
       res.end('ok\n');
@@ -526,9 +535,23 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '127.0.0.1', () => {
-  log('listening', { port: PORT, appId: APP_ID, tokenRequired: Boolean(APP_TOKEN) });
-});
+escutar(server)
+  .then(({ transporte, endereco }) => {
+    log('listening', { transporte, endereco, appId: APP_ID, tokenRequired: Boolean(APP_TOKEN) });
+  })
+  .catch((err) => {
+    // `VSSH_APP_JA_ESCUTANDO` não é falha: significa que outra instância já atende neste endereço,
+    // e o lifecycle trata sair-em-silêncio como sucesso (é o mesmo contrato do `exit 0` do
+    // `vssh-app-run` quando encontra alguém escutando). Qualquer outro erro é fatal e tem de
+    // aparecer: um backend que não escuta e não reclama vira janela em branco sem causa.
+    if (err.code === 'VSSH_APP_JA_ESCUTANDO') {
+      log('already-listening', { message: err.message });
+      process.exit(0);
+    }
+    log('listen-failed', { message: err.message, code: err.code });
+    console.error('[hello-world-node] não consegui escutar:', err.message);
+    process.exit(1);
+  });
 
 // Sem estes dois, uma falha assíncrona derruba o processo sem deixar rastro nenhum — e o lifecycle
 // só mostra que o app "não subiu".

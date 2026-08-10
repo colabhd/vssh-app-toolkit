@@ -35,7 +35,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 
-const PORT = Number(process.env.VSSH_APP_PORT) || 0;
+const { escutar } = require('./vendor/vssh/node/app-listen');
 const TOKEN = process.env.VSSH_APP_TOKEN || '';
 const DATA = process.env.VSSH_APP_DATA_DIR || os.tmpdir();
 
@@ -178,6 +178,19 @@ const servidor = http.createServer(async (req, res) => {
   json(res, 404, { erro: 'rota' });
 });
 
-servidor.listen(PORT, '127.0.0.1', () => {
-  console.log(`[print-engine] escutando em 127.0.0.1:${PORT}`);
-});
+// Onde escutar é decisão do lifecycle: socket unix em $VSSH_APP_SOCKET (o padrão desde a Onda 9)
+// ou TCP em $VSSH_APP_PORT. `escutar()` lê as duas, limpa socket órfão de um processo morto a
+// SIGKILL — que com TCP não existe, porque a porta o kernel devolve sozinho — e falha alto quando
+// não veio endereço nenhum.
+escutar(servidor)
+  .then(({ transporte, endereco }) => {
+    console.log(`[print-engine] escutando em ${endereco} (${transporte})`);
+  })
+  .catch((err) => {
+    if (err.code === 'VSSH_APP_JA_ESCUTANDO') {
+      console.log(`[print-engine] ${err.message}`);
+      process.exit(0);
+    }
+    console.error('[print-engine] não consegui escutar:', err.message);
+    process.exit(1);
+  });

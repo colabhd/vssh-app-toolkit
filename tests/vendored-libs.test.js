@@ -39,6 +39,7 @@ const PARTS = {
   spa:  { file: 'node/static-spa.js' },
   log:  { file: 'node/app-log.js' },
   sse:  { file: 'node/sse.js' },
+  listen: { file: 'node/app-listen.js' },
   tray: { file: 'node/vssh-tray.js' },
   notify: { file: 'node/vssh-notify.js' },
   // `web` é a única parte com exclusão, e ela espelha o `rm -rf` do vssh-app-lib-sync. O destino

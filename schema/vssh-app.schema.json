@@ -169,7 +169,11 @@
           "enum": ["python3", "node", "binary"],
           "description": "Prefira um runtime que o próprio mecanismo já exija (python3): um nvm/pyenv pessoal não aparece no PATH de um exec não-interativo por SSH."
         },
-        "entrypoint": { "type": "string", "description": "Relativo à raiz do pacote. Deve bindar em 127.0.0.1:$VSSH_APP_PORT." },
+        "entrypoint": { "type": "string", "description": "Relativo à raiz do pacote. Deve bindar no endereço que o `transport` decide: socket unix em $VSSH_APP_SOCKET (padrão para app novo) ou TCP em 127.0.0.1:$VSSH_APP_PORT." },
+        "transport": {
+          "enum": ["socket", "tcp"],
+          "description": "Onde o backend escuta. 'socket': um socket unix em $VSSH_APP_SOCKET, dentro de ~/.vssh-apps/<id>/, que já é 0700 — a permissão de arquivo faz o que a conferência de X-Vssh-App-Token só promete, e o app deixa de ter porta alcançável por qualquer outra conta Linux da máquina (medido: 14 de 23 portas de app responderam a um GET sem token, 12 delas de contas alheias). 'tcp': o modelo antigo, 127.0.0.1:$VSSH_APP_PORT — só para runtime que não sabe bindar socket unix, e aí a porta exposta passa a ser uma escolha escrita aqui em vez de um padrão silencioso. AUSENTE significa 'tcp', para nenhum manifesto já instalado mudar de comportamento sozinho; app novo declara 'socket'."
+        },
         "installCommand": {
           "type": "string",
           "description": "Roda DUAS vezes: uma como root no install, outra por usuário no primeiro run. Escreva de forma idempotente."
@@ -177,7 +181,7 @@
         "healthcheckPath": {
           "type": "string",
           "default": "/",
-          "description": "Pollado direto na porta, SEM passar pelo proxy — então não carrega X-Vssh-App-Token. Isente esta rota do seu gate de token, ou o healthcheck nunca passa."
+          "description": "Pollado direto na porta pelo lifecycle, até 15x/1s. Desde a Onda 4 a sondagem vai COM o header X-Vssh-App-Token, então gatear esta rota é permitido e isentá-la não é mais necessário (a descrição anterior, que mandava isentar, estava errada). NÃO contam como pronto: 000, 5xx e 401/403. Um 404 CONTA — o servidor respondeu —, então confira o caminho."
         }
       }
     },

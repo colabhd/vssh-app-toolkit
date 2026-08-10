@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # vssh-app-lib-sync — copia as bibliotecas do toolkit para dentro do repo de um vssh-app.
-# Uso: vssh-app-lib-sync <dir-do-app> [--parts fs,spa,log,sse,web] [--ref v2] [--dest vendor/vssh]
+# Uso: vssh-app-lib-sync <dir-do-app> [--parts fs,spa,log,sse,listen,tray,notify,web] [--ref v2] [--dest vendor/vssh]
 #
 # DOIS DESTINOS, e a distinção importa:
 #
-#   vssh-app-lib-sync . --parts fs,spa,log,sse --dest backend/vendor/vssh
+#   vssh-app-lib-sync . --parts fs,spa,log,sse,listen --dest backend/vendor/vssh
 #   vssh-app-lib-sync . --parts web            --dest frontend/vendor/vssh
 #
 # As libs de `node/` são `require()`adas pelo backend, então ficam ao lado dele. As de `web/` são
@@ -35,6 +35,8 @@
 #   spa  → lib/node/static-spa.js   serve uma SPA construída sob o prefixo do proxy
 #   log  → lib/node/app-log.js      log estruturado em $VSSH_APP_DATA_DIR
 #   sse  → lib/node/sse.js          Server-Sent Events que sobrevivem ao proxy e ao CDN
+#   listen → lib/node/app-listen.js onde o backend escuta: socket unix (padrão desde a Onda 9) ou
+#                                   a porta TCP, com a limpeza do socket órfão que todo app erraria
 #   tray → lib/node/vssh-tray.js    ícone na bandeja para app SEM janela (engine/service)
 #   notify → lib/node/vssh-notify.js  avisar o usuário a partir do backend, sem janela aberta
 #   web  → lib/web/                 shim do frontend, polyfill da FSA, shims Tauri/Electron
@@ -91,6 +93,7 @@ if want fs;  then mkdir -p "${TARGET}/node" && cp -R "${LIB_SRC}/node/vssh-app-f
 if want spa; then mkdir -p "${TARGET}/node" && cp "${LIB_SRC}/node/static-spa.js" "${TARGET}/node/" && copied="${copied} static-spa.js"; fi
 if want log; then mkdir -p "${TARGET}/node" && cp "${LIB_SRC}/node/app-log.js"    "${TARGET}/node/" && copied="${copied} app-log.js"; fi
 if want sse; then mkdir -p "${TARGET}/node" && cp "${LIB_SRC}/node/sse.js"        "${TARGET}/node/" && copied="${copied} sse.js"; fi
+if want listen; then mkdir -p "${TARGET}/node" && cp "${LIB_SRC}/node/app-listen.js" "${TARGET}/node/" && copied="${copied} app-listen.js"; fi
 if want tray;then mkdir -p "${TARGET}/node" && cp "${LIB_SRC}/node/vssh-tray.js"  "${TARGET}/node/" && copied="${copied} vssh-tray.js"; fi
 if want notify; then mkdir -p "${TARGET}/node" && cp "${LIB_SRC}/node/vssh-notify.js" "${TARGET}/node/" && copied="${copied} vssh-notify.js"; fi
 if want web; then mkdir -p "${TARGET}/web"  && cp -R "${LIB_SRC}/web/." "${TARGET}/web/" \

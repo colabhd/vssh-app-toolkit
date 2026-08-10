@@ -1,4 +1,4 @@
-origin=local:49e955c
-parts=spa,log,sse
-lib_version=2.1.0
-synced_at=2026-08-07T17:06:04Z
+origin=local:d2f57e0
+parts=spa,log,sse,listen
+lib_version=2.2.0
+synced_at=2026-08-10T18:05:11Z
