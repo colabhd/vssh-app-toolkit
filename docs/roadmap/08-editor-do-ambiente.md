@@ -338,12 +338,45 @@ declara nada é `socket` **nos dois lados**, escrito numa função de um nome s�
 | o proxy e o upgrade só ganharam a pergunta *"qual é o endereço deste app?"* — o encaminhamento não mudou | `proxy.ts`, `proxy/upgrade.ts` |
 | **em socket não existe reconciliar**: procurar "em que porta o processo está de verdade" só faz sentido para endereço ESCOLHIDO. Derivado, se está vivo e não responde, está travado | `_reconcileAppPort` |
 
+### O segundo defeito: quem ABRE o socket
+
+Com o endereço certo, o app servindo e o `run.log` dizendo `transporte: socket`, o proxy ainda via
+`ECONNRESET`. **O `-L` é executado pelo usuário de LOGIN do ssh**, e o socket é `srw------- <dono>`:
+como provisionador, o `connect()` remoto leva EACCES. O sintoma é indistinguível de "não tem
+ninguém escutando" — a mesma tela, a causa oposta.
+
+Com porta isso nunca apareceu **porque loopback não tem dono** — que é exatamente a exposição que
+esta onda mediu (14 backends respondendo sem token, 12 de outras contas). Voltar o socket para
+`0666` desfaria a onda inteira.
+
+**A saída é o túnel logar como o dono**, e o portal ganha uma chave **própria e por usuário**,
+criada sozinha no primeiro app aberto. Ela não é a que a pessoa cadastra na interface — aquela é o
+acesso dela, para outra coisa —, e ninguém precisa criar chave à mão para o ambiente abrir um app.
+A pública entra numa linha marcada do `authorized_keys`, escrita por **reescrita** (`grep -v` da
+marca + append, com `mktemp` no próprio `.ssh` e `mv` atômico), então uma chave regenerada
+substitui a anterior em vez de empilhar linha morta.
+
+**Isso não concede nada novo ao portal** — ele já tem `sudo -u <qualquer um>` sem senha, que é
+estritamente mais poder. O que muda é ficar **visível**: quem olha o próprio `authorized_keys` vê a
+linha e pode apagá-la, e aí o túnel para de subir com "Permission denied", que é falha alta e
+legível.
+
+**A chave não vai para banco nem cofre.** Vive num diretório local do processo; se sumir num deploy,
+o próximo app aberto gera outra e reescreve a linha. Chave descartável não precisa de cofre — e o
+que não se guarda não vaza. (Por isso o cache do Redis só é consultado **depois** de conferir que o
+arquivo existe: o cache sobrevive à troca do container e a chave não.)
+
+> **Descartado com motivo:** socket `0660` com grupo compartilhado. Exigiria pôr todo usuário
+> provisionado num grupo do portal — um usuário só pode `chgrp` para grupo do qual participa — e
+> alargaria o alcance do socket para qualquer processo daquele grupo.
+
 **E o cliente foi a 4.1.1, por honestidade.** A `4.1.0` foi declarada como *"a release em que o
 lifecycle passou a entregar o socket"* — e entregava, mas o portal não sabia chegar lá. Um app que
 exigisse 4.1.0 instalava e não funcionava.
 
-**Guardas:** três casos novos em `healthcheck-verdadeiro.test.js`, refutação **7/7** — inclusive
-devolver o `-L` para `127.0.0.1:<porta>` e trocar o default do transporte para `tcp`. A suíte do
+**Guardas:** três casos novos em `healthcheck-verdadeiro.test.js`, refutação **7/7 + 6/6** — inclusive
+devolver o `-L` para `127.0.0.1:<porta>`, trocar o default do transporte para `tcp` e fazer o túnel
+voltar a logar como provisionador. A suíte do
 `vssh-sso` fica em **1.365 testes, 1.300 passando, 0 falhas**.
 
 ## As duas guardas
