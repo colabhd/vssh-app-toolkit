@@ -1,4 +1,4 @@
-origin=local:a3776ce
+origin=local:6dd5491
 parts=fs,spa,log,sse
-lib_version=2.2.0
-synced_at=2026-08-07T20:42:37Z
+lib_version=3.0.0
+synced_at=2026-08-10T19:04:27Z

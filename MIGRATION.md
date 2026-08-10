@@ -1,9 +1,88 @@
-# Migração — v1 → v2
+# Migração
 
 As libs deste toolkit são **vendorizadas e commitadas** pelos apps (`scripts/vssh-app-lib-sync`),
 não instaladas em runtime. Isso significa que nada abaixo atinge um app automaticamente: a mudança
-só chega quando alguém roda o `lib-sync` de novo, deliberadamente. **Leia esta página antes de
-fazê-lo.**
+só chega quando alguém roda o `lib-sync` de novo, deliberadamente. **Leia a seção da sua major
+antes de fazê-lo.**
+
+---
+
+# v2 → v3 — o endereço deixa de ser uma porta
+
+**Uma mudança só, e ela é do contrato, não das libs.** Até a v2, o contrato escrito no schema e na
+SKILL era *"o backend deve bindar em `127.0.0.1:$VSSH_APP_PORT`"*. Desde a [Onda
+9](docs/roadmap/08-editor-do-ambiente.md) o lifecycle pode mandar **`$VSSH_APP_SOCKET`** no lugar —
+um socket unix em `~/.vssh-apps/<id>/`, diretório que já é 0700.
+
+**Por que isso é major, e não minor.** Nenhuma função da v2 mudou de comportamento. O que muda é o
+que chega no ambiente do processo: um app parado na v2 lê `VSSH_APP_PORT`, não acha nada, e ou morre
+no boot ou binda uma porta que ninguém procura. **O sintoma é janela em branco, não erro** — e é
+exatamente o modo de falha que o gate de major do `vssh-app-publish` existe para converter numa
+publicação recusada, com o comando do conserto junto.
+
+**O motivo de fundo, medido.** Numa conta comum de `ipprivm01`, das **23 portas de vssh-app** em
+escuta no loopback, **14 responderam a um `GET /` sem token** — 10 com `200` e 4 com `500` —, e
+**12 eram de outras contas Linux**. O loopback é compartilhado por definição; o `X-Vssh-App-Token`
+existe para isso, mas conferi-lo sempre foi opcional. Permissão de arquivo faz o que a conferência
+de token só prometia.
+
+## O que fazer no seu app
+
+```bash
+vssh-app-lib-sync . --parts <as suas>,listen --dest backend/vendor/vssh
+```
+
+E no backend, troque o `listen` por `escutar()`:
+
+```js
+const { escutar } = require('./vendor/vssh/node/app-listen');
+
+// era: server.listen(PORT, '127.0.0.1', () => { … })
+escutar(server)
+  .then(({ transporte, endereco }) => log('listening', { transporte, endereco }))
+  .catch((err) => {
+    // Já há outra instância atendendo: é o contrato do lifecycle, que sai 0 no mesmo caso.
+    if (err.code === 'VSSH_APP_JA_ESCUTANDO') process.exit(0);
+    process.exit(1);
+  });
+```
+
+Tire também a conferência de `VSSH_APP_PORT` do boot, se você tiver uma: **exigir a porta recusa um
+app perfeitamente configurado em socket**. Quem confere passa a ser o `escutar()`, e ele nomeia as
+duas variáveis quando não vem nenhuma.
+
+## As três armadilhas que o `escutar()` resolve por você
+
+1. **O arquivo de socket sobrevive ao processo.** Com TCP, morrer devolve a porta ao kernel; com
+   socket unix o inode fica, e o `bind()` seguinte falha com `EADDRINUSE` contra um arquivo que
+   ninguém atende. Um `test -S` responderia "está rodando" para um app que morreu semana passada, e
+   por isso a checagem é uma **tentativa de conexão** — um socket vivo nunca é apagado. Medido:
+   fechar limpo já apaga o arquivo sozinho, então **só `SIGKILL` produz órfão** — que é justamente o
+   caso do supervisor com `MAX_FAILS`.
+2. **O modo do arquivo vem do umask**, e um umask 0022 cria o socket `0755`. O diretório 0700 já
+   protege; o `chmod 0600` é a segunda defesa, para o dia em que o diretório mudar por outra razão.
+3. **`listen(caminho)` e `listen(porta, host)` têm assinaturas diferentes**, e um `if` em cada app é
+   o começo de N implementações que divergem.
+
+## O TCP não foi apagado — ele passou a se anunciar
+
+`escutar()` continua aceitando `VSSH_APP_PORT`, e é isso que torna a migração segura em **qualquer
+ordem de deploy**: um app já na v3 sobe num servidor cujo `vssh-app-run` ainda é anterior à Onda 9.
+Mas ele escreve no stderr dizendo que aquele servidor está atrás, porque legado silencioso é como um
+ramo desses atravessa anos — ninguém sabe se ainda há alguém usando, então ninguém apaga.
+
+Se o seu app escolheu TCP **de propósito** (`backend.transport: "tcp"` no manifesto, para um runtime
+que não sabe bindar socket unix), passe `escutar(server, { tcpEsperado: true })` e o aviso silencia.
+A escolha declarada não é o defeito que ele persegue.
+
+## Nota para quem opera
+
+`vssh-app-lib-sync` passou a puxar de **`v3`** por padrão. Um `--ref v2` continua funcionando e
+continua entregando as libs antigas — o que ele não entrega é o `app-listen.js`.
+
+---
+
+# v1 → v2
 
 Escopo: dos commits `7a71abd` (tag `v1`) até `5f0361d`.
 

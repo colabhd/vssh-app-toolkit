@@ -43,11 +43,17 @@
 #   all  → tudo (default)
 set -euo pipefail
 
-# `v2` e não `v1` nem `main`. A `v1` é do toolkit ORIGINAL, anterior à criação de `lib/` — fora de
-# um clone, `--ref v1` falha com "lib/ não encontrado no tarball". E `main` era uma correção de
-# rota enquanto a `v2` não existia: puxar de um branch faz a sua cópia mudar debaixo de você entre
-# duas sincronizações, sem você ter pedido. Ver docs/roadmap/03-toolkit.md.
-APP_DIR="" PARTS="all" REF="v2" DEST="vendor/vssh"
+# `v3` e não `v2`, `v1` nem `main`. A `v1` é do toolkit ORIGINAL, anterior à criação de `lib/` —
+# fora de um clone, `--ref v1` falha com "lib/ não encontrado no tarball". E `main` era uma correção
+# de rota enquanto a `v2` não existia: puxar de um branch faz a sua cópia mudar debaixo de você
+# entre duas sincronizações, sem você ter pedido. Ver docs/roadmap/03-toolkit.md.
+#
+# A `v3` é a geração em que o ENDEREÇO de um app deixou de ser necessariamente uma porta: o
+# lifecycle pode mandar `$VSSH_APP_SOCKET` no lugar de `$VSSH_APP_PORT`, e quem lê os dois é o
+# `app-listen.js` (parte `listen`). Um app parado na `v2` binda uma porta que ninguém procura num
+# servidor que só manda socket — e o gate de major do `vssh-app-publish` recusa publicá-lo, que é
+# como esse defeito deixa de ser janela em branco. Ver MIGRATION.md.
+APP_DIR="" PARTS="all" REF="v3" DEST="vendor/vssh"
 REPO="colabhd/vssh-app-toolkit"
 
 while [ $# -gt 0 ]; do

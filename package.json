@@ -1,7 +1,7 @@
 {
   "name": "vssh-app-toolkit",
-  "version": "2.2.0",
-  "//version": "Major bumpado porque as libs de lib/ carregam breaking changes reais desde a tag v1 — permissão que parou de mentir 'granted', getFile() preguiçoso, timeout default de 0 para 600s, entre outros. Estava congelada em 1.0.0 desde o commit inicial, o que fazia o único marcador de procedência do consumidor (vendor/vssh/.vssh-lib-version) apontar para um número que não distinguia nada. Ver MIGRATION.md.",
+  "version": "3.0.0",
+  "//version": "Major 3 porque o ENDERECO de um vssh-app deixou de ser necessariamente uma porta. Ate a v2 o contrato era bindar em 127.0.0.1:VSSH_APP_PORT, escrito no schema e na SKILL; desde a Onda 9 o lifecycle pode mandar VSSH_APP_SOCKET no lugar. Um app vendorizado em 2.x nao conhece essa variavel: num servidor que so manda socket ele binda uma porta que ninguem procura, e o sintoma e janela em branco, nao erro. O gate de major do vssh-app-publish transforma isso numa publicacao recusada, com o comando do conserto junto. Ver MIGRATION.md. Major 2 foi bumpado porque as libs carregavam breaking changes reais desde a v1 (permissao que parou de mentir granted, getFile preguicoso, timeout default de 0 para 600s).",
   "private": true,
   "description": "Ferramentas e bibliotecas para construir e publicar vssh-apps",
   "license": "MIT",
