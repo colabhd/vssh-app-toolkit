@@ -310,6 +310,42 @@ derivado de (HOME, appId). Virou o oposto — *"o socket NÃO depende do Environ
 terceiro caso guardando que quem declara `tcp` **mantém a fragilidade inteira do modelo antigo**, que
 é o preço declarado do xpra.
 
+## ✅ O que o 0c entregou — e o defeito que ele deixou existir por um tempo
+
+**As duas metades ficaram desencontradas, e nada ficou vermelho.** O 0b levou o lado do APP para
+socket (o `escutar()` da v4 só binda socket, e o `vssh-app-run` entrega `VSSH_APP_SOCKET`); o lado
+do PORTAL continuou alocando porta, tunelando a porta e sondando a porta. Em produção isso apareceu
+assim, em **todo app e todo start**:
+
+```
+[apps] App 'logseq' na porta 40318 não ficou pronto em 15s (último HTTP 000); abrindo mesmo assim.
+[proxy] Porta 40318 indisponível (ECONNRESET) — aguardando túnel SSH reconectar...
+```
+
+Cada metade estava correta sozinha, e é por isso que nenhuma suíte acusou: **era o par que mentia**.
+A guarda que faltava não é sobre socket nem sobre porta — é sobre as duas pontas concordarem, e é
+essa que entrou agora.
+
+**O endereço passou a ter uma fonte e um default só.** `enderecoDoApp()` deriva
+`$HOME/.vssh-apps/<id>/app.sock` — o mesmo caminho que o `vssh-app-run` deriva —, com o HOME vindo
+do `getent` e não de um palpite `/home/<user>`; e o default de transporte quando o manifesto não
+declara nada é `socket` **nos dois lados**, escrito numa função de um nome só.
+
+| O que mudou | Onde |
+|---|---|
+| a sondagem vai por `curl --unix-socket`, com `sudo -u <dono>` — o socket é 0600, e sem o sudo a falha por PERMISSÃO devolve 000, que se parece com "não subiu" | `_appHttpCode` |
+| o `-L` ganhou o lado remoto: local continua porta TCP (é dela que o http-proxy fala), remoto vira o caminho do socket | `ssh-tunnel.ts` |
+| o proxy e o upgrade só ganharam a pergunta *"qual é o endereço deste app?"* — o encaminhamento não mudou | `proxy.ts`, `proxy/upgrade.ts` |
+| **em socket não existe reconciliar**: procurar "em que porta o processo está de verdade" só faz sentido para endereço ESCOLHIDO. Derivado, se está vivo e não responde, está travado | `_reconcileAppPort` |
+
+**E o cliente foi a 4.1.1, por honestidade.** A `4.1.0` foi declarada como *"a release em que o
+lifecycle passou a entregar o socket"* — e entregava, mas o portal não sabia chegar lá. Um app que
+exigisse 4.1.0 instalava e não funcionava.
+
+**Guardas:** três casos novos em `healthcheck-verdadeiro.test.js`, refutação **7/7** — inclusive
+devolver o `-L` para `127.0.0.1:<porta>` e trocar o default do transporte para `tcp`. A suíte do
+`vssh-sso` fica em **1.365 testes, 1.300 passando, 0 falhas**.
+
 ## As duas guardas
 
 **`tests/unit/app-sem-porta.test.js`** — com `transport: "socket"`, o app serve HTTP **e** WebSocket
@@ -621,7 +657,7 @@ acompanhada do que a desmente, ali perto?"*.
 |---|---|---|---|
 | 0a | ✅ **medido** — OpenSSH 10.2 nas duas pontas, `/home` ext4, socket no `$HOME` testado, F2 rodado | — | — |
 | 0b | ✅ **o contrato** — `transport`, `escutar()`, o portão do `vssh-app-run`, os cinco manifestos, o `minShellVersion` | toolkit + `vssh-sso` | 0a |
-| 0c | 📋 **o caminho do portal** — `_appHttpCode` por `--unix-socket`, túnel, `socketPath` no proxy e no upgrade, supervisor | `vssh-sso` | 0b |
+| 0c | ✅ **o caminho do portal** — endereço derivado com fonte única, sondagem por `--unix-socket` com `sudo -u`, o lado remoto do túnel; o cliente vai a **4.1.1** | `vssh-sso` | 0b |
 | 0d | 📋 **a orquestração de porta morre** — os onze lugares, o `nextLoopback` e o teto de 254 | `vssh-sso` | 0c + ⛔ [Onda 10, item 2](09-motor-x11.md) |
 | 1 | 📋 o pacote e a entrega por `installCommand` | `vsshapp-vscode` | 0c |
 | 2 | 📋 o fork: workbench nosso + o patch da plataforma | `vsshapp-vscode` | 1 |
