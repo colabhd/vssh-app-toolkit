@@ -269,6 +269,47 @@ portas: o custo é **por usuário**, e a superfície cresce com a base de contas
 > gate"*. Ele mostrou **doze portas**, de contas alheias. Não vira onda própria: é o motivo de o
 > passo 0 ser passo 0.
 
+## ✅ O que o 0b entregou, e o que a execução cobrou
+
+**O contrato está de pé.** `backend.transport` no schema (padrão `socket`), `lib/node/app-listen.js`
+como o portão do lado do app, o portão do transporte no `vssh-app-run` (precedência: ambiente >
+manifesto > `socket`), e os cinco manifestos declarando — quatro em `socket`, o xpra em `tcp`, com
+prazo. Toolkit em **4.0.0** (tag `v4`); `vssh-client/build-info.json` em **4.1.0**, que é o número
+contra o qual o `minShellVersion` é conferido.
+
+**Duas coisas que eu ia construir já existiam**, e as duas com a descrição dizendo o que eu tinha
+acabado de raciocinar sozinho: o campo **`minShellVersion`** no schema, e o portão **`podeInstalar()`**
+(`utils/versao-de-shell.ts`), usado na listagem e no install. Cheguei a criar um `requires.shell`
+para a mesma coisa antes de achá-los — **uma segunda noção do mesmo fato**, removida. A lição não é
+sobre este campo: **antes de projetar um mecanismo, procurar se o repositório já o antecipou** — o
+comentário de `vssh-shell.ts:57` prometia esse campo desde a Onda 3.
+
+**E a v3 durou uma hora, de propósito.** Ela aceitava `VSSH_APP_PORT` como alternativa, para um app
+novo sobreviver num servidor velho. Era band-aid, e o defeito dele é de **tempo**: funcionava,
+avisava num `run.log` que ninguém lê, e deixava a porta exposta enquanto isso. A v4 tirou o ramo e
+pôs um portão no lugar — o erro passou a aparecer na instalação, onde é barato.
+
+### As três armadilhas que a execução cobrou, e nenhuma era do desenho
+
+| O que | Como apareceu |
+|---|---|
+| **O verificador que confunde a própria ausência com uma medida** | a checagem de "já está escutando" lia o **código de saída** do `python3`; no Windows ele é um alias da Store que sai **0 sem fazer nada**, e o portão leu aquele 0 como *"o app está de pé"* — **recusando subir um app que nunca subira**. Agora o veredito vem por palavra (`VIVO`/`MORTO`), e a ausência das duas é dita e tratada como livre |
+| **A morte em silêncio do `set -euo pipefail`** | `_vivo=$(python3 … \| tr …)` sem `\|\| true` derruba o script inteiro: saída vazia, app não sobe, `run.log` sem uma linha. **O próprio arquivo documenta essa armadilha** alguns blocos abaixo, e eu a reproduzi |
+| **A guarda que trava em vez de falhar** | na refutação, a mutação que faz `escutar()` não recusar a segunda instância deixava o segundo servidor escutando, segurando o event loop — o teste pendurava para sempre. Travar e falhar são diagnósticos diferentes, e nenhum CI distingue os dois |
+
+E o arnês de refutação teve o mesmo defeito da primeira: ele mutava com `python3`, que não existe no
+`node:26-slim`, **a mutação não acontecia**, o teste passava (claro — a fonte estava intacta) e ele
+acusou a **guarda** de não medir, seis vezes seguidas. Hoje ele muta com `node` e **prova com `cmp`
+que a fonte mudou** antes de concluir qualquer coisa. Refutação: **6/6**.
+
+### A bancada que ficou obsoleta pelo motivo certo
+
+`servico-com-janela.test.js` guardava *"sem o EnvironmentFile, o mesmo relançamento cairia noutra
+porta"*. Estava certo, e **deixou de valer**: com socket não há o que segurar, porque o caminho é
+derivado de (HOME, appId). Virou o oposto — *"o socket NÃO depende do EnvironmentFile"* — e ganhou um
+terceiro caso guardando que quem declara `tcp` **mantém a fragilidade inteira do modelo antigo**, que
+é o preço declarado do xpra.
+
 ## As duas guardas
 
 **`tests/unit/app-sem-porta.test.js`** — com `transport: "socket"`, o app serve HTTP **e** WebSocket
@@ -579,8 +620,10 @@ acompanhada do que a desmente, ali perto?"*.
 | # | O quê | Repo | Trava em |
 |---|---|---|---|
 | 0a | ✅ **medido** — OpenSSH 10.2 nas duas pontas, `/home` ext4, socket no `$HOME` testado, F2 rodado | — | — |
-| 0b | 📋 **o socket vira o padrão** — `transport`, túnel, proxy, healthcheck, supervisor | toolkit + `vssh-sso` | 0a |
-| 1 | 📋 o pacote e a entrega por `installCommand` | `vsshapp-vscode` | 0b |
+| 0b | ✅ **o contrato** — `transport`, `escutar()`, o portão do `vssh-app-run`, os cinco manifestos, o `minShellVersion` | toolkit + `vssh-sso` | 0a |
+| 0c | 📋 **o caminho do portal** — `_appHttpCode` por `--unix-socket`, túnel, `socketPath` no proxy e no upgrade, supervisor | `vssh-sso` | 0b |
+| 0d | 📋 **a orquestração de porta morre** — os onze lugares, o `nextLoopback` e o teto de 254 | `vssh-sso` | 0c |
+| 1 | 📋 o pacote e a entrega por `installCommand` | `vsshapp-vscode` | 0c |
 | 2 | 📋 o fork: workbench nosso + o patch da plataforma | `vsshapp-vscode` | 1 |
 | — | **publicar e instalar em TODOS os servidores** | | 1, 2 |
 | 3 | 📋 `/proxy/vscode/` deixa de existir | `vssh-sso` | ⛔ o passo acima |
@@ -617,7 +660,9 @@ a medida daquela configuração.
 - **Cada guarda por refutação:** mutar a fonte real, rodar o teste filtrado, restaurar, com linha de
   base verde antes. Guarda que não fica vermelha ao quebrar o produto não mede nada.
 - **A guarda do 2a é de junção** — mede os **dois** caminhos de resolução de plataforma, não um.
-- `npm test` do `vssh-sso` parte de **1.266** e não pode cair.
+- `npm test` do `vssh-sso` parte de **1.362** e não pode cair. **⚠ Este número dizia 1.266, e estava
+  velho** — a suíte cresceu entre a escrita da onda e a execução dela, e um piso desatualizado é um
+  piso que não segura nada.
 
 ## O que esta onda NÃO faz
 
