@@ -194,7 +194,8 @@
         "title": { "type": "string" },
         "width": { "type": "integer", "minimum": 200, "maximum": 10000 },
         "height": { "type": "integer", "minimum": 150, "maximum": 10000 },
-        "richChrome": { "type": "boolean", "description": "Tabbar de verdade no cabeçalho + itens de aba no menu de contexto." }
+        "richChrome": { "type": "boolean", "description": "Tabbar de verdade no cabeçalho + itens de aba no menu de contexto." },
+        "cabecalho": { "enum": ["ambiente", "app"], "default": "ambiente", "description": "Quem desenha a barra de título. `ambiente` (padrão) é o cabeçalho do desktop. `app` é para quem JÁ TEM uma barra de título própria e boa — o editor, cuja barra é a do VS Code: o shell não monta a dele, e o app põe os botões de janela na sua, chamando `vssh.window.minimize/maximize/close`. Moldura, sombra e alças de resize continuam sendo do ambiente. Quem escolhe `app` fica responsável por três gestos que o cabeçalho padrão dava de graça: arrastar (`vssh.window.arrastar`), duplo-clique (`alternarMaximizado`) e menu de contexto (`menuDoCabecalho`) — um app que declara isto e não os liga entrega uma janela que não se move." }
       }
     }
   }

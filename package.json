@@ -1,12 +1,15 @@
 {
   "name": "vssh-app-toolkit",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "//version": "Major 4 porque o ramo TCP SAIU do escutar(): a lib so binda socket unix. A v3 aceitava VSSH_APP_PORT como alternativa para um app novo sobreviver num servidor velho — funcionava, avisava num run.log que ninguem le, e deixava a porta exposta enquanto isso. Quem protege essa compatibilidade agora e o requires.vssh do manifesto, conferido pelo portal antes de iniciar o app: um portao onde o erro e barato, e nao um fallback em runtime. Major 3 foi o contrato: o endereco de um app deixou de ser necessariamente uma porta. Major 2 foram breaking changes reais das libs desde a v1. Ver MIGRATION.md.",
   "private": true,
   "//private": "Vale para o registry público, e só: `npm i github:colabhd/vssh-app-toolkit#v4` instala normalmente. É assim que um app consome as libs desde a v4 — antes havia um script de cópia (`vssh-app-lib-sync`) e um marcador de procedência escritos à mão, e eles produziram o defeito que os aposentou: o default de ref ficou preso na v3, dois apps sincronizaram libs 3.0.0 contra um toolkit 4.0.0 e a conta só apareceu no CI. Ver MIGRATION.md.",
   "description": "Ferramentas e bibliotecas para construir e publicar vssh-apps",
   "license": "MIT",
-  "files": ["lib", "schema"],
+  "files": [
+    "lib",
+    "schema"
+  ],
   "//files": "O que um APP precisa quando instala este pacote — nada mais. Sem esta lista o npm empacota a árvore inteira (docs, templates, examples, tests): medido em 1,9 MB por app instalado, contra ~490 KB. `scripts/` fica de fora de propósito: o `vssh-app-publish` roda do checkout do CI, não de dentro do node_modules de um app.",
   "exports": {
     "./listen": "./lib/node/app-listen.js",
@@ -23,7 +26,9 @@
   "//exports": "Subcaminhos estáveis: `require('vssh-app-toolkit/listen')` não sabe onde o arquivo mora, então mover lib/node/ um dia não quebra app nenhum. `./web` devolve o DIRETÓRIO das libs de navegador (para o `mounts` do static-spa); `./web/*` alcança um arquivo específico. Não há entrada `.` porque não existe um 'o toolkit' a importar inteiro — são peças independentes, e um barrel obrigaria a carregar as sete para usar uma.",
   "types": "lib/web/vssh-app-shim.d.ts",
   "//types": "A superfície do `vssh` global. Não é um módulo — o shim entra por tag <script> e o .d.ts é uma declaração global; vendorizado, ele é achado por estar ao lado do .js. `lib/web/test/tipos.test.js` compara o que ele declara com a superfície enumerada em runtime, nos dois sentidos: um .d.ts que envelhece mente para o compilador e para o editor com a autoridade de quem parece ter sido verificado.",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "//engines": "O >=22 é do RUNNER DE TESTE (o glob abaixo só existe a partir dessa versão). As libs de lib/ rodam em Node >=20 — o CI prova isso rodando o template em 20, e é essa a versão que importa, porque é a do servidor-alvo.",
     "//test": "Glob entre aspas: quem expande é o Node, não o shell — sem isso quebra no cmd.exe do Windows, que é metade da matriz do CI. `tests/` é para o que não é de uma lib só (hoje: a conferência das cópias vendorizadas nos templates).",

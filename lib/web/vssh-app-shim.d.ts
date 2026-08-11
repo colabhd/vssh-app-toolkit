@@ -153,6 +153,22 @@ interface VsshJanela {
    * sendo um backend só. `false` num shell que ainda não sabe abrir.
    */
   abrir(rota?: string, opts?: { title?: string; width?: number; height?: number }): Promise<boolean>;
+
+  /**
+   * "Me agarraram aqui" — começa o arraste da janela a partir de um ponto do SEU documento.
+   *
+   * Só para quem declara `window.cabecalho: "app"` no manifesto. Chame no `pointerdown` da sua
+   * barra de título e não faça mais nada: o arraste inteiro passa a ser do ambiente, com o mesmo
+   * limiar, o mesmo containment e o mesmo encaixe de qualquer outra janela. Não mande
+   * `pointermove` — e não tente sincronizar geometria nenhuma.
+   */
+  arrastar(x: number, y: number): void;
+
+  /** O duplo-clique da barra de título. Alterna, e não maximiza — é o gesto, não a ação. */
+  alternarMaximizado(): void;
+
+  /** O menu de contexto do cabeçalho (mover, maximizar, fechar, log do backend…). */
+  menuDoCabecalho(x: number, y: number): void;
 }
 
 interface VsshDialogo {
