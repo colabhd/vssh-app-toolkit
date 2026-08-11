@@ -169,28 +169,62 @@ para que travar seja sempre um vermelho com nome, e não um arquivo lento.
 ponte que não avisa quando o xpra cai, a que não fecha o socket quando o navegador some, a que manda
 texto no lugar de binário, o subprotocolo recusado, e o upgrade aceito antes de achar o xpra.
 
-## 3. 📋 As janelas do xpra viram `VsshWindow`
+## 3. 📋 O xpra vira **apenas mais uma forma de adicionar janelas**
 
-Hoje o cliente do xpra traz o **próprio gerenciador de janelas**: `frontend/js/Window.js`, **1.501
-linhas** — barra de título, botões, minimizar, arraste —, desenhando por cima do desktop que já tem
-tudo isso.
+**A decisão de produto está tomada, e é ela que dá o desenho:** todo o gerenciamento de janelas já
+existe no ambiente, então a janela X11 não ganha cromo próprio nem marca de "janela do servidor" —
+ela é uma `VsshWindow` como qualquer outra, e o motor deixa de ser gerenciador para ser **produtor**.
+O que sai daqui não é uma reforma visual: é a deleção de um segundo gerenciador de janelas.
 
-E o ambiente paga por essa diferença **do outro lado**. `VsshWindow.js:101-108` diz por extenso:
+Hoje o cliente do xpra traz o próprio: `frontend/js/Window.js`, **1.501 linhas** — barra de título,
+botões, minimizar, arraste —, desenhando por cima do desktop que já tem tudo isso. E o cromo dele já
+é uma **cópia** do nosso: os quatro SVGs de pin/minimizar/maximizar/fechar estão duplicados em
+`Window.js:208-213` e `VsshWindow.js:18-21`, e o `add_headerbar` monta a mesma barra com outros ids.
 
-> *"o canvas do Xpra captura o ponteiro mesmo onde é transparente. Por isso cada janela mantém um
-> **proxy invisível** dentro do `#screen`: é ele, e não o conteúdo, que recebe os eventos."*
+### O que a medida mostrou, e é maior que "47 proxies"
 
-E registra o dano junto: *"arrastar um arquivo para outra janela do gerenciador nunca chegava aos
-handlers de drop dela"*. São **47 ocorrências de `proxy`** naquela classe, mais a dança de
-`_dragRaised`/`_dragHooked` — elevar sem focar, porque focar B desfoca A e **reativa o proxy de A**,
-quebrando o arraste de volta.
+A conta que este item trazia era o proxy invisível do `VsshWindow.js` — e ela está certa, mas é a
+menor das três. **O ambiente fala DOIS dialetos de "janela", e mantém os dois à mão:**
 
-**Nada disso é otimizável: é apagável.** Se cada janela X11 for uma `VsshWindow` de verdade, não há
-canvas alheio capturando ponteiro, não há proxy, não há elevação-sem-foco.
+| Onde | O que existe hoje, e só existe por isso |
+|---|---|
+| `TilingManager.js:622-682` | **dois adaptadores** para a mesma pergunta: `xpraAdapter` (`win.div`, `win.x/y/w/h`, `geometry_cb`) e `pseudoAdapter` (`win._div`, strings CSS, `_saveState`) — 60 linhas que dizem duas vezes "onde está esta janela e ponha-a aqui" |
+| `ContextMenu.js:257-283` | `showForWindow` é uma UNIÃO por duck-typing: `win.minimized ?? win._minimized`, `win._maximized ?? win.maximized`, `win.toggle_minimized?.()`, `win.window_closed_cb ? … : win.close?.()`, `win.wid \|\| win._id` |
+| `MenuCustom.js` (taskbar), `TilingPanel.js` | mais ramos do mesmo tipo |
+| **total, em 4 arquivos do shell** | **31 pontos** que perguntam de que família a janela é |
+| `VsshWindow.js` | **43 ocorrências de `proxy`** (27 em código — a nota anterior dizia 47), mais `_dragRaised`/`_dragHooked` |
+
+O proxy é a consequência, não a causa: ele existe porque a janela X11 mora **dentro do `#screen`**
+(`Client.js:3399`), e o canvas de lá captura o ponteiro mesmo onde é transparente. O dano está
+escrito junto, em `VsshWindow.js:101-108`: *"arrastar um arquivo para outra janela do gerenciador
+nunca chegava aos handlers de drop dela"*.
+
+### O desenho, e onde ele encosta
+
+`XpraWindow` passa a **estender `VsshWindow`**, e a subclasse mora **no pacote** — o shell continua
+sem saber o nome deste motor, que é a regra da [2.7](02b-motores.md). O que ela guarda é o que é do
+xpra (canvas, `do_paint`, cursor, eventos de ponteiro, metadata); o que ela apaga é o que é do
+ambiente:
+
+- `add_headerbar`, `make_draggable`, `make_resizable`, `toggle_maximized/minimized/pinned`,
+  `save/restore_geometry`, `update_zindex`, `focus` — **e com eles o `jquery-ui` inteiro**, que só o
+  `Window.js` usa (`draggable`/`resizable` em 16 lugares);
+- do lado do shell: o `xpraAdapter`, os 31 ramos por família e os proxies.
+
+**A geometria fica em duas vias, e é o único trabalho novo:** o que o usuário faz na `VsshWindow`
+(mover, redimensionar, maximizar) vira `configure-window` para o X11; o que o X11 manda
+(`move_resize`) vira estilo na div. O `_setupDragResize` do shell já entrega os dois ganchos
+(`arrastar.js`), então não há biblioteca a substituir — há uma a apagar.
+
+**E a janela sai do `#screen`.** `_initChrome` põe a div no `body`; `#screen` fica só para o modo
+desktop/shadow, que é uma janela em tela cheia. É essa mudança — não o proxy — que faz o proxy
+deixar de ter assunto.
 
 **Guarda:** `tests/unit/arraste-entre-janelas.test.js` — arrastar um arquivo de uma janela do
 gerenciador para outra chega ao handler de drop **com uma janela X11 aberta na tela**. É o defeito
 que o comentário descreve, virado teste. Refuta: reintroduzir o canvas em tela cheia por cima.
+E uma segunda, que é a que prova a frase deste item: **nenhum arquivo do shell pergunta de que
+família a janela é** — os 31 pontos viram zero, e o `xpraAdapter` não existe mais.
 
 ## 4. 📋 O último jQuery do ambiente sai — e ele é o maior
 
@@ -210,11 +244,21 @@ e `.css()` (`Window.js:144,228,369,1234`), que são uma linha de DOM cada.
 
 ~~"O item 3 já apaga `Window.js`, que é onde a maioria delas mora."~~ **Contado, e é o contrário:**
 `Window.js` tem **5** ocorrências (uma delas comentário), `Notifications.js` tem **9**, e
-`Client.js` tem **21** — a maioria mora justamente no arquivo que o item 3 NÃO apaga. E as de lá não
-são uma linha de DOM cada: são o carrossel `slick` do Alt+Tab (`window-preview`, `.slick-current`) e
-a pasteboard do clipboard. Então este item não sai de carona no 3 — ele tem trabalho próprio, e o
-maior pedaço dele é substituir o carrossel. O `jquery-ui` (19.061 linhas) é que sai com o 3: quem o
-usa é o `draggable`/`resizable` do `Window.js`, em 16 lugares.
+`Client.js` tem **21** — a maioria mora justamente no arquivo que o item 3 NÃO apaga. O `jquery-ui`
+(19.061 linhas) é que sai com o 3: quem o usa é o `draggable`/`resizable` do `Window.js`, em 16
+lugares.
+
+**Mas os dois itens continuam sendo um só trabalho, e a razão é outra — melhor.** O maior consumidor
+de jQuery do `Client.js` é o **carrossel Alt+Tab** (`slick`, `#window_preview`, `.slick-current`), e
+ele existe por uma razão que o item 3 apaga: o cliente precisa de um Alt+Tab PRÓPRIO porque as
+janelas X11 não estão em lugar nenhum que o ambiente enxergue. Quando cada janela X11 for uma
+`VsshWindow`, a taskbar e o `TilingManager` já as listam — e o carrossel deixa de ser "jQuery a
+portar" para virar **código a apagar**, com `slick.js` (3.011 linhas) junto. Fazer o 4 depois do 3 é
+o que transforma uma reescrita em uma deleção.
+
+**E já há código morto medido no caminho:** `#float_menu` — o dock que o cliente do xpra desenha —
+**não existe no `index.html` do shell** (saiu na Onda 0c). O menu flutuante e o item
+`toggle-window-preview` dele são código sem onde desenhar.
 
 > É a mesma forma do achado da Onda 8: *"a premissa do jQuery estava invertida, e a medida diz de que
 > lado"*. Lá o shell tinha menos jQuery do que se dizia; aqui o ambiente tem mais, e num lugar onde
@@ -277,8 +321,8 @@ servidor não mostra porta de app **nenhum**, com o xpra rodando. Refuta: devolv
 | 1 | ✅ nós servimos o `frontend/`; xpra com `--html=off` — e o app ganhou um backend Node | `vsshapp-xpra` | — |
 | 2 | ✅ a ponte WS → socket nativo, e o `transport` virou `socket` | `vsshapp-xpra` | 1 |
 | — | ✅ **o ambiente ficou sem nenhum app em porta** — o item 5 está liberado | | 2 |
-| 3 | 📋 as janelas viram `VsshWindow`; os 47 proxies saem | `vsshapp-xpra` + `vssh-sso` | 1 |
-| 4 | 📋 o jQuery sai do pacote | `vsshapp-xpra` | 3 |
+| 3 | 📋 o xpra vira só mais uma forma de adicionar janelas: os **31 ramos por família**, os **2 adaptadores de tiling** e os proxies saem | `vsshapp-xpra` + `vssh-sso` | 1 |
+| 4 | 📋 o jQuery sai do pacote — e o carrossel Alt+Tab é apagado, não portado | `vsshapp-xpra` | 3 |
 | 5 | 📋 **a orquestração de porta morre** — os onze lugares, o `nextLoopback` e o teto de **254** (era o `0d` da [Onda 9](08-editor-do-ambiente.md)) | `vssh-sso` | 2 |
 
 **O item 1 destravou tudo e não dependia de nada**, porque servir o próprio frontend é o que todo
@@ -309,4 +353,6 @@ um app só**, e o custo disso está medido: um `127.0.0.x` por servidor e um tet
   (`IframeHostWindow.js:3-13`) — o xpra nunca passou por ele.
 - **Não promete que o cliente HTML5 aguenta ser dividido em N janelas** sem custo de render. É a
   incerteza real do item 3, e a resposta é uma medida com uma sessão de verdade — não uma frase
-  aqui.
+  aqui. O que a leitura do código já garante é que o custo não muda de natureza: cada janela X11 já
+  tem hoje um `<canvas>` próprio (`init_canvas`), com `OffscreenCanvas` por janela quando o worker
+  de decode está ligado. O que muda é o PAI da div, não o número de canvases.
