@@ -691,6 +691,63 @@ com supersampling** (neutro para qualquer cliente). Só então vale escrever có
 
 ---
 
+## 7. 📋 O portal conta ao motor o tamanho e a DPI da tela de quem está abrindo
+
+**Item novo, e ele fecha DOIS sintomas medidos numa sessão real** — não é refinamento. O log do
+próprio xpra, em 11/08/2026, diz os dois com as palavras dele:
+
+```
+client total display size is 2881x1565
+tried to set resolution to 2881x1565 and ended up with 1920x1080
+ 1 sizes are supported → 1920x1080
+
+Chromium 151 (436x237 mm - DPI: 168x168)
+DPI Issue · DPI set to 96 x 96 (wanted 168 x 168)
+ to fix this issue, try the dpi switch, or use a patched Xorg dummy driver
+```
+
+| O sintoma | O que estava acontecendo |
+|---|---|
+| **a sessão é menor que a janela** | `Xvfb -screen 0 1920x1080x24` oferece **um** modo RandR; o xpra tenta adicionar `2881x1565` e leva `BadMatch`. Nenhuma janela X11 alcança a borda, e maximizar preenche 1920×1080 de uma área maior |
+| **o texto é supersampling, não HiDPI** | a DPI de uma tela X é **derivada** — pixels sobre tamanho físico em mm —, e o `Xvfb` fixa o tamanho físico ao criar a tela. Nem o `--dpi` do xpra nem cliente nenhum a mudam depois |
+
+**Os dois têm a mesma raiz, e ela é uma só frase: o servidor X é criado pequeno e fixo, antes de
+existir cliente.** Foi por isso que a tentativa anterior falhou — a `0.7.0` trocou `--dpi=96` por
+`--dpi=0` (que diz ao xpra "siga o cliente"), e o `xrdb -query` continuou em 96: o xpra tentou e o
+servidor recusou.
+
+**O pacote já fez a metade dele** (`0.7.2`): `VSSH_X11_DPI` existe, com padrão 96, na mesma costura
+que `VSSH_X11_WIDTH`/`VSSH_X11_HEIGHT` já usavam — o portal escreve no `env` do app o que só ele
+sabe. E o Xvfb passou a declarar `+extension RANDR +extension Composite` em vez de contar com o
+padrão do build, que foi o que produziu *"1 sizes are supported"*.
+
+**O que falta é do `vssh-sso`:**
+
+| | |
+|---|---|
+| onde | o `startApp`, no ponto em que ele escreve o arquivo `env` do app (`vssh-apps.ts`) |
+| o quê | `VSSH_X11_WIDTH` e `VSSH_X11_HEIGHT` = `innerWidth/innerHeight × min(dpr, 2)`, e `VSSH_X11_DPI` = `96 × min(dpr, 2)` |
+| quem sabe | o **navegador**, e só ele. O valor tem de subir do cliente ao portal na hora de ligar o motor |
+
+Com os três chegando, a tela nasce do tamanho certo e **não há redimensionamento a recusar** — o que
+resolve os dois sintomas com o `Xvfb` de sempre, sem depender do dummy do Xorg.
+
+**A alternativa, e ela já existe no pacote:** o ramo `VSSH_X11_XVFB=xorg` (`xpra.sh`) sobe um `Xorg`
+com o driver dummy, que é literalmente o que a mensagem do xpra recomenda — ele tem lista de modos e
+tamanho virtual grande, então aceita redimensionar e reportar outra DPI. Exige `/etc/xpra/xorg.conf`
+no servidor, e é decisão de provisionamento e não de código.
+
+**A limitação que fica de pé nos dois caminhos, e é honesto dizê-la:** a tela é da **sessão**, e a
+sessão sobrevive ao navegador — mais ainda desde que a `0.6.1` adota uma sessão existente. Um segundo
+navegador com janela de outro tamanho volta a bater no teto. É a mesma tensão do DPI, e ela só
+desaparece com um servidor X que aceite redimensionar ao vivo — ou seja, com o ramo `xorg`.
+
+**Guarda:** com o portal mandando os três, o log do xpra da sessão **não** contém `DPI Issue` nem
+`tried to set resolution`. São as duas linhas que ele imprime quando recusa, então a ausência delas
+é a afirmação — e refutar é fixar `VSSH_X11_WIDTH` num valor diferente do da janela.
+
+---
+
 ## A ordem, e por que ela é essa
 
 | # | O quê | Repo | Trava em |
@@ -706,6 +763,7 @@ com supersampling** (neutro para qualquer cliente). Só então vale escrever có
 | 4d | 📋 o ambiente ganha o Alt+Tab que o motor levou embora — sobre `VsshWindow._all` | `vssh-sso` | 3a |
 | 5 | 📋 **a orquestração de porta morre** — os onze lugares, o `nextLoopback` e o teto de **254** (era o `0d` da [Onda 9](08-editor-do-ambiente.md)) | `vssh-sso` | 2 |
 | 6 | 📋 o portal não deixa dois starts do mesmo app em voo — a **causa primeira** do incidente | `vssh-sso` | — |
+| 7 | 📋 o portal conta ao motor o **tamanho e a DPI** da tela — hoje a sessão é 1920x1080 numa janela de 2881x1565 | `vssh-sso` | — |
 | — | 📋 **o `createAppLog` do toolkit grava síncrono** — hoje todo vssh-app perde a última linha antes de `process.exit()` | `toolkit` | — |
 
 **A onda declarou o pacote fechado e o pacote reabriu.** Vale registrar por que isso não é o processo
