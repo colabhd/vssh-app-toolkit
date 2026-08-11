@@ -723,9 +723,16 @@ como item próprio**, e não escondido dentro deste.
 | `workspaceProvider` | patch `0004-janela-do-ambiente.patch` | ~25 min de build |
 
 **O que a reescrita da página entrega, e é o item 2b junto:**
-`window.customTitleBarVisibility: 'never'` — a barra de título do VS Code **sai**, porque a janela já
-tem uma, a do ambiente. Duas barras empilhadas eram o preço de o editor não saber onde estava. Com
-elas vão `window.commandCenter` (duplicava a barra do ambiente), `update.mode: 'none'` (não há
+
+⚠ **Aqui estava escrito `window.customTitleBarVisibility: 'never'` — "a barra de título do VS Code
+**sai**, porque a janela já tem uma, a do ambiente". Isso está errado, e o conserto inverteu o
+sentido do item.** Quem sai é a **nossa**: o valor é `'auto'`, a barra do VS Code fica, e ela passa a
+ser a barra da janela — o arranjo do Electron, e o que o usuário pediu com uma frase que desmontou um
+desenho meu bem maior: *"tudo que eu quero é colocar os botões de abrir fechar e minizar nela, e
+ocultar a nossa padrão"*. Duas barras empilhadas continuam sendo o defeito; some a de fora, não a de
+dentro. Ver **2d**, abaixo.
+
+Com ela vão `window.commandCenter` (duplicava a barra do ambiente), `update.mode: 'none'` (não há
 servidor de atualização para um build OSS nosso — deixar ligado é prometer uma verificação que não
 existe) e `telemetry.telemetryLevel: 'off'`.
 
@@ -901,6 +908,51 @@ depois:
 `undefined`. E um caso de artefato: se o alvo do gulp passar a produzir `workbench.web.main.js`, o
 caso fica vermelho **pedindo que este item seja reescrito** — porque aí a página nossa volta a ser
 alcançável e o patch deixa de ser a única costura.
+
+### ✅ 2d. A barra do editor É a barra da janela — feito, e a janela real cobrou três defeitos
+
+O manifesto ganha `window.cabecalho: "app"` (schema do toolkit, enum `ambiente|app`, padrão
+`ambiente`); o shell para de desenhar o cabeçalho dele e o iframe passa a ocupar 100% da altura; e o
+patch `0006` põe os três botões dentro do `.window-controls-container` que o próprio
+`titlebarPart.ts` já constrói, com a `titlebar-drag-region` inteira arrastando.
+
+**Arrastar não precisou de retângulo nem de geometria**, e essa é a diferença para o
+`/proxy/vscode/`: a região de arraste é **prependada** (`titlebarPart.ts:486`) e tudo o mais é
+appendado **por cima** dela (`:550`) — não há buraco a recortar, e um botão recebe o próprio clique
+porque está acima, não porque alguém o excluiu. O que atravessa a ponte é um **ponto**, não geometria.
+
+Três coisas só a janela real mostrou, e nenhuma bancada via:
+
+1. **Os botões não apareciam, e estavam no DOM.** O container é do upstream e vale `width: 0px` na
+   web (`titlebarpart.css:308,325`) — um navegador não tem controle de janela, e a caixa só reserva
+   espaço para um overlay que não existe. Dentro dela, um item de flex com o `flex-shrink: 1` padrão
+   encolhe até zero por mais que declare 46px. São duas metades, e a que faltava não dava erro
+   nenhum. Medido: container `0×35`, três botões, cada um medindo zero.
+
+2. **O arraste ficou "meio toggle".** Segurar a barra não movia nada; sair da janela com o ponteiro
+   finalmente movia, e a janela saltava; soltar dentro do iframe deixava o arraste **ligado**. Uma
+   causa só, e ela estava escrita **como acerto** no comentário do `iniciarDeFora`: *"mesmo limiar"*
+   e *"o `guard` que o `iniciar()` levanta já cobre o iframe"*. As duas frases estavam erradas — o
+   `iniciar()` só roda **depois** do limiar, e o limiar só passa com um `pointermove` no documento do
+   ambiente, que não pode chegar enquanto o ponteiro está sobre o iframe. Sem `guard`, nem o move nem
+   o `pointerup` atravessam. **O limiar é de quem tem o ponteiro:** quem conta os 5 px passou a ser a
+   barra do app, e o ambiente levanta a `guard` na hora.
+
+3. **A janela ficou sem controle nenhum, e o motor estava certo.** Os dois blocos do patch são
+   guardados por `if (ponte?.window?.arrastar)`, e `arrastar` nasceu no toolkit **4.1.0** — mas o
+   `package-lock.json` do repo do app fixava o commit da **4.0.0**. A lição que eu já tinha escrita
+   dizia *"mover a tag `v4`"*, e estava **incompleta**: a tag moveu; quem a ignora é o `npm ci`, que
+   obedece ao lock. Mover a tag é necessário e não é suficiente. Pior: **um guarda opcional que dá
+   falso não quebra — ele desliga o recurso**, calado, e o sintoma aparece a três repositórios de
+   distância.
+
+**Guarda:** `tests/unit/cabecalho-do-app.test.js` no `vssh-sso`, **9 casos**, e
+`tests/pagina-do-ambiente.test.js` no editor, **4 casos** dos 34 — refutação **6/6 + 9/9**.
+
+⚠ E um caso ficou **verde o tempo todo com a janela quebrada**: o do arraste de fora montava com
+`distance: 0`, e com limiar zero a `guard` sobe de qualquer jeito. Um caso que só passa na
+configuração que ninguém usa não cobra nada — o novo monta com o limiar de produção, e o par
+obrigatório cobra que o arraste que nasce **no shell** continue com limiar.
 
 ### 2a. 📋 O patch da plataforma — e ele é uma linha
 
