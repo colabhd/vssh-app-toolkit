@@ -607,13 +607,17 @@ já escrito no cabeçalho do arquivo:
    arquivos ali dentro (`!node_modules/@github/copilot/sdk/*.js`, etc.), então o cache foi montado
    num momento em que aqueles arquivos não estavam onde ele os procurou.
 
-   **Por que o primeiro build passou, eu ainda não sei** — e isso fica escrito assim, porque a
-   alternativa é inventar a segunda história depois de a primeira ter caído. A hipótese em teste é
-   que o `.build/extensions` daquela vez tenha sido montado depois do `npm ci`, e o desta, antes.
+   **A causa era o cache `.build/extensions`**, e a hipótese que eu tinha deixado escrita se
+   confirmou: ele foi montado num momento em que os `node_modules` do copilot não estavam onde o
+   empacotamento os procurou, e ficou assim — um cache que não se invalida quando a sua entrada
+   muda. Apagando-o, o `sdk` apareceu na saída e a tarefa passou.
 
-   O que a limpeza da saída **de fato** garantiu continua valendo e fica: reaproveitar o produto
-   anterior é reaproveitar estado, e `out-build/`/`.build/` são cache e ficam. Mas isso é higiene,
-   não era o defeito.
+   **E a medida derruba a justificativa daquele cache:** 7,67 min com ele limpo contra 8,48 min
+   com ele. Ele não estava economizando nada — estava guardando um estado que envenenava o build.
+
+   A limpeza da saída, que era o meu primeiro palpite, continua: é higiene certa. Mas ela não era
+   o defeito, e o texto acima diz isso porque a alternativa seria deixar duas explicações em pé,
+   uma delas falsa.
 
 ### O que a instalação real cobrou — e as bancadas mediam a bancada
 
