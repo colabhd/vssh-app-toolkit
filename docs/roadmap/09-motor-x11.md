@@ -383,10 +383,15 @@ sobreviviam porque **um app ainda declarava `transport: "tcp"`**, e esse app era
 deixou sem assunto foi o item 2 desta onda, e por isso o item mora aqui, ao lado da medida que o
 autoriza.
 
-**O item 2 fechou: este está liberado, e é o único da onda que ainda não foi feito no `vssh-sso`.**
-O gate agora é operacional e não técnico — apagar a orquestração de porta antes de o
-`vsshapp-xpra` 0.6.0 estar instalado nos servidores deixa o motor sem endereço, porque o portal
-passaria a montar o túnel só para socket enquanto o app instalado ainda binda porta.
+**O item 2 fechou, e este está liberado.** O gate é operacional e não técnico — apagar a
+orquestração de porta antes de o `vsshapp-xpra` **0.5.0** estar instalado nos servidores deixa o
+motor sem endereço, porque o portal passaria a montar o túnel só para socket enquanto o app
+instalado ainda binda porta.
+
+**E o gate é a 0.5.0, não a versão mais nova.** Quem trocou o transporte foi ela; a 0.6.0 não
+encosta em endereço nenhum. Confundir as duas seria esperar por uma publicação que este item não
+precisa — a 0.5.0 **já está publicada**, e o que falta é a instalação nos servidores, que é o que
+se confere com `ss -tln`.
 
 **O que já saiu com o 0c**, e não espera nada: a ponta **local** do `-L` passou a ser decidida no
 portal (`alocarPortaLocal`), então o `ss -tlnp` remoto sobra exclusivamente para `tcp` — isto é, para
