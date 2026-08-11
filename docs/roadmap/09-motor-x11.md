@@ -691,7 +691,29 @@ com supersampling** (neutro para qualquer cliente). Só então vale escrever có
 
 ---
 
-## 7. 📋 O portal conta ao motor o tamanho e a DPI da tela de quem está abrindo
+## 7. 📋 O portal conta ao motor a DPI da tela de quem está abrindo
+
+> **Este item era "o tamanho E a DPI", e a metade do tamanho se dissolveu na `0.7.3`.** Uma linha do
+> log, três segundos antes de qualquer cliente existir, mudou o diagnóstico:
+>
+> ```
+> Warning: cannot set resolution to (8192, 4096) · (this resolution is not available)
+> ```
+>
+> **O próprio xpra tenta esticar a tela na largada** — ele quer um root window espaçoso para depois
+> encaixar a resolução de cada cliente dentro dele, por RandR. Com `-screen 0 1920x1080`, o pedido é
+> recusado, e é essa recusa que faz o `xrandr --newmode` do cliente levar `BadMatch`: **não se
+> adiciona modo maior que o tamanho máximo da tela.** Não faltava RandR, faltava espaço.
+>
+> Eu lia `VSSH_X11_WIDTH/HEIGHT` como "o tamanho da área de trabalho". Elas eram o **teto** — e um
+> teto de 1920x1080 é também o piso. A `0.7.3` põe o padrão em 5760x2560 (59 MB de framebuffer, o
+> padrão histórico do xpra), e o cliente passa a escolher a resolução dentro dele **sem o portal
+> mandar nada**: o `hello` já informa o tamanho.
+>
+> **Sobra a metade da DPI, e ela não se dissolve**, porque a DPI de uma tela X é derivada do tamanho
+> físico em milímetros — decidida na CRIAÇÃO, e imutável depois. É o que o xpra diz ao recusar:
+> *"try the dpi switch, or use a patched Xorg dummy driver"*.
+
 
 **Item novo, e ele fecha DOIS sintomas medidos numa sessão real** — não é refinamento. O log do
 próprio xpra, em 11/08/2026, diz os dois com as palavras dele:
@@ -763,7 +785,7 @@ desaparece com um servidor X que aceite redimensionar ao vivo — ou seja, com o
 | 4d | 📋 o ambiente ganha o Alt+Tab que o motor levou embora — sobre `VsshWindow._all` | `vssh-sso` | 3a |
 | 5 | 📋 **a orquestração de porta morre** — os onze lugares, o `nextLoopback` e o teto de **254** (era o `0d` da [Onda 9](08-editor-do-ambiente.md)) | `vssh-sso` | 2 |
 | 6 | 📋 o portal não deixa dois starts do mesmo app em voo — a **causa primeira** do incidente | `vssh-sso` | — |
-| 7 | 📋 o portal conta ao motor o **tamanho e a DPI** da tela — hoje a sessão é 1920x1080 numa janela de 2881x1565 | `vssh-sso` | — |
+| 7 | 📋 o portal conta ao motor a **DPI** da tela — a metade do TAMANHO se dissolveu na 0.7.3 (o teto do Xvfb era 1920x1080) | `vssh-sso` | — |
 | — | 📋 **o `createAppLog` do toolkit grava síncrono** — hoje todo vssh-app perde a última linha antes de `process.exit()` | `toolkit` | — |
 
 **A onda declarou o pacote fechado e o pacote reabriu.** Vale registrar por que isso não é o processo
