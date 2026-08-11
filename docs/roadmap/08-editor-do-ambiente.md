@@ -640,17 +640,52 @@ alvo do gulp divergindo entre local e CI; e o lock ausente.
 
 ## 2. 📋 O workbench é nosso, e o motor é o servidor do VS Code
 
-O backend do app serve **a nossa página**, que chama `create()` com o objeto de construção ligado no
-`vssh.*`. O extension host continua sendo o servidor do VS Code, agora em socket unix (passo 0).
-
-Entram de cara, todos com a linha citada acima: `workspaceProvider` → janelas do VSSH;
+O extension host continua sendo o servidor do VS Code, agora em socket unix (passo 0). O que entra,
+todos com a linha citada acima: `workspaceProvider` → janelas do VSSH;
 `productConfiguration.extensionsGallery` → a galeria é nossa; `initialColorTheme` +
 `configurationDefaults` → tema `tuff` e barra de título esvaziada; `secretStorageProvider` → o cofre;
 `resolveExternalUri` → navegador embutido; `serverBasePath`/`webSocketFactory` → o prefixo do proxy.
 
-**Guarda:** `tests/unit/workbench-do-ambiente.test.js` — o objeto de construção declara os sete
-provedores, e `IWorkspaceProvider.open` **não** cai no `window.open` de fora. Refuta: devolver
-qualquer um deles a `undefined`.
+### ⚠ "O backend do app serve **a nossa página**" — medi o build, e essa frase não se sustenta
+
+Este item dizia que o backend serviria uma página nossa, chamando `create()`. **Com o alvo que o
+motor é (`vscode-reh-web-linux-x64`), isso não é alcançável**, e a medida é do artefato construído,
+não da fonte:
+
+| O que eu esperava achar | O que o build tem |
+|---|---|
+| `out/vs/workbench/workbench.web.main.js`, exportando `create` para um hospedeiro | **não existe.** `out/vs/workbench/` só tem `api/`, `contrib/`, `services/` |
+| um bundle importável pela nossa página | **um bundle só** — `out/vs/code/browser/workbench/workbench.js`, **35.494.883 bytes (33,8 MiB)** —, e o seu ponto de entrada **é o embedder de referência**: um IIFE que lê o `<meta id="vscode-workbench-web-configuration">`, monta as opções e chama `create()` sozinho (`workbench.ts:603-628`) |
+
+`create` só é exportado de `workbench.web.main.internal.js`, que este alvo **empacota e não expõe**.
+Servir uma página nossa contra este build daria a mesma página, sem chamada nossa nenhuma.
+
+**E o que a página do upstream realmente é, lida no artefato, muda o desenho para melhor.** O
+`workbench.html` servido tem **uma** variável de caminho, `{{WORKBENCH_WEB_BASE_URL}}`, usada nas
+seis URLs que ele emite (ícone, manifest, CSS, NLS ×2, o bundle) e num
+`new URL(…, window.location.origin)` que define o `_VSCODE_FILE_ROOT`. Essa variável é o
+`staticRoute` de `webClientServer.ts:341`, montado sobre o `basePath` de `:268` —
+`getFirstHeader('x-forwarded-prefix') || this._basePath`. **Um header resolve o prefixo inteiro**, o
+que confirma com o HTML na mão a correção que já estava escrita no `backend/motor.env`.
+
+**Então o item 2 muda de forma, e não de objetivo.** A separação é entre o que é *dado* e o que é
+*função*:
+
+| Metade | Como chega | Onde mora |
+|---|---|---|
+| `productConfiguration` (a galeria), `initialColorTheme`, `configurationDefaults`, `windowIndicator`, `defaultLayout` | **JSON no `data-settings` da `<meta>`**, reescrito pelo nosso backend a cada requisição | não precisa de patch — e por isso muda **sem recompilar o motor** |
+| `workspaceProvider`, `secretStorageProvider`, `resolveExternalUri`, `urlCallbackProvider`, `commands[].handler` | **funções**, que não atravessam JSON | patch em `workbench.ts`, no fork — a única costura que existe |
+
+O desenho que sai disso: o patch põe os provedores, e eles **leem a sua configuração de um campo
+`vssh` que o backend injeta na mesma `<meta>`** — serverId, prefixo, tema, token. Assim o que muda
+por sessão é dado, e só comportamento novo custa os ~25 min de rebuild. É a mesma regra do
+`motor.env` aplicada ao runtime: um lugar declara, todos leem.
+
+**Guarda:** `tests/workbench-do-ambiente.test.js` — o objeto de construção declara os provedores, e
+`IWorkspaceProvider.open` **não** cai no `window.open` de fora. Refuta: devolver qualquer um deles a
+`undefined`. E um caso de artefato: se o alvo do gulp passar a produzir `workbench.web.main.js`, o
+caso fica vermelho **pedindo que este item seja reescrito** — porque aí a página nossa volta a ser
+alcançável e o patch deixa de ser a única costura.
 
 ### 2a. 📋 O patch da plataforma — e ele é uma linha
 
