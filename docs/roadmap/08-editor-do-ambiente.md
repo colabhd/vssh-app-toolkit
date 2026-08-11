@@ -530,7 +530,7 @@ derrubaria o desenho é a lista crescer para além disso.
 
 # O plano do fork
 
-## 1. 📋 O pacote `vsshapp-vscode`
+## 1. ✅ O pacote `vsshapp-vscode` — **feito**, e a instalação real cobrou o que nenhuma bancada via
 
 Repositório novo, no molde do `vsshapp-xpra`. `id: "vscode"`, `type: "app"`, `backend.transport:
 "socket"` — o primeiro app a nascer no padrão do passo 0 — e **`kind: "app"`, não `"service"`**:
@@ -538,27 +538,105 @@ Repositório novo, no molde do `vsshapp-xpra`. `id: "vscode"`, `type: "app"`, `b
 workbench que ninguém abriu não deve consumir RAM, e um que caiu cinco vezes num mês não deve ficar
 `failed` para sempre.
 
-**A entrega está decidida pelo número.** 617 MB não passam por `git archive` + POST único, e o GitHub
-recusa arquivo acima de 100 MB. O caminho é `installCommand`, e ele funciona porque no install como
-root o `cwd` é `${WORKDIR}/pkg` — um `mktemp -d` **gravável** (`vssh-app-install:335`) — e o passo
-seguinte é `rsync -a --delete` para `/opt/vssh-apps/<id>/` (`:348`). **O que o `installCommand`
-baixar vai parar no diretório do app, root-owned, e o tarball publicado continua em centenas de KB.**
-`vssh-app-publish` não muda.
+**A entrega estava decidida pelo número, e o número saiu como o desenho previa.** 617 MB não passam
+por `git archive` + POST único, e o GitHub recusa arquivo acima de 100 MB. O caminho é o
+`installCommand`, e ele funciona porque no install como root o `cwd` é `${WORKDIR}/pkg` — um
+`mktemp -d` **gravável** (`vssh-app-install:335`) — e o passo seguinte é `rsync -a --delete` para
+`/opt/vssh-apps/<id>/` (`:348`). Medido no que está publicado hoje:
 
-Três regras que o comando tem de respeitar, cada uma já paga por outro app:
+| O quê | Tamanho | Onde mora |
+|---|---|---|
+| o pacote `vscode` **0.1.15** (`git archive` + POST) | **32.646 bytes** | índice do `vssh-repo` |
+| o motor `1.132.0-local202608111558` (o build do fork) | **285.332.099 bytes — 272,1 MiB** | R2, baixado pelo `installCommand` |
+
+**O pacote é 0,011% do que ele entrega**, e é essa razão que faz o modelo funcionar sem tocar no
+`vssh-app-publish`: o que o `git archive` leva é o *roteiro*, não o produto.
+
+**O motor virou uma espécie de artefato, e não um app disfarçado.** O `vssh-repo` ganhou `kind:
+"motor"` porque app e motor têm ciclos diferentes — 0.1.15 do pacote contra um motor que só muda
+quando o fork recompila — e porque o assimétrico do Worker obriga: 128 MB de teto de memória
+impedem bufferizar 272 MiB na subida, mas `blobResponse(obj.body)` **transmite** a descida sem
+carregar nada. Então a subida vai direto ao R2 (S3 multipart, token com escopo de **um** bucket) e o
+registro no Worker é **só metadado**, conferindo `head()` e tamanho.
+
+As três regras do comando, cada uma paga por outro app, e o que cada uma custou aqui:
 
 - **Idempotente e guardado**, porque ele roda de novo **por usuário** no primeiro `vssh-app-run`
-  (`:219-227`), com `cwd` em `/opt/vssh-apps/<id>`, que é **somente leitura**. Sem guarda, a primeira
-  abertura de todo usuário falha. O idioma é o do `terminal-latch`:
-  `( [ "${VSSH_APP_REBUILD:-}" != 1 ] && test -x vendor/…/code ) || baixa`.
-- **Versão fixada e `sha256sum` conferido** no próprio comando. É o conserto do achado do
-  provisionador: hoje três arquivos dizem `4.126.0` e a máquina roda `4.127.0` — os três lugares que
-  declaram a versão não descrevem o servidor.
-- **`resources` declarado**, e não o padrão. 85% de 79 GB são 67 GB: não é teto, é decoração. O
-  número de partida é a medida — 9,3 GiB numa conta ativa.
+  (`:219-227`), com `cwd` em `/opt/vssh-apps/<id>`, que é **somente leitura**. A fase por usuário não
+  baixa nada: ela confere, e **falha alto nomeando o conserto** se a fase root não aconteceu.
+- **Versão fixada e `sha256sum` conferido** no próprio comando, **antes de extrair** — um tarball
+  trocado no caminho não chega a escrever arquivo no destino. É o conserto do achado do
+  provisionador: três arquivos diziam `4.126.0` e a máquina rodava `4.127.0`. Aqui a versão está em
+  **um** arquivo, `backend/motor.env`, que o `install.sh`, o `server.js` e a guarda leem.
+- **`resources` declarado**, e não o padrão. 85% de 79 GB são 67 GB: não é teto, é decoração.
+  ⚠ **Mas o que está declarado — `memoryHigh: 3G`, `memoryMax: 6G` — não é medida, é ponto de
+  partida**, e a frase anterior deste item dava a entender o contrário. Os 9,3 GiB medidos são de uma
+  **sessão inteira** (`session-705.scope`), não do editor; o número do editor sozinho ainda não
+  existe, e vem da primeira sessão real.
 
-**Guarda:** `tests/instalacao-idempotente.test.js` — roda o `installCommand` duas vezes contra um
-servidor HTTP que **conta requisições**; a segunda tem de baixar zero. Refuta: tirar o guard.
+### O build saiu na minha máquina, e o CI ainda não fez um verde
+
+**Nove tentativas no CI, nenhuma completa.** As causas, na ordem em que apareceram, porque cada uma é
+um achado: `setup-node` com arquivo fora do workspace; **o mangler do próprio upstream** reprovando
+um `-min` (e ele reproduz na *tag de release*, não só num `main` de um dia ruim); heap de 8 GB num
+runner de 7,9 GB; nomes de task de gulp copiados de outra versão; **o nosso patch de galeria
+redirecionando o fetch de extensões embutidas do próprio build**, que confere sha256 gravado de
+artefatos do GitHub; a minha limpeza de disco apagando o toolcache com o Node 24 dentro; e o portão
+de não-ASCII do upstream (`optimize.ts:253`) reprovando **regexes do código deles**, que o `charset`
+do esbuild não reescreve.
+
+Daí o `scripts/build-local.sh`: o mesmo build, num container que **fica de pé**. Cada tentativa no CI
+repetia `npm ci` + compile inteiro para chegar ao passo que falhava, ~25 min cada. **Ele não é uma
+segunda definição do build** — e essa regra teve de virar código, porque o defeito aconteceu com o
+aviso já escrito: o `motor.yml` trocou de alvo, o `build-local.sh` ficou no `-min`, e a execução
+seguinte morreu num erro que já estava resolvido. Agora o alvo é **lido** do workflow.
+
+### O que a instalação real cobrou — e as bancadas mediam a bancada
+
+Primeira instalação de verdade, em `ipprivm01`, e ela abortou:
+
+```
+==> motor 1.132.0-local202608111558 instalado em vendor/motor
+==> npm ci
+npm ERR! code EUSAGE
+ERRO: installCommand falhou como root (código 1). Instalação ABORTADA
+```
+
+**O pacote não levava `package-lock.json`.** E os cinco casos de instalação passavam verdes porque a
+bancada monta um pacote de teste **com `package.json` e lock próprios** — ela media o `install.sh`
+contra um projeto npm que ela mesma criava. É a assinatura que esta casa já registrou noutro eixo: a
+guarda media a bancada, não o produto, e ficava verde justamente enquanto a instalação real não
+existia.
+
+O caso novo nasceu vermelho, e por um motivo mais fino que "faltava o arquivo": **o lock existia no
+disco e não estava versionado**, e o que o publish empacota é `git archive`, que só vê o versionado.
+Por isso o caso cobra as três coisas juntas — existe, está em `git ls-files`, e **resolve o
+`vssh-app-toolkit`** (um lock que não resolve a dependência deixa o `npm ci` instalar nada e o
+backend morre no primeiro `require`).
+
+Com o `0.1.15`, a instalação foi ao fim:
+
+```
+[vssh-app-install] Baixando vscode@0.1.15 do repositório...
+==> baixando o motor do editor 1.132.0-local202608111558
+100 272.1M  100 272.1M   0  0  7.90M  0  00:34  00:34  --:--:--  7.43M
+==> motor 1.132.0-local202608111558 instalado em vendor/motor
+==> npm ci
+added 1 package, and audited 2 packages in 690ms
+[vssh-app-install] 'vscode' instalado em /opt/vssh-apps/vscode.
+```
+
+**272,1 MiB em 34 s (7,90 MB/s médio), sha256 conferido, `npm ci` em 690 ms.** O caminho inteiro —
+build do fork → R2 → registro → download público sem token → `sha256sum -c` no servidor — mediu
+certo de ponta a ponta.
+
+**Guarda:** `tests/instalacao-idempotente.test.js`, **11 casos, refutação 11/11**. Os cinco primeiros
+rodam o `installCommand` de verdade contra um servidor HTTP que **conta requisições**; os seis
+seguintes são de fonte, e existem porque cada um já foi um defeito real: o nome do binário que o
+`install.sh` confere ≠ o que o `server.js` executa; o `motor.env` sem um dos quatro campos; um patch
+com caractere não-ASCII; **um byte de controle num workflow** (uma vez o GitHub respondeu que o
+`motor.yml` *"não tem gatilho `workflow_dispatch`"* quando o defeito era um `ESC` num comentário);
+alvo do gulp divergindo entre local e CI; e o lock ausente.
 
 ## 2. 📋 O workbench é nosso, e o motor é o servidor do VS Code
 
@@ -793,7 +871,7 @@ acompanhada do que a desmente, ali perto?"*.
 | 0c | ✅ **o caminho do portal** — endereço derivado com fonte única, sondagem por `--unix-socket` com `sudo -u`, o lado remoto do túnel, o túnel logando como o **dono**, e o "pronto" medindo o **outro lado**; o cliente vai a **4.1.1** | `vssh-sso` | 0b |
 | 0d | ✅ **a porta do túnel é NOSSA** — decidida no portal, e o `ss -tlnp` remoto sobra só para `tcp` | `vssh-sso` | 0c |
 | — | ➜ **o resto do 0d virou o [item 5 da Onda 10](09-motor-x11.md)** — os onze lugares, o `nextLoopback` e o teto de 254 só ficam sem assunto quando o xpra sair do `tcp` | `vssh-sso` | ⛔ Onda 10, item 2 |
-| 1 | 📋 o pacote e a entrega por `installCommand` | `vsshapp-vscode` | 0c |
+| 1 | ✅ **feito** — o pacote (32.646 bytes) e o motor (272,1 MiB) entregues por `installCommand`, instalados num servidor real | `vsshapp-vscode` | 0c |
 | 2 | 📋 o fork: workbench nosso + o patch da plataforma | `vsshapp-vscode` | 1 |
 | — | **publicar e instalar em TODOS os servidores** | | 1, 2 |
 | 3 | 📋 `/proxy/vscode/` deixa de existir | `vssh-sso` | ⛔ o passo acima |
