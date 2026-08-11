@@ -248,48 +248,131 @@ que o comentário descreve, virado teste. Refuta: reintroduzir o canvas em tela 
 E uma segunda, que é a que prova a frase deste item: **nenhum arquivo do shell pergunta de que
 família a janela é** — os 31 pontos viram zero, e o `xpraAdapter` não existe mais.
 
-## 4. 📋 O último jQuery do ambiente sai — e ele é o maior
+## 4. ✅ O último jQuery do ambiente saiu — e ele escondia o Alt+Tab
 
 A [Onda 8](07-shell-proprio.md) tirou o jQuery do shell (**824 KB a menos**) e fechou. **O ambiente
-continua entregando jQuery ao navegador**, escondido dentro deste app:
+continuava entregando jQuery ao navegador**, escondido dentro deste app. Saiu na 0.6.0, e com ele
+**33.980 linhas de lib** — `−14.488` linhas no total do pacote:
 
 | | |
 |---|---|
-| `frontend/js/lib/jquery-ui.js` | **19.061 linhas** |
+| `frontend/js/lib/jquery-ui.js` | **19.061 linhas** — saiu no item 3a |
 | `frontend/js/lib/jquery.js` | **10.716 linhas** |
 | `frontend/js/lib/slick.js` | **3.011 linhas** |
-| `frontend/` inteiro | **2,3 MB**, 31 arquivos |
-| **call sites de `$(` no cliente** | **35**, em três arquivos |
+| `frontend/js/lib/jquery.ba-throttle-debounce.js` | **252 linhas**, um consumidor só |
 
-**Trinta mil linhas para 35 chamadas** — e as chamadas são `.parents()`, `.closest()`, `.addClass()`
-e `.css()` (`Window.js:144,228,369,1234`), que são uma linha de DOM cada.
+~~"35 call sites de `$(` no cliente, em três arquivos."~~ **Contado de novo, e por dois lados:** são
+**39**, porque a varredura procurava `$(` e havia **8 em `jQuery(`** — `jQuery("body")`,
+`jQuery("title")`, `jQuery(document).scrollLeft()`. E o `Window.js`, que o item anterior apontava
+como onde a maioria morava, tinha **zero reais**: a única ocorrência é comentário.
 
-~~"O item 3 já apaga `Window.js`, que é onde a maioria delas mora."~~ **Contado, e é o contrário:**
-`Window.js` tem **5** ocorrências (uma delas comentário), `Notifications.js` tem **9**, e
-`Client.js` tem **21** — a maioria mora justamente no arquivo que o item 3 NÃO apaga. O `jquery-ui`
-(19.061 linhas) é que sai com o 3: quem o usa é o `draggable`/`resizable` do `Window.js`, em 16
-lugares.
+Dos 134 originais, a divisão que decidiu o trabalho:
 
-**Mas os dois itens continuam sendo um só trabalho, e a razão é outra — melhor.** O maior consumidor
-de jQuery do `Client.js` é o **carrossel Alt+Tab** (`slick`, `#window_preview`, `.slick-current`), e
-ele existe por uma razão que o item 3 apaga: o cliente precisa de um Alt+Tab PRÓPRIO porque as
-janelas X11 não estão em lugar nenhum que o ambiente enxergue. Quando cada janela X11 for uma
-`VsshWindow`, a taskbar e o `TilingManager` já as listam — e o carrossel deixa de ser "jQuery a
-portar" para virar **código a apagar**, com `slick.js` (3.011 linhas) junto. Fazer o 4 depois do 3 é
-o que transforma uma reescrita em uma deleção.
+| | | |
+|---|---|---|
+| **16** | `draggable`/`resizable` de um gerenciador de janelas | o ambiente já tinha um — **apagado no 3a** |
+| **17** | o carrossel Alt+Tab | **apagado**, com o `slick` junto |
+| **21** | `.addClass()`, `.text()`, `.offset()`, `.select()` | uma linha de DOM cada — **portadas** |
 
-**E já há código morto medido no caminho:** `#float_menu` — o dock que o cliente do xpra desenha —
-**não existe no `index.html` do shell** (saiu na Onda 0c). O menu flutuante e o item
-`toggle-window-preview` dele são código sem onde desenhar.
+**Dois terços viraram deleção, não porte.** É o mesmo achado da Onda 8 — *"a premissa do jQuery
+estava invertida, e a medida diz de que lado"* —, e aqui ele aparece na forma mais forte: o custo
+não estava em portar as chamadas, estava em duas funcionalidades que o ambiente já tinha ou já
+deveria ter.
 
-> É a mesma forma do achado da Onda 8: *"a premissa do jQuery estava invertida, e a medida diz de que
-> lado"*. Lá o shell tinha menos jQuery do que se dizia; aqui o ambiente tem mais, e num lugar onde
-> ninguém procurou.
+### O Alt+Tab não era do shell. Era deste pacote, e ninguém sabia
 
-**Guarda:** o teste que a Onda 8 deixou, apontado para o pacote — nenhum `<script>` de jQuery servido
-por app nenhum. Refuta: revendorizar a lib.
+~~"Quando cada janela X11 for uma `VsshWindow`, a taskbar e o `TilingManager` já as listam — e o
+carrossel deixa de ser jQuery a portar para virar código a apagar."~~ **A primeira metade é
+verdadeira e a segunda esconde uma perda.** Medido:
+
+- a tecla era presa em `Client.js:868`, **dentro do pacote** — o alternador de janelas do ambiente
+  só existia com o motor X11 carregado;
+- ele listava `client.id_to_window`: **janelas X11, e nada mais.** Com um navegador e um terminal
+  na tela, o Alt+Tab não os via;
+- varredura ampla no `vssh-client/`: **zero** handlers de Alt+Tab. Não há outro;
+- e a tela de atalhos do shell documenta `Alt+Tab · Alternar janelas`
+  (`settings/secoes-ambiente.js:623`) como se fosse do ambiente;
+- o comentário `VsshWindow.js:592` — *"o Alt+Tab lê `VsshWindow._all`"* — **é falso**. Quem lê
+  `_all` naquele handler é o tiling (Super+setas).
+
+Então apagá-lo **deixa o ambiente sem Alt+Tab**, e isso vira um item novo do lado do `vssh-sso` —
+o **4d**, abaixo. Enquanto ele não existe, quem troca de janela é a taskbar, que lista todas
+inclusive as X11; e como nada mais consome a tecla, o Tab volta a ser encaminhado ao remoto, que é
+o que uma aplicação X11 espera dele.
+
+### O item 3a estava QUEBRADO como commitado, e o item 4 é que descobriu
+
+`conferirDependencias()`, em `motor/xpra-engine.js`, continuou exigindo `jQuery.ui.draggable`
+**depois** de o 3a apagar o `jquery-ui`. O motor teria recusado carregar em produção, com uma
+mensagem citando *"16 lugares do Window.js"* que já não existiam. A conferência nº 9 do pacote não
+pegou porque perguntava só ao `Window.js` e ao `Client.js` — e o defeito morava no carregador.
+
+**E o conserto óbvio reintroduziria o mesmo defeito com outra roupa.** Trocar por
+`typeof self.VsshWindow !== 'function'` seria recusar o motor pela ausência de uma classe presente:
+o shell declara `class VsshWindow {}` no topo de um script clássico, e **declaração de classe cria
+binding no ambiente léxico global — não vira propriedade de `window`.** Confere-se o nome **nu**.
+
+> A lição, que virou guarda: **conferência de dependência que nomeia uma lib é dívida com data
+> marcada.** A pergunta certa é pelo que o ambiente provê e o pacote *não* traz.
+
+### E o sino do ambiente nunca recebeu uma notificação X11 sequer
+
+O `NotificationCenter` do shell envolve `window.doNotification` para gravar toda notificação X11 no
+histórico (`_wrapX11`, `NotificationCenter.js:607`). **Medido: o envelope nunca é aplicado.**
+`NotificationCenter.mount()` roda dentro do `init_page()` (`index.html:850`); o motor X11 é
+carregado depois e de forma assíncrona, por `_carregarMotorDoApp()` (`index.html:1011`). Quando
+`_wrapX11()` procura a função, o `Notifications.js` ainda não foi servido — ela não existe, o
+envelope desiste em silêncio, e nada chega ao sino.
+
+O conserto ficou no pacote, e é melhor que o envelope: **quem produz anuncia**, em vez de quem
+consome remendar. O `Notifications.js` chama `NotificationCenter.push(..., {toast: false})` e põe a
+marca `_ncWrapped` que o próprio shell definiu, para um `mount()` posterior não gravar duas vezes.
+
+**O desenho do toast ficou aqui, e o motivo é um limite medido, não preguiça:** no shell, ação de
+notificação é **dado** (`{id, label}`) roteado por HTTP ao backend do app (`runAction` → `_entregar`,
+que exige um caminho); numa notificação X11 a resposta tem de voltar **pelo protocolo**, ao processo
+que a emitiu. Não há caminho HTTP: o emissor é um processo X11, não um vssh-app. Roteando o desenho
+para o sino, uma notificação com botões passaria a responder *"O aplicativo não está aberto e não
+deixou como responder."* **Unificar os dois toasts custa as ações** — e isso é decisão do shell.
+
+Três defeitos do upstream caíram junto, porque o arquivo estava sendo reescrito de qualquer forma:
+
+- título e corpo iam para `innerHTML` **interpolados** — injeção de HTML vinda de um processo X11
+  qualquer, na página do ambiente. Com `createElement` + `textContent` o vetor fecha sozinho;
+- `expire_timeout` chega em **milissegundos** (freedesktop) e era tratado como segundos: um toast de
+  5 s ficava **83 minutos** na tela;
+- `id=notification"${action_id}"` tinha as aspas trocadas de lugar, então **todos** os botões de
+  ação nasciam com o mesmo id.
+
+**Guardas:** a nº 7 do `conferir-pacote.mjs` **inverteu** — cobrava a presença do jQuery, agora
+cobra que ele não voltou: nem no manifesto, nem no disco, nem chamado. E varre **todo arquivo
+não-lib por diretório**, em vez de uma lista à mão; foi a lista que deixou o defeito do 3a passar. A
+nº 8 deixou de rodar predicados (a `__XPRA_JA_TENHO` ficou vazia: sem lib compartilhada não há
+segunda instância possível) e passou a perguntar o que ainda pode ficar incoerente — inclusive que
+`conferirDependencias` **só exija o que o pacote realmente usa**, que é o defeito do 3a virado
+pergunta. Refutado: **nove mutações, nove vermelhos**, e verde de volta ao fim.
 
 ---
+
+## 4d. 📋 O ambiente ganha o Alt+Tab que o motor levou embora
+
+**Item novo, e ele nasceu de uma medida do item 4:** o Alt+Tab do ambiente morava no pacote do xpra
+e listava só janelas X11. Ele saiu na 0.6.0. O shell nunca teve um — e documenta um, na tela de
+atalhos.
+
+O trabalho é pequeno **porque o 3a já o preparou**: desde que a janela X11 é uma `VsshWindow`, o
+registro `VsshWindow._all` tem tudo o que o alternador precisa listar, sem distinção de família.
+Não há `id_to_window` a consultar, nem adaptador a escolher.
+
+| | |
+|---|---|
+| onde | `vssh-sso`, ao lado da taskbar (`MenuCustom.js`) ou como módulo próprio |
+| a lista | `VsshWindow._all`, ordenada por foco recente |
+| o markup órfão | `#window_preview` (`index.html:415`), `css/slick.css` (109 linhas) e o que sobrou do `menu-skin.css` — o carrossel se foi, e eles ficaram |
+| trava em | o pacote 0.6.0 instalado nos servidores, **ou nada**: sem ele o Alt+Tab velho continua funcionando e o novo o substitui |
+
+**Guarda:** abrir um terminal e uma janela X11, e o alternador listar **as duas**. É a frase que o
+carrossel nunca conseguiu cumprir. Refuta: filtrar a lista por família.
 
 ## 5. 📋 A orquestração de porta morre — e ela mudou de onda para cá
 
@@ -302,7 +385,7 @@ autoriza.
 
 **O item 2 fechou: este está liberado, e é o único da onda que ainda não foi feito no `vssh-sso`.**
 O gate agora é operacional e não técnico — apagar a orquestração de porta antes de o
-`vsshapp-xpra` 0.5.0 estar instalado nos servidores deixa o motor sem endereço, porque o portal
+`vsshapp-xpra` 0.6.0 estar instalado nos servidores deixa o motor sem endereço, porque o portal
 passaria a montar o túnel só para socket enquanto o app instalado ainda binda porta.
 
 **O que já saiu com o 0c**, e não espera nada: a ponta **local** do `-L` passou a ser decidida no
@@ -344,17 +427,25 @@ servidor não mostra porta de app **nenhum**, com o xpra rodando. Refuta: devolv
 | 2 | ✅ a ponte WS → socket nativo, e o `transport` virou `socket` | `vsshapp-xpra` | 1 |
 | — | ✅ **o ambiente ficou sem nenhum app em porta** — o item 5 está liberado | | 2 |
 | 3a | ✅ a janela X11 vira uma `VsshWindow`; o cromo, o arraste, o resize e o `jquery-ui` (19.061 linhas) saem do motor | `vsshapp-xpra` | 1 |
+| 4 | ✅ o jQuery sai do pacote (**33.980 linhas**) — e o carrossel Alt+Tab é apagado, não portado | `vsshapp-xpra` | **3a**, não 3 |
+| — | ✅ **o repositório do pacote fechou** — o que resta da onda é todo do `vssh-sso` | | 4 |
 | 3b | 📋 o outro lado: os proxies (**dois donos**), o `xpraAdapter` e os **31 ramos por família** saem | `vssh-sso` | 3a |
-| 4 | 📋 o jQuery sai do pacote — e o carrossel Alt+Tab é apagado, não portado | `vsshapp-xpra` | 3 |
+| 4d | 📋 o ambiente ganha o Alt+Tab que o motor levou embora — sobre `VsshWindow._all` | `vssh-sso` | 3a |
 | 5 | 📋 **a orquestração de porta morre** — os onze lugares, o `nextLoopback` e o teto de **254** (era o `0d` da [Onda 9](08-editor-do-ambiente.md)) | `vssh-sso` | 2 |
 
 **O item 1 destravou tudo e não dependia de nada**, porque servir o próprio frontend é o que todo
 vssh-app já faz. O item 3 não espera a ponte: agora que a página é nossa, o cliente é nosso para
 reformar.
 
-**E o item 5 é o único que toca o `vssh-sso`**, o que faz dele o fim da fila e não o começo: enquanto
-o item 2 não fechar, apagar a orquestração de porta quebra o ambiente — ela existe hoje **para servir
-um app só**, e o custo disso está medido: um `127.0.0.x` por servidor e um teto de 254.
+~~"O item 4 trava no item 3."~~ **Trava no 3a, e a diferença fechou o repositório do pacote.** A
+razão de o carrossel virar deleção é a janela X11 já estar em `VsshWindow._all` — quem entrega isso
+é o **3a**, dentro do `vsshapp-xpra`. O **3b** apaga o *outro* lado (proxies, `xpraAdapter`, os 31
+ramos), e nada do que o item 4 removeu lia qualquer um deles. Ou seja: o 4 pôde ser feito sem o 3b,
+e com ele **o `vsshapp-xpra` não tem mais trabalho nesta onda**.
+
+**O que restou é todo do `vssh-sso`** — 3b, 4d e 5 —, e nenhum dos três trava nos outros dois.
+O 5 é o único com trava operacional: apagar a orquestração de porta antes de o pacote **0.6.0**
+estar instalado nos servidores deixa o motor sem endereço.
 
 ## Verificação
 
