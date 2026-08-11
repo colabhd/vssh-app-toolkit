@@ -640,11 +640,71 @@ alvo do gulp divergindo entre local e CI; e o lock ausente.
 
 ## 2. 📋 O workbench é nosso, e o motor é o servidor do VS Code
 
-O extension host continua sendo o servidor do VS Code, agora em socket unix (passo 0). O que entra,
-todos com a linha citada acima: `workspaceProvider` → janelas do VSSH;
-`productConfiguration.extensionsGallery` → a galeria é nossa; `initialColorTheme` +
-`configurationDefaults` → tema `tuff` e barra de título esvaziada; `secretStorageProvider` → o cofre;
-`resolveExternalUri` → navegador embutido; `serverBasePath`/`webSocketFactory` → o prefixo do proxy.
+O extension host continua sendo o servidor do VS Code, agora em socket unix (passo 0).
+
+### ⚠ Dos sete provedores prometidos, a medida derrubou dois — e um deles por bom motivo
+
+Este item listava sete entradas do embedder como se as sete fossem alcançáveis. **Duas não são**, e
+descobrir isso custou uma leitura da ponte, não um build:
+
+| O que estava escrito | O que a medida disse |
+|---|---|
+| `workspaceProvider` → janelas do VSSH | ✅ **alcançável hoje.** `vssh.window.abrir(rota)` abre outra janela **deste app** — mesmo backend, mesmo token, mesmo `VSSH_APP_DATA_DIR` — e a pasta viaja na rota |
+| `initialColorTheme` + `configurationDefaults` | ✅ **e sem patch** — são dado, entram pela `<meta>` |
+| `productConfiguration.extensionsGallery` | ✅ já vai no `product.json` do artefato |
+| `serverBasePath` / o prefixo | ✅ resolvido pelo header (item 2c) |
+| ~~`secretStorageProvider` → o cofre~~ | ❌ **a ponte não pode, por decisão de projeto** — e o padrão já é melhor |
+| ~~`resolveExternalUri` → navegador embutido~~ | ❌ **não existe op na ponte** que abra uma URL |
+
+**O cofre não é esquecimento, é desenho — e ele está certo.** O `VsshAppWindow.js:510-512` diz por
+extenso: *"O app nunca toca no valor: ele não manda e não recebe. […] Um app que pudesse ler o
+próprio segredo pela ponte teria uma porta de leitura que o cofre não tem."* O `vssh.secrets` tem
+`list` (só nomes), `set` (o **shell** mostra o campo) e `remove`. Não tem `get`, de propósito. Um
+`ISecretStorageProvider` precisa de `get(key)` devolvendo o valor — então ligá-los exigiria abrir no
+cofre exatamente a porta que ele foi feito para não ter.
+
+**E o que já acontece é melhor do que o que eu ia fazer.** Com `remoteAuthority` presente e sem o
+cookie `vscode-secret-key-path`, o embedder de referência deixa `secretStorageProvider` como
+`undefined` — e o próprio upstream comenta: *"with a remote without embedder-preferred storage,
+store on the remote"*. Ou seja, o segredo já mora **no servidor, na conta Linux da pessoa**, e não
+no `localStorage` do navegador. A ação certa aqui é **nenhuma**, e ficar escrito por quê.
+
+**O navegador embutido não tem porta.** A ponte tem 17 ops (`notify`, `dialog`, `pick`, `fs`,
+`grants`, `capabilities`, `print`, `audio-state`, `clipboard`, `tray`, `title`, `secrets`, `window`,
+`context-menu`, `open-file`, `open-folder`, `open-with`) e **nenhuma abre uma URL**. `openFile` é
+caminho de arquivo, não endereço. Fazer isso não é um patch no fork: é uma capacidade nova da
+plataforma — op no `VsshAppWindow`, função no shim, versão do toolkit e `minShellVersion`. **Fica
+como item próprio**, e não escondido dentro deste.
+
+### A divisão que sobrou, e ela é limpa
+
+| Metade | Como chega | Custo de mudar |
+|---|---|---|
+| `windowIndicator`, `initialColorTheme`, `configurationDefaults` | JSON na `<meta>`, reescrito pelo `backend/pagina.js` | **restart do app** |
+| `workspaceProvider` | patch `0004-janela-do-ambiente.patch` | ~25 min de build |
+
+**O que a reescrita da página entrega, e é o item 2b junto:**
+`window.customTitleBarVisibility: 'never'` — a barra de título do VS Code **sai**, porque a janela já
+tem uma, a do ambiente. Duas barras empilhadas eram o preço de o editor não saber onde estava. Com
+elas vão `window.commandCenter` (duplicava a barra do ambiente), `update.mode: 'none'` (não há
+servidor de atualização para um build OSS nosso — deixar ligado é prometer uma verificação que não
+existe) e `telemetry.telemetryLevel: 'off'`.
+
+⚠ **A paleta do `tuff` NÃO entra ainda.** `initialColorTheme.colors` aceita ids de cor do workbench,
+e escrever uma paleta que eu não medi seria inventar. Vai só o **tipo** — escuro —, que é verdade e
+já mata o flash branco no boot. A paleta é passo próprio, com a medida das cores do shell.
+
+### O patch só ACRESCENTA, e isso é o contrato
+
+`WorkspaceProvider.open()` continua inteiro: o ramo `reuse` navega a página, e o ramo do navegador
+(`mainWindow.open`) **fica**. O nosso é um desvio antes dele, condicionado a a ponte existir — fora
+do ambiente, o editor abre e funciona como sempre, que é também como ele se desenvolve. A guarda
+cobra isso pelo diff: **nenhuma linha removida**.
+
+⚠ E o primeiro caso dessa guarda estava errado: ele procurava `mainWindow.open(targetHref)` no patch
+para provar que o caminho do upstream continuava lá — e media a **janela de contexto do diff**, três
+linhas, não a fonte. Ficou vermelho sem defeito nenhum. "Nenhuma linha removida" é a mesma pergunta,
+respondida por algo que o diff de fato garante.
 
 ### ⚠ "O backend do app serve **a nossa página**" — medi o build, e essa frase não se sustenta
 
