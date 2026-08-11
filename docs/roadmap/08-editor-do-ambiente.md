@@ -681,6 +681,33 @@ O desenho que sai disso: o patch põe os provedores, e eles **leem a sua configu
 por sessão é dado, e só comportamento novo custa os ~25 min de rebuild. É a mesma regra do
 `motor.env` aplicada ao runtime: um lugar declara, todos leem.
 
+### ✅ 2c. O portal conta ao app o prefixo público — **feito**, e vale para todo vssh-app
+
+A primeira metade já está de pé, e ela é de plataforma, não do editor. `VSSH_APP_BASE_PATH` chega ao
+processo como `/proxy/app/<id>/`, **sem o serverId**; a URL pública tem o serverId. **Falta ao
+backend exatamente o pedaço que só quem proxia conhece** — e a resposta que a casa dava até aqui
+("use `fetch` relativo") vale para código nosso e não vale para um motor de terceiro que emite as
+URLs dele.
+
+O portal passou a mandar `X-Forwarded-Prefix: /<serverId>/proxy/app/<id>` em toda requisição de app.
+Duas decisões dentro disso, e as duas com motivo:
+
+- **Vai para todo app, não só para o `vscode`.** O header é padrão de fato (nginx, traefik, Spring),
+  então não é dialeto nosso; e um `if` por app id seria o começo de N caminhos. Quem não lê não é
+  afetado — varredura: zero leituras nos apps de hoje.
+- **É uma função, `prefixoPublicoDoApp()`, e não um template no meio da rota.** O invariante que
+  importa não é o formato do header: é que **o pedaço cortado e o pedaço anunciado sejam o mesmo**.
+  O corte acontece numa expressão e o anúncio noutra; divergirem dá 404 em asset, longe da causa.
+  A função também recusa valor que não pode virar header — `appId` vem de segmento de URL, e CR/LF
+  ali seria injeção de cabeçalho.
+
+**Guarda:** `tests/unit/prefixo-do-app.test.js`, **7 casos, refutação 7/7**. O caso central recompõe
+`prefixo + restante` e exige a URL pública de volta. ⚠ **E a primeira rodada de refutação não valia:**
+o `git checkout` restaurava dois caminhos e falhava inteiro por causa do arquivo de teste ainda não
+versionado, então as mutações **se acumulavam** e todo caso ficava vermelho por um motivo que não era
+o dele. O roteiro agora **confere o restauro** (`git diff --quiet`) e aborta se ele não aconteceu —
+uma bancada de refutação que não restaura mede a si mesma, que é o defeito que ela existe para pegar.
+
 **Guarda:** `tests/workbench-do-ambiente.test.js` — o objeto de construção declara os provedores, e
 `IWorkspaceProvider.open` **não** cai no `window.open` de fora. Refuta: devolver qualquer um deles a
 `undefined`. E um caso de artefato: se o alvo do gulp passar a produzir `workbench.web.main.js`, o
