@@ -1101,6 +1101,85 @@ acompanhada do que a desmente, ali perto?"*.
 
 ---
 
+## 8. 📋 O fim de vida de um vssh-app — hoje não existe, e a conta escala
+
+**Este item é de PLATAFORMA, e não do editor.** Quem o revelou foi o editor, porque é o primeiro
+app do ambiente que segura um processo caro; mas o que falta falta para todos.
+
+### A medida que abriu o assunto
+
+Fechar a janela de um app **não encerra nada**. `POST /api/apps/:id/stop` existe (`apps.ts:371`) e
+**ninguém o chama**: uma varredura no `vssh-client/` não acha uma única invocação a partir do
+fechamento de janela. O `close()` do `VsshAppWindow` tira a janela da tela e pronto. O backend vive
+até a sessão acabar.
+
+O sintoma chegou por quem usa: *"no desempenho os apps aparecem rodando mesmo quando fechado"*. A
+tela está certa; o comportamento é que nunca foi decidido.
+
+**E a conta não é por app: é por (usuário × app já aberto uma vez).** Um app que alguém abriu em
+março continua ocupando RAM em agosto, em toda sessão daquela conta, sem uma janela na tela. Com o
+editor isso deixa de ser detalhe — o motor sobe um extension host e o que ele carregar fica.
+
+⚠ **E o número ainda não existe.** Os 9,3 GiB medidos no passo 0 são de uma **sessão inteira**, não
+do motor ocioso. **A primeira coisa deste item é medir o RSS do editor sem cliente conectado**, e
+qualquer teto escrito antes disso é decoração — foi o que já aconteceu com o `resources` do
+manifesto (`3G`/`6G`), que está declarado e é ponto de partida, não medida.
+
+### Mas "fechou, morreu" está ERRADO para os apps que mais custam
+
+E a prova está no log da primeira sessão real do editor:
+
+```
+[reconnection-grace-time] Extension host: read VSCODE_RECONNECTION_GRACE_TIME=10800000ms (10800s)
+```
+
+**Três horas.** O servidor do VS Code é construído para **sobreviver ao navegador** — é assim que o
+terminal integrado, um build rodando e o extension host continuam vivos quando se fecha a aba e se
+volta depois. Encerrar no fechamento da última janela mataria o terminal de quem foi almoçar.
+
+O xpra diz o mesmo por outro caminho: o incidente de 11/08 registrou **como ganho** a sessão X11
+sobreviver a um reinício do backend. Ali, encerrar ao fechar a janela mataria a sessão inteira.
+
+Então a resposta certa não é "sim" nem "não" — é que **o padrão de hoje é implícito e único**
+("nunca encerra"), e ele foi escolhido por omissão.
+
+### O contrato, e por que ele não cabe no `kind`
+
+`kind: "app" | "service"` governa **start automático e supervisão**. Fim de vida é outra pergunta, e
+colá-la ali seria juntar duas decisões numa chave — o defeito que esta casa já pagou noutros eixos.
+
+| `backend.aoFechar` | Para quem | O que acontece ao fechar a última janela |
+|---|---|---|
+| `"encerrar"` (**padrão**) | app sem estado vivo — visualizador, editor de nota, painel | o shell chama o `stop` |
+| `"manter"` | quem é dono de sessão de terceiro | fica; quem o mantém vivo é o trabalho, não a janela |
+| `"ocioso:<N>m"` | o meio-termo, e o certo para o editor | fica, e encerra sozinho depois de N minutos **sem cliente e sem processo filho ativo** |
+
+`"encerrar"` é o padrão porque é o que a maioria dos apps quer e é o que a pessoa espera de um
+desktop — e porque um padrão que vaza memória tem de ser o que se escolhe, não o que se herda.
+
+**Para o `vscode` o valor é `ocioso`, não `manter`**: casa com as 3 h do próprio upstream e resolve a
+queixa de verdade — RAM parada some sozinha, terminal em uso não morre. O `N` sai da medida, não do
+gosto.
+
+### O que a implementação tem de responder, e nenhuma resposta é óbvia
+
+- **Quem conta as janelas.** É o shell que sabe (`app-varias-janelas.test.js` já mede N janelas por
+  app), mas quem encerra é o portal. Contagem no cliente decidindo desligamento no servidor é uma
+  ponte nova, e ela erra quando o navegador morre sem avisar.
+- **"Sem processo filho ativo" é o pedaço difícil.** Um motor de editor sempre tem filhos; o que
+  importa é se algum deles é um terminal de alguém. Sem uma resposta boa aqui, `ocioso` vira um
+  temporizador que mata trabalho — pior que não ter.
+- **A aba fechada sem `unload`** (queda de rede, navegador morto) não pode deixar o app vivo para
+  sempre nem encerrá-lo cedo demais. O relógio do ocioso é o que cobre os dois casos, e é mais uma
+  razão para ele ser o valor do editor.
+
+**Guarda:** `tests/unit/fim-de-vida-de-app.test.js` — fechar a última janela de um app `encerrar`
+chama o `stop` **uma vez**; fechar uma de duas não chama nenhuma; um app `manter` nunca é encerrado
+por fechamento; e o relógio do `ocioso` não dispara enquanto houver cliente. Refuta: trocar o padrão
+por `manter` tem de ficar vermelho — porque o padrão é a metade que decide a conta de memória.
+
+---
+
 ## A ordem, e por que ela é essa
 
 | # | O quê | Repo | Trava em |
@@ -1119,6 +1198,7 @@ acompanhada do que a desmente, ali perto?"*.
 | 5 | 📋 a extensão VSSH | `vsshapp-vscode` | 2, 4 |
 | 6 | ✅ **feito** — o corpo de um pedido proxiado é do outro lado; e "413" era 500 | `vssh-sso` | — |
 | 7 | ✅ **a revisão da documentação — feita** | toolkit | — (o que dependia de 0b e 2 ficou de fora, e está dito no item) |
+| 8 | 📋 **o fim de vida de um vssh-app** — hoje não existe, e a conta escala por (usuário × app já aberto) | toolkit + vssh-sso | — (é de plataforma; o editor só foi quem revelou) |
 
 **A dependência dura é uma só, e é onde a onda pode machucar alguém:** enquanto um servidor não tiver
 o app, `/proxy/vscode/` é o único caminho até o editor. E há um agravante que a 2.7 não teve — lá o
