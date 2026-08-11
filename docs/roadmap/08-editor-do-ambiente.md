@@ -701,12 +701,68 @@ Duas decisões dentro disso, e as duas com motivo:
   A função também recusa valor que não pode virar header — `appId` vem de segmento de URL, e CR/LF
   ali seria injeção de cabeçalho.
 
-**Guarda:** `tests/unit/prefixo-do-app.test.js`, **7 casos, refutação 7/7**. O caso central recompõe
+**Guarda:** `tests/unit/prefixo-do-app.test.js`, **12 casos, refutação 12/12**. O caso central recompõe
 `prefixo + restante` e exige a URL pública de volta. ⚠ **E a primeira rodada de refutação não valia:**
 o `git checkout` restaurava dois caminhos e falhava inteiro por causa do arquivo de teste ainda não
 versionado, então as mutações **se acumulavam** e todo caso ficava vermelho por um motivo que não era
 o dele. O roteiro agora **confere o restauro** (`git diff --quiet`) e aborta se ele não aconteceu —
 uma bancada de refutação que não restaura mede a si mesma, que é o defeito que ela existe para pegar.
+
+### A primeira abertura real do editor — o que ela provou, e o defeito que só ela mostrava
+
+**A página carregou inteira.** Os assets vieram todos por
+`https://vssh.colabh.org/ipprivm01/proxy/app/vscode/oss-<commit>/static/out/…`, o que fecha o
+argumento do prefixo com a medida em vez do raciocínio. E o backend mediu o caminho todo:
+
+| | |
+|---|---|
+| o app bindou o `app.sock` | `16:21:29.210` |
+| o motor bindou o socket dele | **200 ms depois** |
+| `Extension host agent started` | no mesmo instante |
+
+Nenhuma porta TCP em lugar nenhum, nas duas pontas.
+
+**E então o WebSocket morreu na construção — não na conexão, na construção:**
+
+```
+SyntaxError: Failed to construct 'WebSocket': The URL
+'wss://[vssh.colabh.org:443,80]:443/ipprivm01/proxy/app/vscode/oss-df53daab…' is invalid.
+```
+
+Cinco tentativas até *"It will be treated as a permanent error"*, e um editor **sem extension host**:
+sem terminal, sem linguagem, sem filesystem remoto. O `remoteAuthority` era
+`vssh.colabh.org:443,80`.
+
+**A causa é uma cadeia entregue a quem precisa de um endereço.** `xfwd: true` do `http-proxy-3`
+**acrescenta** ao que já veio (`web-incoming.js:82-83`), e antes do portal a requisição já passou
+pelo Cloudflare: o app recebeu `x-forwarded-port: 443,80`. Uma cadeia não é errada por si — ela
+descreve o caminho percorrido. Errado é entregá-la a quem precisa de **um** valor, e quem sabe qual é
+o endereço público é o portal, que é o último salto antes do app. Mesmo argumento do prefixo, mesmo
+lugar, mesma abrangência: vale para todo vssh-app.
+
+**A metade que não se vê são as chaves em minúscula.** O `http-proxy-3` copia `req.headers` (que o
+Node entrega em minúscula) e só depois faz `{...outgoing.headers, ...options.headers}`
+(`common.js:76-77`). Uma chave `X-Forwarded-Port` **não substitui** `x-forwarded-port`: cria uma
+segunda, e o cliente HTTP manda as duas — recriando exatamente a cadeia que o conserto desfaz. Há um
+caso só para isso, e ele fica vermelho se alguém "arrumar" a capitalização.
+
+⚠ **E há um segundo defeito, do upstream, registrado e não consertado.** O `getFirstHeader` de
+`webClientServer.ts:262-265` só desempacota quando o valor é **array** — e o Node junta cabeçalhos
+repetidos numa **string** com vírgula, caso em que a função devolve a lista inteira. É um `first` que
+não é o primeiro. Consertar lá custa recompilar o motor e não ajuda mais nenhum app; o portão fica no
+portal, e isto fica escrito para quem for ler o `webClientServer` acreditando no nome da função.
+
+**O que o caso central da guarda mede não é "não tem vírgula".** Ele monta o `remoteAuthority` do
+jeito que o motor monta e exige que o construtor de `URL` do navegador **aceite** — o sintoma que se
+mede, e não o sintoma que se descreve.
+
+**Em aberto, e é hipótese:** quatro extensões embutidas (`emmet`, `github-authentication`,
+`git-base`, `merge-conflict`) falharam ao ativar com `File not found: …/dist/browser/…`. Conferido no
+artefato: elas têm `dist/node` e **não** têm `dist/browser`, porque quem produz os pacotes de
+navegador é o `compile-web-extensions-build` do alvo `vscode-web`, que não construímos. **A hipótese
+é que isso se resolva sozinho** quando o WebSocket subir, porque aí existe o extension host **remoto**
+(node) e é nele que essas extensões rodam. Só a próxima abertura diz — e por isso não há rebuild do
+motor marcado por causa disto.
 
 **Guarda:** `tests/workbench-do-ambiente.test.js` — o objeto de construção declara os provedores, e
 `IWorkspaceProvider.open` **não** cai no `window.open` de fora. Refuta: devolver qualquer um deles a
