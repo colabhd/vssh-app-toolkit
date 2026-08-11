@@ -111,9 +111,21 @@ alcançava antes. O item 2 troca duas coisas nessa função — quem termina o W
 e apaga **duas** portas de uma vez: a do lifecycle e a interna que o backend pede ao kernel para o
 xpra.
 
-**O que ainda não está provado, e é implementação e não medida:** `connect()` de pé prova que o
-transporte está aberto, não que o protocolo atravessa. A primeira guarda desta onda é o handshake
-completo — o cliente HTML5 conectando pela ponte e desenhando uma janela.
+**Metade do que faltava provar foi provado sem servidor nenhum, lendo o cliente que este pacote
+entrega.** Os bytes que vão dentro dos frames binários são o protocolo nativo, literalmente:
+`Protocol.js:497-525` monta um cabeçalho de 8 bytes — `'P'`, flags, nível, `0`, e o tamanho em 4
+bytes big-endian — concatena o payload e faz `websocket.send(packet.buffer)`. E o lado de recepção
+(`:265-296`) **remonta o cabeçalho atravessando fronteira de pedaço** (*"we need more data to
+continue"*), isto é, o cliente nunca supôs que um frame fosse um pacote: ele trata o que chega como
+um FLUXO. Uma ponte que concatene os payloads dos frames no socket e reparta o fluxo do socket em
+frames não muda nada do que o cliente vê — e essa era a dúvida cara.
+
+**O que continua sem prova é só o lado do servidor:** que o `--bind` unix do xpra aceite esse mesmo
+fluxo vindo de quem não é um cliente nativo. `connect()` de pé prova que o transporte está aberto,
+não que o protocolo atravessa — embora a medida da Onda 9 (*a um pacote malformado ele espera o
+resto em vez de fechar*) seja exatamente o comportamento de quem está lendo um cabeçalho de 8 bytes.
+A guarda que fecha isso é o handshake completo: o cliente HTML5 conectando pela ponte e desenhando
+uma janela, numa sessão de verdade.
 
 Feito isto, o manifesto do xpra troca `transport: "tcp"` por `"socket"`, e **o ambiente fica sem
 nenhum app em porta**.
