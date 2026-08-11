@@ -587,9 +587,18 @@ do esbuild não reescreve.
 
 Daí o `scripts/build-local.sh`: o mesmo build, num container que **fica de pé**. Cada tentativa no CI
 repetia `npm ci` + compile inteiro para chegar ao passo que falhava, ~25 min cada. **Ele não é uma
-segunda definição do build** — e essa regra teve de virar código, porque o defeito aconteceu com o
-aviso já escrito: o `motor.yml` trocou de alvo, o `build-local.sh` ficou no `-min`, e a execução
-seguinte morreu num erro que já estava resolvido. Agora o alvo é **lido** do workflow.
+segunda definição do build** — e essa regra teve de virar código **duas vezes**, as duas com o aviso
+já escrito no cabeçalho do arquivo:
+
+1. o `motor.yml` trocou de alvo, o `build-local.sh` ficou no `-min`, e a execução seguinte morreu num
+   erro que já estava resolvido. O alvo passou a ser **lido** do workflow;
+2. o produto da vez anterior era **estado**, e o build o consome. `prepareBuiltInCopilotRipgrepShim`
+   **move** `@github/copilot/sdk` para dentro do produto e poda o resto; rodando sobre a saída
+   anterior, ele procura o diretório que ele mesmo consumiu e derruba a tarefa — *"Copilot SDK
+   directory not found"* — com a fonte intacta e o bundle já pronto. O CI nunca veria: lá o checkout
+   é limpo por definição, e é justamente o container sobreviver que faz este script valer. Agora o
+   `compilar()` apaga **a saída e só ela** — `out-build/` e `.build/` ficam, porque são o que troca
+   25 minutos por 8. A guarda cobra as duas metades.
 
 ### O que a instalação real cobrou — e as bancadas mediam a bancada
 
