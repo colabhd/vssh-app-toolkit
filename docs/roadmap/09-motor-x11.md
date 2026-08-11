@@ -620,9 +620,42 @@ saída, e o estrago acontece com o motor ligado.
   arrasta é `min-width: 400px; min-height: 300px`, então um diálogo X11 pequeno fica esticado — é
   cosmético, é a convenção do shell, e fica anotado em vez de combatido.
 
-### A pergunta que fica em aberto: o DPI da sessão é 96, e o cliente diz 192
+### O DPI da sessão era 96 — sondado, e a sonda virou uma versão
 
-**Isto é hipótese, não achado — e por isso não virou código.** A fonte se contradiz:
+**Era hipótese; foi medido no dia seguinte, numa sessão de produção:**
+
+```
+xdpyinfo | grep resolution   →  96x96 dots per inch
+xrdb -query | grep -i dpi    →  Xft.dpi: 96  ·  Xft/DPI: 98304   (= 96 × 1024)
+```
+
+**O `--dpi` do servidor vence o `hello` do cliente, e todo aplicativo da sessão faz layout a
+96 dpi.** A nitidez que o ambiente tem em HiDPI vem de o cliente pedir um framebuffer `dpr`× maior —
+isto é, de um render de 96 dpi **superamostrado** e apresentado em metade do tamanho. O texto sai
+liso porque tem o dobro de pixels; as **métricas** são de 96 dpi, com hinting calculado para a grade
+errada e ícones dobrados em vez de desenhados grandes.
+
+A `0.7.0` troca `--dpi=96` por `--dpi=0` — que é como o xpra diz *"use o que o cliente informar"*. E
+ela é **a medida, não a conclusão**: o valor do cliente só existe depois de um cliente conectar, e
+nenhuma leitura estática decidiria isto. A pergunta que fecha é `xrdb -query` de uma tela dpr 2 —
+192 confirma o mecanismo, 96 diz que `--dpi=0` não é o caminho e a mudança volta atrás com o achado
+escrito.
+
+**Uma variável de cada vez:** o `-dpi 96` do `Xvfb` fica. Ele é o que o `xdpyinfo` reporta como
+resolução física; o `Xft.dpi` — que é o que os toolkits leem para escalar UI — é o que o xpra
+escreve por XSETTINGS. Mudar os dois juntos deixaria a medida sem controle.
+
+**E a tensão que faz 96 fixo não ser obviamente errado fica registrada:** o DPI é da SESSÃO, e a
+sessão é longa — mais ainda desde que a 0.6.1 adota uma sessão existente em vez de matá-la. Um
+cliente em dpr 1 e outro em dpr 2 querem DPIs diferentes, e o xpra tem um por sessão. Fixar em 96
+era a escolha neutra; seguir o cliente é a escolha do caso real, que é uma pessoa numa máquina.
+
+> E uma nota de ferramenta, porque custou duas idas: **`xpra info` e `xpra list` não acham esta
+> sessão.** Eles descobrem servidores varrendo `~/.xpra/`, e o nosso `--bind` num caminho próprio
+> substitui o socket padrão de lá. Quem responde sobre a sessão é o X: `xdpyinfo` e `xrdb -query`,
+> que foi o que de fato mediu.
+
+A fonte se contradizia assim:
 
 | | |
 |---|---|
