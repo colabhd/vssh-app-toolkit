@@ -216,9 +216,31 @@ ambiente:
 (`move_resize`) vira estilo na div. O `_setupDragResize` do shell já entrega os dois ganchos
 (`arrastar.js`), então não há biblioteca a substituir — há uma a apagar.
 
-**E a janela sai do `#screen`.** `_initChrome` põe a div no `body`; `#screen` fica só para o modo
-desktop/shadow, que é uma janela em tela cheia. É essa mudança — não o proxy — que faz o proxy
-deixar de ter assunto.
+**E a janela sai do `#screen`.** `_initChrome` põe a div no `body`; dentro do `#screen` ficam só as
+superfícies nuas (menu, tooltip, bandeja) e, no modo desktop/shadow, uma janela em tela cheia.
+
+### O que apaga o proxy não é apagar o proxy — e são DOIS donos, não um
+
+Medido ao começar o 3b, e é a correção que faltava para ele: **`#screen` é `z-index: 100`**
+(`client.css:209`), e uma janela desfocada fica em 90. Ou seja, ela está literalmente ATRÁS de um
+elemento que cobre a tela inteira — e um `div` vazio recebe hit-test na sua área do mesmo jeito.
+Tirar as janelas de dentro dele (o 3a) é necessário e **não é suficiente**: o `#screen` continua na
+frente.
+
+O que resolve é uma linha de CSS — **`#screen { pointer-events: none }`**, com `pointer-events: auto`
+nas superfícies de dentro. Aí nada em `#screen` intercepta ponteiro a não ser o que de fato é
+desenho do X11, e o proxy fica sem função.
+
+E **há um segundo dono de proxy que este item não contava**: os ÍCONES da área de trabalho
+(`Desktop.js:466-484`, com o próprio `_syncProxy` e o próprio `sincronizarProxies`). Eles têm o
+problema pela mesma razão e somem pela mesma linha — o que faz o 3b apagar duas máquinas, não uma.
+
+**Os consumidores a limpar, contados:** `VsshWindow.js` (o dono), `Desktop.js` (o segundo dono),
+`TilingManager.js`, `WindowStateManager.js`, `VsshAppWindow.js`, `VsshDialogs.js`,
+`FileBrowserWindow.js` e o `index.html` — mais a guarda `tests/unit/screen-scale-proxies.test.js`,
+que existe HOJE para proteger a mecânica do proxy e tem de **inverter**: passar a cobrar que ele não
+existe e que o `pointer-events` está no lugar. É a mesma inversão que a conferência do `jquery-ui`
+sofreu no 3a.
 
 **Guarda:** `tests/unit/arraste-entre-janelas.test.js` — arrastar um arquivo de uma janela do
 gerenciador para outra chega ao handler de drop **com uma janela X11 aberta na tela**. É o defeito
@@ -321,7 +343,8 @@ servidor não mostra porta de app **nenhum**, com o xpra rodando. Refuta: devolv
 | 1 | ✅ nós servimos o `frontend/`; xpra com `--html=off` — e o app ganhou um backend Node | `vsshapp-xpra` | — |
 | 2 | ✅ a ponte WS → socket nativo, e o `transport` virou `socket` | `vsshapp-xpra` | 1 |
 | — | ✅ **o ambiente ficou sem nenhum app em porta** — o item 5 está liberado | | 2 |
-| 3 | 📋 o xpra vira só mais uma forma de adicionar janelas: os **31 ramos por família**, os **2 adaptadores de tiling** e os proxies saem | `vsshapp-xpra` + `vssh-sso` | 1 |
+| 3a | ✅ a janela X11 vira uma `VsshWindow`; o cromo, o arraste, o resize e o `jquery-ui` (19.061 linhas) saem do motor | `vsshapp-xpra` | 1 |
+| 3b | 📋 o outro lado: os proxies (**dois donos**), o `xpraAdapter` e os **31 ramos por família** saem | `vssh-sso` | 3a |
 | 4 | 📋 o jQuery sai do pacote — e o carrossel Alt+Tab é apagado, não portado | `vsshapp-xpra` | 3 |
 | 5 | 📋 **a orquestração de porta morre** — os onze lugares, o `nextLoopback` e o teto de **254** (era o `0d` da [Onda 9](08-editor-do-ambiente.md)) | `vssh-sso` | 2 |
 
