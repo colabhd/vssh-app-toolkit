@@ -592,13 +592,28 @@ já escrito no cabeçalho do arquivo:
 
 1. o `motor.yml` trocou de alvo, o `build-local.sh` ficou no `-min`, e a execução seguinte morreu num
    erro que já estava resolvido. O alvo passou a ser **lido** do workflow;
-2. o produto da vez anterior era **estado**, e o build o consome. `prepareBuiltInCopilotRipgrepShim`
-   **move** `@github/copilot/sdk` para dentro do produto e poda o resto; rodando sobre a saída
-   anterior, ele procura o diretório que ele mesmo consumiu e derruba a tarefa — *"Copilot SDK
-   directory not found"* — com a fonte intacta e o bundle já pronto. O CI nunca veria: lá o checkout
-   é limpo por definição, e é justamente o container sobreviver que faz este script valer. Agora o
-   `compilar()` apaga **a saída e só ela** — `out-build/` e `.build/` ficam, porque são o que troca
-   25 minutos por 8. A guarda cobra as duas metades.
+2. o `prepareBuiltInCopilotRipgrepShim` derruba a tarefa com *"Copilot SDK directory not found"* —
+   com a fonte intacta e o bundle já pronto (o patch conferido dentro dele).
+
+   ⚠ **E a minha primeira explicação para isso estava errada.** Eu escrevi que o produto da vez
+   anterior era estado consumido pelo próprio passo, mandei o `compilar()` apagar a saída, escrevi
+   a guarda e **registrei aqui como se estivesse resolvido**. Não estava: com a saída limpa, o
+   build falhou de novo, no mesmo lugar.
+
+   O que a medida mostra, e é só isto: a fonte **tem**
+   `extensions/copilot/node_modules/@github/copilot/sdk` com conteúdo; o cache
+   `.build/extensions/…/sdk` existe e está **vazio**; e a saída não tem o diretório, porque um
+   diretório vazio não é copiado. O `.vscodeignore` do copilot lista negações que deveriam manter
+   arquivos ali dentro (`!node_modules/@github/copilot/sdk/*.js`, etc.), então o cache foi montado
+   num momento em que aqueles arquivos não estavam onde ele os procurou.
+
+   **Por que o primeiro build passou, eu ainda não sei** — e isso fica escrito assim, porque a
+   alternativa é inventar a segunda história depois de a primeira ter caído. A hipótese em teste é
+   que o `.build/extensions` daquela vez tenha sido montado depois do `npm ci`, e o desta, antes.
+
+   O que a limpeza da saída **de fato** garantiu continua valendo e fica: reaproveitar o produto
+   anterior é reaproveitar estado, e `out-build/`/`.build/` são cache e ficam. Mas isso é higiene,
+   não era o defeito.
 
 ### O que a instalação real cobrou — e as bancadas mediam a bancada
 
