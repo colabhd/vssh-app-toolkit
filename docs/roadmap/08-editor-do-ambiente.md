@@ -764,6 +764,39 @@ navegador é o `compile-web-extensions-build` do alvo `vscode-web`, que não con
 (node) e é nele que essas extensões rodam. Só a próxima abertura diz — e por isso não há rebuild do
 motor marcado por causa disto.
 
+### ✅ O editor subiu — e a hipótese das extensões estava certa
+
+Segunda abertura, com o portal já no conserto do endereço:
+
+```
+INFO Resolving connection token (vssh.colabh.org:443)...
+INFO Creating a socket (renderer-Management-1a42e1f7…) was successful after 267 ms.
+INFO Creating a socket (renderer-ExtensionHost-02fef832…) was successful after 209 ms.
+[ManagementConnection] New connection established.
+[ExtensionHostConnection] <3849663> Launched Extension Host Process.
+INFO [AgentHost:remote] Initializing (enabled=true, remoteAuthority=vssh.colabh.org:443)
+```
+
+`remoteAuthority = vssh.colabh.org:443`, sem vírgula. **E `File > Open Folder` mostrou a home**, o
+que é a prova de ponta a ponta que importa: o filesystem remoto responde, logo o extension host está
+vivo, logo o WebSocket atravessou o portal, o socket unix do app e o socket unix do motor.
+
+**As quatro extensões pararam de reclamar** — nem uma linha `dist/browser` nesta abertura. A hipótese
+era essa e ela se confirmou: elas rodam no extension host **remoto** (node), e o que faltava não era
+o pacote de navegador, era o host. **Não há rebuild do motor pendente por causa disto**, e a
+suspeita morreu sem custar um build.
+
+O que sobrou no console é ruído catalogado, e vale catalogar para ninguém gastar tempo com ele
+depois:
+
+| O que aparece | O que é |
+|---|---|
+| `node_modules/vsda/rust/web/vsda_bg.wasm` e `vsda.js` → **404** | o validador de *connection token* da Microsoft, **proprietário e ausente do OSS**. Subimos com `--without-connection-token`: não há token para validar. Dois 404 por conexão, e nada atrás deles |
+| `[AgentHost:remote] Connect failed … no upstream agent host endpoint was configured` | a ponte de *agent host* nova do upstream, que só existe com `--agent-host-bridge-port`. Não passamos, e não queremos |
+| `vscode.mermaid-markdown-features … CANNOT use 'legacyToolReferenceFullNames'` | extensão embutida do upstream pedindo uma API proposta que o build OSS não habilita. É deles com eles |
+| `*.js.map` → 404 | o build sem minificação não publica *source maps*. Custo zero, e some se um dia o `-min` voltar |
+| `static.cloudflareinsights.com/beacon.min.js` → `ERR_BLOCKED_BY_CLIENT` | bloqueador de anúncios de quem estava olhando. Não é nosso |
+
 **Guarda:** `tests/workbench-do-ambiente.test.js` — o objeto de construção declara os provedores, e
 `IWorkspaceProvider.open` **não** cai no `window.open` de fora. Refuta: devolver qualquer um deles a
 `undefined`. E um caso de artefato: se o alvo do gulp passar a produzir `workbench.web.main.js`, o
