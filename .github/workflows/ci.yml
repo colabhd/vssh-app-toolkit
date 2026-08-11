@@ -144,7 +144,11 @@ jobs:
           # Duas conexões, e quem incrementa NÃO é quem escuta: é essa assimetria que a peça
           # afirma. Sem a difusão, cada janela veria só o próprio clique — e o smoke passaria se
           # medisse a resposta do POST em vez do stream.
-          ( timeout 5 q -sN http://app/api/events > "${RUNNER_TEMP}/sse.txt" & )
+          # ⚠ `curl` direto, e não o `q`: o `q` é uma FUNÇÃO de shell, e o `timeout` é um binário que
+          # faz `exec` no que recebe — ele nunca acha uma função. `timeout 5 q …` falhava sempre com
+          # `failed to run command 'q': No such file or directory`, e deixou este CI vermelho por
+          # quatro commits sem ninguém olhar. `--max-time` faz o mesmo papel dentro do próprio curl.
+          ( curl --unix-socket "${SOCK}" --max-time 5 -sN http://app/api/events > "${RUNNER_TEMP}/sse.txt" & )
           sleep 1
           q -fsS -X POST http://app/api/estado/incrementar >/dev/null
           sleep 1

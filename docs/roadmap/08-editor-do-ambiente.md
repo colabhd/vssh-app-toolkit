@@ -987,7 +987,20 @@ como o usuário Linux dono da sessão com terminal integrado a um clique; a **fu
 `0008`, que vale para o banner de amanhã — numa janela cujo cabeçalho é esta barra, ela é a primeira
 faixa. Fora do ambiente o `return` do upstream continua no caminho, intacto: o patch só acrescenta.
 
-**O `Shift+F5`, e a página nunca foi a culpada.** `getServerProductSegment(product)` devolve
+**O `Shift+F5`, e ele teve DUAS causas diferentes com o mesmo sintoma.**
+
+⚠ Aqui estava escrito *"e a página nunca foi a culpada"*. **Está errado**, e apaga o primeiro
+conserto: na primeira vez a culpada **era** a página. Depois de um upgrade, o navegador servia a
+página da versão ANTERIOR — sem a tag da ponte —, e sem `window.vssh` o embedder cai no
+`mainWindow.open` do upstream, que é o comportamento correto dele quando não há ambiente. A janela
+nova voltava a abrir como aba. O que torna essa página diferente de qualquer outra: **o conteúdo
+dela é função da versão do app**, e o app é trocado por fora do navegador (`vssh-app-install`) —
+nenhum `ETag` do motor descreve a nossa camada. O conserto é o `cabecalhosDaPagina` mandar
+`no-store` e **descartar o `etag`/`last-modified` do motor**, que validam o HTML dele e não a nossa
+reescrita. E ele só podia chegar sendo buscado uma vez, então o `Shift+F5` daquela vez foi o preço
+da transição, pago uma vez.
+
+A segunda vez foi outra coisa, e a página já estava certa: `getServerProductSegment(product)` devolve
 `${quality ?? 'oss'}-${commit ?? 'dev'}` (`network.ts:256-258`), e é ele que vira o
 `/oss-<commit>/static/…` de onde saem o `workbench.js` e o `workbench.css` — servidos com
 `Cache-Control: public, max-age=31536000` (`webClientServer.ts:69`), **um ano**. Todos os nossos
