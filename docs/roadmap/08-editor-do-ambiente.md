@@ -1109,6 +1109,38 @@ simétrica (trocar o evento real por um sintético).
 **Guarda:** `cabecalho-do-app.test.js`, **13 casos**, refutação **3/3**. Conserto só de shell
 (**4.4.1**): nenhum rebuild do motor, nenhuma reinstalação.
 
+### ✅ 2i. VSSHCode — o editor ganha nome, e o ícone anterior era um defeito
+
+O nome vivia em **dois lugares dizendo coisas diferentes**: o manifesto dizia `Editor` (é o que o
+Launchpad, a barra de tarefas e o alternador mostram) e o `product.json` dizia `VSSH Code` (é o que a
+barra de título do próprio editor mostra). Com `cabecalho: "app"` os dois aparecem na **mesma
+janela**, um dentro do outro. Agora é **VSSHCode** nos dois, com guarda cobrando que continuem iguais.
+
+**E o ícone não era só sem graça — ele estava invisível.** Era monolinha em `currentColor`, e o shell
+desenha ícone de app com `<img src>` (`Launchpad.js:203-208`): dentro de um `<img>` o SVG é um
+documento independente, `currentColor` não herda nada e cai para o valor inicial, que é **preto**.
+Preto sobre um desktop escuro — com o arquivo "correto" e nada acusando.
+
+O desenho novo é o **irmão do favicon do portal**, que escreve `>_` em monoespaçada no azul da casa
+(`#0c0c0e` + `#0e639c`). Aqui a última palavra muda: o `_` de shell vira o **cursor de bloco**, no
+verde que o tema chama de *"cursor terminal"*. Mesma gramática, outro fim — o parentesco se lê sem
+explicação. Escolhido entre três, julgados **renderizados de 16 a 64px** no chão do desktop, em fundo
+claro, no Launchpad e na barra de tarefas; as outras duas eram uma janela com faixa de cabeçalho
+(bonita a 64px, borrão a 24) e um bloco de código (a mais legível e a **menos nossa** — serviria a
+qualquer editor de qualquer lugar).
+
+**O que NÃO acompanha o rótulo, e a distinção é o conteúdo do item:** `serverApplicationName`,
+`applicationName`, `dataFolderName` — e o `id` do app. **Identificador não é nome de exibição.** O
+build e o `install.sh` procuram `bin/vssh-code-server` pelo nome; o `id` vira caminho
+(`/proxy/app/vscode/`), porta, sentinela e chave no repositório, e trocá-lo seria um app novo, com
+reinstalação e `~/.vssh-apps/vscode/data` órfão. Há guarda cobrando que o binário fique.
+
+**Guarda:** `pagina-do-ambiente.test.js`, **40 casos**, refutação **5/5**.
+
+⚠ E a guarda do ícone **nasceu vermelha lendo o comentário que explica por que `currentColor` não é
+usado** — a mesma armadilha que fez o `vssh-sso` ganhar um `soCodigo`. A pergunta é sobre o desenho,
+não sobre o texto ao redor dele.
+
 ### 2a. 📋 O patch da plataforma — e ele é uma linha
 
 `CURRENT_TARGET_PLATFORM` deixa de derivar de `isWeb` e passa a vir do servidor remoto, que é quem
