@@ -536,6 +536,128 @@ Refuta: tirar o mapa de em-voo; o teste tem de contar dois.
 
 ---
 
+## A primeira sessão real depois do item 4 — dois defeitos do 3a, e uma pergunta em aberto
+
+`vsshapp-xpra` **0.6.2**. Os dois defeitos têm a mesma origem, e ela é a decisão central do item 3a:
+**a janela X11 mudou de casa.** Ela é uma `VsshWindow`, e o `_initChrome` do shell faz
+`document.body.appendChild(div)` — então tudo o que dependia de ela morar dentro do `#screen` parou
+de valer, calado.
+
+### O cursor: um método de jQuery que a guarda não via
+
+```
+Window.js:1293  Uncaught TypeError: window_element.css is not a function
+    at set_cursor_url
+```
+
+Antes do 3a era `var window_element = jQuery('#' + this.wid)`. O 3a trocou por `this.div` — elemento
+do DOM — e deixou os dois `.css()` em cima. É `TypeError` no primeiro cursor que a sessão desenha,
+isto é, imediatamente.
+
+**E a conferência nº 7 passou verde com isto no arquivo.** Ela procurava `$(` e `jQuery(` — o
+**símbolo**. Um método de jQuery chamado numa **variável** é invisível a esse padrão: a guarda media
+de ONDE o objeto veio, e o defeito estava em COMO ele era usado.
+
+> A lição, e ela generaliza: **guarda que procura o símbolo de uma lib mede a importação, não o uso.**
+> A pergunta completa precisa dos métodos.
+
+Passou a procurar 23 métodos que **não existem** em DOM, Array, String ou Response. `find`, `text`,
+`closest`, `append`, `data`, `is` e `show` ficam de fora **de propósito**: `Array.prototype.find`,
+`Response.text()` e `Element.closest()` são legítimos e este pacote usa os três. Falso positivo em
+guarda de tudo-ou-nada é o caminho mais curto para alguém desligá-la.
+
+### As janelas do tamanho de duas, e o ponteiro no dobro da distância
+
+`this.w/h/x/y` são pixels de **dispositivo**: o cliente pede ao xpra um framebuffer `scale`× maior
+que a viewport (`desktop_width = clientWidth * scale`), e **é daí que vem a nitidez em HiDPI**. A
+conversão para pixel CSS era um `transform: scale(1/scale)` no `#screen`, com
+`width/height: 100*scale%`.
+
+Fora do `#screen`, o transform não alcança mais a janela. Numa tela dpr 2: tudo exatamente **2×**, e
+o `getMouse` (`clientX * scale`) mirando no dobro.
+
+**A conversão desceu para o canvas** — o idioma padrão de HiDPI:
+
+| | |
+|---|---|
+| `canvas.width` | buffer, em pixels de **dispositivo** — a nitidez vem daqui, e é a MESMA de antes |
+| `canvas.style.width` | apresentação, em pixels **CSS** (`w / scale`) — o tamanho vem daqui |
+
+**E fazer aqui é melhor que consertar o transform**, por três razões medidas e não por gosto:
+
+- **o cromo é do ambiente agora, e não deve escalar.** Um transform no contêiner escalava a barra de
+  título junto, que precisa ter o mesmo tamanho da de um terminal ao lado;
+- **a geometria do `div` passa a ser em pixels CSS** — a unidade em que o arraste, o resize, o tiling
+  e a taskbar do shell falam. Sem isso, cada um deles precisaria conhecer a escala do motor;
+- **o `#screen` deixa de ter transform**, e o shell tem um mecanismo inteiro só para observar esse
+  transform e invalidar proxies quando ele muda (`_observarEscalaDosMotores`, `index.html`). Isto o
+  deixa sem assunto: **o item 3b fica menor.**
+
+**Um terceiro achado, que era uma dependência escondida:** `_screen_resized` fazia
+`desktop_width = container.clientWidth` **sem** `* scale` — e estava certo, por construção. Com o
+contêiner em `100 * scale`%, o `clientWidth` dele **já era** `viewport × scale`; o `init_state()`
+fazia `clientWidth * scale` antes do transform existir, e as duas contas coincidiam. Nada dizia que
+uma dependia da outra. Tirar o transform quebraria exatamente ali, e o sintoma seria a nitidez HiDPI
+morrendo **no primeiro redimensionamento de janela**, sem erro nenhum.
+
+**E a conferência nº 6 estava medindo um comentário.** Ela lê o corpo do `init()` para cobrar do
+de-init tudo o que ele escreve — e lia **cru**, sem `soCodigo`. O comentário que explica a remoção
+do transform cita as quatro linhas removidas, e a guarda continuou anunciando *"width, height,
+transform, transformOrigin"* com o `init()` já não escrevendo nenhum deles. É o modo de falhar que o
+`soCodigo` existe para impedir, documentado no cabeçalho dele — desta vez ele só não estava sendo
+chamado ali. Consertada, e **invertida** junto: o `init()` agora é proibido de escrever `transform`,
+`transformOrigin`, `width` e `height` no `#screen`. Confiar ao de-init não bastaria — ele limpa na
+saída, e o estrago acontece com o motor ligado.
+
+**Duas coisas que eu suspeitei e a medida absolveu**, e valem registro porque quase viraram commit:
+
+- *"o div da janela X11 não tem a classe `window`, então `body > .window { --dpr: 1 }` não a alcança
+  e o cromo está inflado"* — **falso.** O 3a portou todas as classes do upstream para `classList`
+  (`window`, `window-<tipo>`, `desktop`, `tray`, `override-redirect`, `windowinfocus`, `wmclass-*`,
+  `undecorated`). Eu tinha varrido só o `Client.js`;
+- *"a classe `vssh-window` que o 3a adicionou é do visualizador de URL e não devia estar ali"* —
+  **falso.** É a classe padrão de toda janela do shell (`VsshWindow.js:579`). O que ela de fato
+  arrasta é `min-width: 400px; min-height: 300px`, então um diálogo X11 pequeno fica esticado — é
+  cosmético, é a convenção do shell, e fica anotado em vez de combatido.
+
+### A pergunta que fica em aberto: o DPI da sessão é 96, e o cliente diz 192
+
+**Isto é hipótese, não achado — e por isso não virou código.** A fonte se contradiz:
+
+| | |
+|---|---|
+| `backend/xpra.sh:136` | `Xvfb -screen 0 WxHx24 **-dpi 96**` |
+| `backend/xpra.sh:197` | `xpra start ... **--dpi=96**` |
+| `js/Client.js:787,792` | o cliente calcula `_get_DPI()` (mede o `#dpi` do shell **× dpr**) e o manda no `hello` |
+
+**Se o 96 do servidor vencer**, todo aplicativo da sessão faz layout a 96 dpi, e a nitidez que
+temos vem de um render de 96 dpi jogado numa grade de 2× pixels e apresentado em metade do tamanho.
+O texto fica liso porque está superamostrado — mas as **métricas** são de 96 dpi. Com o DPI real
+chegando à sessão, GTK e Qt fariam layout HiDPI **nativo**: hinting de verdade, métricas de verdade,
+ícones no tamanho certo em vez de dobrados.
+
+**E há uma tensão real, que é por que 96 não é obviamente errado:** o DPI é da SESSÃO, e a sessão é
+longa — mais ainda desde que a 0.6.1 adota uma sessão existente. Um cliente em dpr 1 e outro em
+dpr 2 querem DPIs diferentes, e o xpra tem um por sessão. Fixar em 96 é a escolha neutra.
+
+**A sonda, em três perguntas:**
+
+```sh
+# 1. o --dpi do servidor vence o hello do cliente?
+xpra info | grep -i dpi
+xdpyinfo | grep -i resolution
+# 2. o que os aplicativos veem?
+xrdb -query | grep -i dpi
+# 3. e o controle: sem o --dpi fixo, o valor do cliente entra?
+#    (subir uma sessão de teste sem `--dpi=96` e repetir a 1)
+```
+
+Se a resposta de (3) for "entra", a escolha passa a ser de produto e não técnica: **DPI por sessão
+seguindo o primeiro cliente** (melhor para o caso real, que é uma pessoa numa máquina) **ou 96 fixo
+com supersampling** (neutro para qualquer cliente). Só então vale escrever código.
+
+---
+
 ## A ordem, e por que ela é essa
 
 | # | O quê | Repo | Trava em |
