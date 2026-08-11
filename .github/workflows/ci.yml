@@ -100,7 +100,19 @@ jobs:
           cd templates/hello-vssh-app-node
           SOCK="${RUNNER_TEMP}/hwn.sock"
           # `curl --unix-socket` ignora o host da URL; ele existe só para a URL ser válida.
-          q() { curl --unix-socket "${SOCK}" "$@"; }
+          #
+          # ⚠ Um SCRIPT, e não uma função de shell — e a diferença derrubou este CI por quatro
+          # commits. `timeout` é um binário que faz `exec` no que recebe: ele enxerga o `PATH`, e não
+          # enxerga função nenhuma. `timeout 3 q …` falhava sempre com
+          # `failed to run command 'q': No such file or directory`.
+          #
+          # O primeiro conserto trocou UMA das duas chamadas por `curl` direto e deixou a outra —
+          # e o CI continuou vermelho, no mesmo erro, com a linha consertada visível no log. Por isso
+          # o conserto é este: enquanto `q` for executável, toda forma de chamá-lo funciona, e não há
+          # segunda chamada para esquecer.
+          printf '#!/bin/sh\nexec curl --unix-socket "%s" "$@"\n' "${SOCK}" > "${RUNNER_TEMP}/q"
+          chmod +x "${RUNNER_TEMP}/q"
+          PATH="${RUNNER_TEMP}:${PATH}"
           VSSH_APP_SOCKET="${SOCK}" VSSH_APP_ID=hello-world-node \
             VSSH_APP_DATA_DIR="${RUNNER_TEMP}/hwn" node backend/server.js &
           for i in $(seq 1 20); do q -fsS http://app/healthz >/dev/null 2>&1 && break; sleep 0.5; done
@@ -144,11 +156,7 @@ jobs:
           # Duas conexões, e quem incrementa NÃO é quem escuta: é essa assimetria que a peça
           # afirma. Sem a difusão, cada janela veria só o próprio clique — e o smoke passaria se
           # medisse a resposta do POST em vez do stream.
-          # ⚠ `curl` direto, e não o `q`: o `q` é uma FUNÇÃO de shell, e o `timeout` é um binário que
-          # faz `exec` no que recebe — ele nunca acha uma função. `timeout 5 q …` falhava sempre com
-          # `failed to run command 'q': No such file or directory`, e deixou este CI vermelho por
-          # quatro commits sem ninguém olhar. `--max-time` faz o mesmo papel dentro do próprio curl.
-          ( curl --unix-socket "${SOCK}" --max-time 5 -sN http://app/api/events > "${RUNNER_TEMP}/sse.txt" & )
+          ( timeout 5 q -sN http://app/api/events > "${RUNNER_TEMP}/sse.txt" & )
           sleep 1
           q -fsS -X POST http://app/api/estado/incrementar >/dev/null
           sleep 1
