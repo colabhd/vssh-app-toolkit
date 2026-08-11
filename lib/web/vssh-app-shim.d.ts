@@ -169,19 +169,25 @@ interface VsshJanela {
    * barra.addEventListener('pointerdown', (e) => {
    *   if (e.button !== 0) return;
    *   barra.setPointerCapture(e.pointerId);
-   *   vssh.window.arrastar(e.clientX, e.clientY);
+   *   vssh.window.arrastar(e.clientX, e.clientY, e.screenX, e.screenY);
    * });
-   * barra.addEventListener('pointermove', (e) => vssh.window.arrastarPara(e.clientX, e.clientY));
+   * barra.addEventListener('pointermove', (e) => vssh.window.arrastarPara(e.screenX, e.screenY));
    * barra.addEventListener('pointerup',   () => vssh.window.arrastarFim());
    * ```
    *
    * O limiar que separa clique de arraste é seu, pelo mesmo motivo. Containment, encaixe e onde a
    * janela para continuam do ambiente — e geometria não atravessa em direção nenhuma.
    */
-  arrastar(x: number, y: number): void;
+  arrastar(x: number, y: number, telaX?: number, telaY?: number): void;
 
-  /** Um ponto do arraste em curso. Sem arraste começado, o ambiente ignora. */
-  arrastarPara(x: number, y: number): void;
+  /**
+   * Um ponto do arraste em curso, em coordenada de **tela** (`e.screenX`, `e.screenY`).
+   *
+   * ⚠ De tela, e não do seu quadro: enquanto a janela é arrastada o seu quadro se move junto com
+   * ela, então `clientX` vira `tela − posição da janela` — um laço de realimentação que aparece
+   * como TREMOR quando chega mais de um evento por quadro. `screenX` não se move com a janela.
+   */
+  arrastarPara(telaX: number, telaY: number): void;
 
   /**
    * O fim do arraste. **Obrigatório** — sem ele a janela continua seguindo o ponteiro depois que o
