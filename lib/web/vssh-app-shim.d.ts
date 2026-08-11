@@ -157,12 +157,37 @@ interface VsshJanela {
   /**
    * "Me agarraram aqui" — começa o arraste da janela a partir de um ponto do SEU documento.
    *
-   * Só para quem declara `window.cabecalho: "app"` no manifesto. Chame no `pointerdown` da sua
-   * barra de título e não faça mais nada: o arraste inteiro passa a ser do ambiente, com o mesmo
-   * limiar, o mesmo containment e o mesmo encaixe de qualquer outra janela. Não mande
-   * `pointermove` — e não tente sincronizar geometria nenhuma.
+   * Só para quem declara `window.cabecalho: "app"` no manifesto.
+   *
+   * ⚠ **Aqui estava escrito "não mande `pointermove`". Estava errado.** Enquanto o botão está
+   * apertado sobre o seu quadro, o documento do ambiente não recebe evento de ponteiro nenhum — o
+   * gesto é seu do primeiro ponto ao último, e entregá-lo pela metade perde pontos sem avisar.
+   *
+   * Capture o ponteiro e mande os três:
+   *
+   * ```js
+   * barra.addEventListener('pointerdown', (e) => {
+   *   if (e.button !== 0) return;
+   *   barra.setPointerCapture(e.pointerId);
+   *   vssh.window.arrastar(e.clientX, e.clientY);
+   * });
+   * barra.addEventListener('pointermove', (e) => vssh.window.arrastarPara(e.clientX, e.clientY));
+   * barra.addEventListener('pointerup',   () => vssh.window.arrastarFim());
+   * ```
+   *
+   * O limiar que separa clique de arraste é seu, pelo mesmo motivo. Containment, encaixe e onde a
+   * janela para continuam do ambiente — e geometria não atravessa em direção nenhuma.
    */
   arrastar(x: number, y: number): void;
+
+  /** Um ponto do arraste em curso. Sem arraste começado, o ambiente ignora. */
+  arrastarPara(x: number, y: number): void;
+
+  /**
+   * O fim do arraste. **Obrigatório** — sem ele a janela continua seguindo o ponteiro depois que o
+   * usuário solta. Chame no `pointerup` e no `pointercancel`.
+   */
+  arrastarFim(): void;
 
   /** O duplo-clique da barra de título. Alterna, e não maximiza — é o gesto, não a ação. */
   alternarMaximizado(): void;
