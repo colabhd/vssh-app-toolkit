@@ -946,13 +946,73 @@ Três coisas só a janela real mostrou, e nenhuma bancada via:
    falso não quebra — ele desliga o recurso**, calado, e o sintoma aparece a três repositórios de
    distância.
 
-**Guarda:** `tests/unit/cabecalho-do-app.test.js` no `vssh-sso`, **9 casos**, e
-`tests/pagina-do-ambiente.test.js` no editor, **4 casos** dos 34 — refutação **6/6 + 9/9**.
+⚠ E o conserto do (2) **ainda não bastou** — foi a terceira janela que disse. Contar o limiar do
+lado certo tirou o "toggle" e sobrou o resto do gesto, que continuava sendo uma **entrega no meio
+dele**. Esse desenho depende de a `guard` subir antes do próximo evento **e** de ela ganhar o
+empilhamento; enquanto qualquer uma das duas falha, os pontos se perdem e nada acusa. Dois consertos
+meus só trocaram o sintoma, e o que mudou foi o critério: em vez de mais um conserto pontual, **um
+desenho em que a falha não seja possível**.
 
-⚠ E um caso ficou **verde o tempo todo com a janela quebrada**: o do arraste de fora montava com
-`distance: 0`, e com limiar zero a `guard` sobe de qualquer jeito. Um caso que só passa na
-configuração que ninguém usa não cobra nada — o novo monta com o limiar de produção, e o par
-obrigatório cobra que o arraste que nasce **no shell** continue com limiar.
+**Quem tem o ponteiro é o app**, e com `setPointerCapture` ele tem o gesto inteiro — fora do próprio
+quadro, sobre outra janela, inclusive o `pointerup`. Então ele reporta os três, e é o `drag-end` que
+torna impossível a janela seguir o ponteiro depois de o usuário soltar:
+
+| verbo | quem decide |
+|---|---|
+| `arrastar(x, y)` | o app, **depois do limiar**, que também é dele |
+| `arrastarPara(x, y)` | o app, a cada ponto |
+| `arrastarFim()` | o app, no `pointerup`/`pointercancel` |
+
+O ambiente continua dono do que é dele: containment, encaixe e o commit da posição. A conta do
+movimento saiu de dentro do `aoMover` e virou uma função só — duas contas iguais em dois lugares é
+o defeito que a casa proíbe, e ela agora serve o `pointermove` do shell e o ponto que vem do iframe.
+
+**E a proposta que isto descartou, com o motivo:** tirar o cabeçalho do iframe e desenhá-lo no
+shell. Resolveria, e custa caro — a barra do VS Code carrega o menu, o command center, os controles
+de layout e o título, e reconstruí-los no shell é a mesma inversão que arrancamos do
+`/proxy/vscode/`, apontada para o outro lado. Além disso não remove a fronteira: só a desce 35 px,
+e o próximo gesto que nascer dentro do editor tem o mesmo problema.
+
+### ✅ 2e. O banner ficava por cima da cabeça da janela, e o `Shift+F5` tinha outra causa
+
+Dois achados da mesma rodada, e nenhum dos dois era do arraste.
+
+**O banner.** `shouldShowBannerFirst() { return isWeb && !isWCOEnabled(); }` (`layout.ts:1385-1387`)
+põe o banner **acima** da barra de título na web — e o upstream está certo: numa aba de navegador não
+existe barra de janela, e uma mensagem no topo absoluto é o lugar dela. Dentro do ambiente a premissa
+é falsa, e o que apareceu no topo foi o *Workspace Trust*: *"Restricted Mode is intended for safe
+code browsing"*. Duas metades: o **dado** desliga o Restricted Mode
+(`security.workspace.trust.enabled: false`), porque ele não protege de nada num editor que já roda
+como o usuário Linux dono da sessão com terminal integrado a um clique; a **função** é o patch
+`0008`, que vale para o banner de amanhã — numa janela cujo cabeçalho é esta barra, ela é a primeira
+faixa. Fora do ambiente o `return` do upstream continua no caminho, intacto: o patch só acrescenta.
+
+**O `Shift+F5`, e a página nunca foi a culpada.** `getServerProductSegment(product)` devolve
+`${quality ?? 'oss'}-${commit ?? 'dev'}` (`network.ts:256-258`), e é ele que vira o
+`/oss-<commit>/static/…` de onde saem o `workbench.js` e o `workbench.css` — servidos com
+`Cache-Control: public, max-age=31536000` (`webClientServer.ts:69`), **um ano**. Todos os nossos
+motores nascem do mesmo commit do upstream: **mesma URL, marcada imutável, bytes diferentes a cada
+build.** O navegador estava obedecendo ao que a gente mandou. Cada motor passa a carimbar o próprio
+`commit` (`df53daab-<carimbo>`), e o endereço muda com os bytes.
+
+⚠ E o carimbo entrou junto com uma dívida antiga: a reescrita do `product.json` estava escrita no
+`motor.yml` **e** no `build-local.sh`. É a mesma duplicação que fez o alvo do gulp ficar para trás e
+custou um build inteiro — o alvo virou leitura, e isto virou `scripts/carimbar-produto.js`, chamado
+pelos dois.
+
+**Guarda:** `tests/unit/cabecalho-do-app.test.js` no `vssh-sso`, **10 casos**, e
+`tests/pagina-do-ambiente.test.js` no editor, **7 casos** dos 36 — refutação **13/13**. O caso do
+gesto cobra o fim nas três consequências (a `guard` desce, a posição é commitada, e um ponto depois
+do fim não move mais nada); o do carimbo **executa** o carimbador com dois carimbos e exige dois
+commits diferentes, em vez de conferir que a linha existe.
+
+⚠ **Duas guardas minhas mediram a coisa errada, e as duas do mesmo jeito.** Uma ficou **verde o tempo
+todo com a janela quebrada**: montava o arraste com `distance: 0`, e com limiar zero a `guard` sobe
+de qualquer jeito — um caso que só passa na configuração que ninguém usa não cobra nada. A outra
+ficou **vermelha sem defeito nenhum**: perguntava por `doc.addEventListener('pointermove')`, ou seja
+media o **mecanismo**, e reprovou quando o mecanismo melhorou. É o mesmo erro do caso que procurava
+`mainWindow.open(targetHref)` na janela de contexto do diff, e agora está catalogado três vezes:
+**a pergunta é o invariante, nunca a implementação dele.**
 
 ### 2a. 📋 O patch da plataforma — e ele é uma linha
 
