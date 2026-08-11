@@ -710,9 +710,33 @@ com supersampling** (neutro para qualquer cliente). Só então vale escrever có
 > padrão histórico do xpra), e o cliente passa a escolher a resolução dentro dele **sem o portal
 > mandar nada**: o `hello` já informa o tamanho.
 >
-> **Sobra a metade da DPI, e ela não se dissolve**, porque a DPI de uma tela X é derivada do tamanho
-> físico em milímetros — decidida na CRIAÇÃO, e imutável depois. É o que o xpra diz ao recusar:
-> *"try the dpi switch, or use a patched Xorg dummy driver"*.
+> **Sobra a metade da DPI, e ela não se dissolve** — mas primeiro ela piorou, por minha causa, e o
+> log mostrou as duas coisas na mesma sessão:
+>
+> ```
+> server virtual display now set to 2881x1565    ← a resolução passou a acertar
+> DPI set to 48 x 59 (wanted 168 x 168)          ← e a DPI caiu pela metade
+> ```
+>
+> **O que o Xvfb fixa é o tamanho FÍSICO**, que é `teto / -dpi`. Teto 3× maior com o mesmo `-dpi` dá
+> físico 3× maior — e o xpra encolhe a RESOLUÇÃO para dentro dele, então a DPI efetiva cai na mesma
+> proporção. A conta fecha nos dois eixos: `2881/1524mm × 25.4 = 48,0` e `1565/677mm × 25.4 = 58,7`.
+> Para quem usa, isso é fonte minúscula em toda aplicação: **pior que os 96 de antes.**
+>
+> A `0.7.4` faz o `-dpi` escalar com o teto (`DPI × teto_largura / 1920`), de modo que o físico fique
+> sempre em **508 × 285,75 mm** — as medidas de um 1080p de 23", qualquer que seja o teto. E aí o
+> comportamento é o certo e não uma heurística: mais pixels no mesmo tamanho físico **é** mais denso.
+> `1920x1080 → 96x96`, `2881x1565 → 144x139`, `3840x2160 → 192x192`.
+>
+> **E o teto teve de mudar de proporção junto**, o que foi a segunda armadilha: 5760x2560 é o padrão
+> histórico do xpra e eu o copiei sem fazer a conta. Ele é 2.25:1 contra 1.78:1 da referência, e o
+> Xvfb aceita **um** `-dpi` para os dois eixos — daí sairia `96 x 122` num cliente 1080p. Passou a
+> ser 5760x3240, que é 3× a referência exata (71 MB em vez de 56).
+>
+> **Os 168 exatos seguem fora de alcance com Xvfb, e agora se sabe exatamente por quê:** o físico
+> teria de ser `resolução_do_cliente / DPI_do_cliente`, o que depende do cliente na criação da tela
+> — inclusive da proporção dele. Ou o portal manda os três, ou se usa o dummy do Xorg, que sabe mudar
+> o físico junto com o modo. É o que o xpra recomenda ao recusar, e agora com a aritmética por trás.
 
 
 **Item novo, e ele fecha DOIS sintomas medidos numa sessão real** — não é refinamento. O log do
