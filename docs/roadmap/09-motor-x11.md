@@ -1,8 +1,8 @@
 # Onda 10 — O motor X11 para de ser um cliente hospedado: nós servimos a página, e as janelas dele viram nossas
 
-> **Estado:** 🚧 **em execução — o item 1 fechou.** A medida veio antes, na Onda 9: as três
-> respostas que decidem esta onda foram tiradas de um xpra **6.5.2 de produção**, não da
-> documentação dele. · **Atualizado:** 2026-08-10
+> **Estado:** 🚧 **em execução — os itens 1 e 2 fecharam, e com eles o ambiente ficou sem nenhum app
+> em porta.** A medida veio antes, na Onda 9: as três respostas que decidem esta onda foram tiradas
+> de um xpra **6.5.2 de produção**, não da documentação dele. · **Atualizado:** 2026-08-10
 >
 > **Repos:** `vsshapp-xpra` + `vssh-sso`
 >
@@ -97,7 +97,7 @@ Refutação medida nas duas direções: devolver o `--html` ao xpra deixa **1 ve
 vermelho *por servir a página de outro lugar*, não por deixar de servir; tirar o `static-spa` do
 backend deixa **3 vermelhos**, e nenhum deles é o do `--html`.
 
-## 2. 📋 A ponte que desembrulha o WebSocket, e a porta some
+## 2. ✅ A ponte que desembrulha o WebSocket, e a porta some
 
 O listener de WS do xpra **não aceita caminho** (medido), então a ponte não pode ficar sendo um cano
 de bytes cru. O que fica de pé: o nosso backend termina o WebSocket do navegador e escreve o payload
@@ -127,12 +127,47 @@ resto em vez de fechar*) seja exatamente o comportamento de quem está lendo um 
 A guarda que fecha isso é o handshake completo: o cliente HTML5 conectando pela ponte e desenhando
 uma janela, numa sessão de verdade.
 
-Feito isto, o manifesto do xpra troca `transport: "tcp"` por `"socket"`, e **o ambiente fica sem
-nenhum app em porta**.
+Feito isto, o manifesto do xpra trocou `transport: "tcp"` por `"socket"` (`vsshapp-xpra` **0.5.0**,
+com `minShellVersion: "4.1.0"` — o `escutar()` da v4 exige um `vssh-app-run` da Onda 9), e **o
+ambiente ficou sem nenhum app em porta**. São dois endereços agora, e nenhum deles é um número:
+`~/.vssh-apps/xpra/app.sock` para o portal, `~/.vssh-apps/xpra/xpra.sock` para o xpra — o segundo
+derivado do primeiro, no mesmo diretório 0700.
 
-**Guarda:** `tests/ponte-ws-socket.test.js` — sobe um xpra de mentira no socket nativo, conecta pela
-ponte e confere que o `hello` do protocolo volta. Refuta: cortar a ponte no meio de um frame; o teste
-tem de acusar, e não travar (a lição do passo 0: teste que trava é pior que vermelho).
+**Duas coisas que só apareceram na implementação, e as duas são do NAVEGADOR:**
+
+- **o subprotocolo tem de ser respondido.** O cliente abre com `new WebSocket(uri, "binary")`
+  (`Protocol.js:193`), e o Chrome aborta o handshake quando mandou subprotocolo e não recebeu
+  nenhum de volta. Quem respondia isso era o listener do xpra; ao trazer o WebSocket para dentro do
+  backend, a resposta viria vazia. É erro que **não aparece em teste com cliente permissivo** — por
+  isso a guarda mede o header na resposta, e não a linha de código;
+- **o frame tem de ser BINÁRIO**, e a guarda que perguntava isso estava errada: o `ws` entrega um
+  `Buffer` nas duas modalidades, então `Buffer.isBuffer()` fica verde com a ponte mandando texto. A
+  pergunta certa é a flag `isBinary`. Achado ao refutar — a mutação "mande texto" passou verde, que
+  é o que uma refutação existe para descobrir.
+
+**E a contrapressão não é enfeite:** uma janela rolando empurra megabytes por segundo, e sem
+`pause()`/`resume()` nas duas pontas o `bufferedAmount` cresce sem teto até o processo morrer — e
+quem morre é o BACKEND, que também serve o `frontend/` e vigia o xpra.
+
+**Guarda:** `tests/ponte-ws-socket.test.js`, 7 casos — o `hello` do cliente chega ao socket como
+protocolo nativo (**nenhuma linha de HTTP** atravessa), o do servidor volta byte a byte como frame
+binário, um pacote partido em três escritas chega inteiro, e as duas pontas que caem levam a outra
+junto. Ela roda no Windows também, e isso foi escolha: o alvo é endereçado por CAMINHO, e no Windows
+um caminho de `listen()` é um named pipe — mesmo `net.connect({ path })` dos dois lados. Uma guarda
+que só roda no CI só é lida depois do push.
+
+**A refutação achou um defeito na própria guarda, e é exatamente o que o plano avisava:** cortar a
+ponte no meio de um frame fazia o ARQUIVO inteiro travar por 120 s (o timeout do runner) em vez de o
+caso ficar vermelho em 4 s — e, travando, ele **escondia a própria refutação**: a mutação passava
+por "0 vermelhos". A causa não era a ponte, era o `finally` da bancada: `server.close()` espera as
+conexões abertas terminarem, e num caso que falhou elas seguem abertas **por definição**. E
+`closeAllConnections()` não bastou — medido: **ele não alcança um socket que já virou WebSocket**.
+Quem tem de morrer é o cliente. Junto veio um teto por caso (`--test-timeout=30000` no `npm test`),
+para que travar seja sempre um vermelho com nome, e não um arquivo lento.
+
+**Refutação, com a bancada consertada: 5 mutações, 5 pegas**, cada uma nomeando o caso certo — a
+ponte que não avisa quando o xpra cai, a que não fecha o socket quando o navegador some, a que manda
+texto no lugar de binário, o subprotocolo recusado, e o upgrade aceito antes de achar o xpra.
 
 ## 3. 📋 As janelas do xpra viram `VsshWindow`
 
@@ -194,10 +229,15 @@ por app nenhum. Refuta: revendorizar a lib.
 
 **Era o passo `0d` da [Onda 9](08-editor-do-ambiente.md), e ficar lá era um erro de endereço.** O
 passo 0 daquela onda trocou o endereço de um vssh-app de porta para socket, e o `0d` seria a
-consequência: apagar os onze lugares que sabem a porta. Só que eles **não sobrevivem por inércia** —
-sobrevivem porque **um app ainda declara `transport: "tcp"`**, e esse app é o xpra. Enquanto o item 2
-acima não fechar, apagar a orquestração quebra o ambiente. Quem a deixa sem assunto é esta onda, e
-por isso o item mora aqui, ao lado da medida que o autoriza.
+consequência: apagar os onze lugares que sabem a porta. Só que eles **não sobreviviam por inércia** —
+sobreviviam porque **um app ainda declarava `transport: "tcp"`**, e esse app era o xpra. Quem o
+deixou sem assunto foi o item 2 desta onda, e por isso o item mora aqui, ao lado da medida que o
+autoriza.
+
+**O item 2 fechou: este está liberado, e é o único da onda que ainda não foi feito no `vssh-sso`.**
+O gate agora é operacional e não técnico — apagar a orquestração de porta antes de o
+`vsshapp-xpra` 0.5.0 estar instalado nos servidores deixa o motor sem endereço, porque o portal
+passaria a montar o túnel só para socket enquanto o app instalado ainda binda porta.
 
 **O que já saiu com o 0c**, e não espera nada: a ponta **local** do `-L` passou a ser decidida no
 portal (`alocarPortaLocal`), então o `ss -tlnp` remoto sobra exclusivamente para `tcp` — isto é, para
@@ -217,6 +257,13 @@ o xpra. É uma ida de SSH por app que morre no dia em que o item 2 fechar.
 **O teto de 254 servidores é o que este item entrega de verdade** — não é limpeza, é um limite de
 produto que ninguém escolheu.
 
+**E há um décimo-segundo lugar, achado ao fechar o item 2:** o `startApp` escreve
+`VSSH_APP_PORT=<porta>` no arquivo `env` de **todo** app (`vssh-apps.ts:940`), inclusive nos de
+socket — e nesses o número é a ponta LOCAL do túnel, que não tem relação nenhuma com onde o app
+escuta. Não quebra nada hoje (o `vssh-app-run` ignora a variável quando o transporte é socket, e a
+lib do toolkit prefere `VSSH_APP_SOCKET`), e é exatamente por isso que é armadilha: uma variável com
+nome certo e valor de outra coisa, esperando alguém lê-la.
+
 **Guarda:** a que já existe (`app-sem-porta.test.js`) estendida ao ambiente inteiro — `ss -tln` no
 servidor não mostra porta de app **nenhum**, com o xpra rodando. Refuta: devolver **um** app ao
 `tcp`; o teste tem de ficar vermelho por causa dele, e nomear qual.
@@ -228,8 +275,8 @@ servidor não mostra porta de app **nenhum**, com o xpra rodando. Refuta: devolv
 | # | O quê | Repo | Trava em |
 |---|---|---|---|
 | 1 | ✅ nós servimos o `frontend/`; xpra com `--html=off` — e o app ganhou um backend Node | `vsshapp-xpra` | — |
-| 2 | 📋 a ponte WS → socket nativo, e o `transport` vira `socket` | `vsshapp-xpra` | 1 |
-| — | **o ambiente fica sem nenhum app em porta** | | 2 |
+| 2 | ✅ a ponte WS → socket nativo, e o `transport` virou `socket` | `vsshapp-xpra` | 1 |
+| — | ✅ **o ambiente ficou sem nenhum app em porta** — o item 5 está liberado | | 2 |
 | 3 | 📋 as janelas viram `VsshWindow`; os 47 proxies saem | `vsshapp-xpra` + `vssh-sso` | 1 |
 | 4 | 📋 o jQuery sai do pacote | `vsshapp-xpra` | 3 |
 | 5 | 📋 **a orquestração de porta morre** — os onze lugares, o `nextLoopback` e o teto de **254** (era o `0d` da [Onda 9](08-editor-do-ambiente.md)) | `vssh-sso` | 2 |
