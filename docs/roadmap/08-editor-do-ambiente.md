@@ -1014,6 +1014,71 @@ media o **mecanismo**, e reprovou quando o mecanismo melhorou. É o mesmo erro d
 `mainWindow.open(targetHref)` na janela de contexto do diff, e agora está catalogado três vezes:
 **a pergunta é o invariante, nunca a implementação dele.**
 
+### ✅ 2f. Eu publiquei um editor que recusava a própria conexão
+
+O conserto do `Shift+F5` da seção anterior **quebrou o editor**, e o defeito ficou publicado. Vale
+escrito inteiro, porque o erro é de um tipo que se repete.
+
+O `commit` é o caminho dos estáticos, e eu o carimbei no `product.json` **depois** do build. Só que
+ele é embutido no bundle do **cliente** em tempo de compilação (`gulpfile.reh.ts:41,420`), e o
+servidor compara os dois no handshake:
+
+```ts
+const rendererCommit = msg2.commit;
+const myCommit = this._productService.commit;
+if (rendererCommit !== myCommit) {
+    return rejectWebSocketConnection(`Client refused: version mismatch`);
+}
+// remoteExtensionHostAgentServer.ts:335-341
+```
+
+**Carimbar depois do build carimba um lado só, e os dois lados se conferem.** O editor subia e
+recusava a própria conexão.
+
+O carimbo mudou para `BUILD_SOURCEVERSION`, **antes** de compilar — dali ele entra no bundle e no
+`product.json` pelo mesmo caminho, e ninguém precisa concordar com ninguém. E o formato não é
+escolha: `getVersion` só aceita a variável se ela casar com `/^[0-9a-f]{40}$/i`; fora disso ela cai
+no git e **ignora o carimbo em silêncio** (`build/lib/getVersion.ts`). Por isso o commit é o prefixo
+do sha do upstream seguido do carimbo em dígitos — que já são hex válidos.
+
+**O que fica é o portão, e ele é o assunto.** O `carimbar-produto.js` passou a abrir o bundle do
+cliente e exigir encontrar lá o commit que o servidor vai anunciar. Um produto cujas metades
+discordam não sai daqui. Era **a pergunta que nenhuma bancada minha podia fazer**, porque ela só
+existe depois do build — e a guarda a executa contra um produto de mentira, cobrando que ele
+**reprove**.
+
+### ✅ 2g. O arraste tremia, e o Copilot custou o terceiro build
+
+**O tremor.** Com o gesto inteiro atravessando, o arraste parou de escapar e passou a oscilar. Mesma
+família de tudo nesta onda: **coordenada de dentro do iframe é um laço de realimentação.** Enquanto a
+janela é arrastada, o quadro do app se move **junto** com ela, então o `clientX` que ele manda vale
+`tela − posição da janela` — um número que depende justamente do que o ambiente acabou de mudar. O
+ambiente reconvertia lendo `getBoundingClientRect()` a cada ponto; com mais de um `pointermove` por
+quadro (mouse de 240 Hz, eventos coalescidos), a leitura é de um quadro atrás e o erro vira
+oscilação.
+
+A tela não se move com a janela. O deslocamento entre o quadro do ambiente e a tela é guardado
+**uma vez**, no começo do gesto, com nada ainda deslocado; dali em diante todo ponto é uma soma
+constante. O caminho antigo fica — um app compilado contra o toolkit 4.2.0 ainda manda o ponto do
+quadro, e tirá-lo seria quebrar um app publicado para consertar outro.
+
+**E o Copilot cobrou o terceiro build.** O script de build da extensão liga o modo de pipeline
+oficial assim que vê `BUILD_SOURCEVERSION` (`extensions/copilot/.esbuild.mts:326`) e passa a exigir
+`VSCODE_QUALITY`, depois `VSCODE_PUBLISH_COUNTER` — **um por build derrubado, 5,3 min cada**. E o
+`BUILD_SOURCEVERSION` a gente precisa por um motivo nosso. Eu alimentei duas variáveis antes de
+parar e ver o óbvio: **construir o que a gente descarta era alimentar essa colisão para sempre.** A
+dívida "o Copilot ainda é *construído* mesmo sem ser embarcado" estava registrada desde o item 1, e
+agora tem preço. `compileCopilotExtensionBuildTask` saiu da série do alvo REH, e o import junto
+(`noUnusedLocals: true`). De brinde: **8,03 min → 5,08 min**.
+
+**Guarda:** `pagina-do-ambiente.test.js`, **38 casos**, refutação **7/7**; `cabecalho-do-app.test.js`
+no `vssh-sso`, **12 casos**, refutação **4/4**. Os dois casos novos do shell **executam** o método
+extraído do arquivo — mesmo idioma do `validadorDeRota` — porque a pergunta é aritmética, e regex
+não mede aritmética.
+
+⚠ E eu li um `grep` vazio como sucesso e disse que um build tinha fechado quando ele havia falhado
+com `exit 1`. O código de saída estava no arquivo da tarefa, e eu não o li.
+
 ### 2a. 📋 O patch da plataforma — e ele é uma linha
 
 `CURRENT_TARGET_PLATFORM` deixa de derivar de `isWeb` e passa a vir do servidor remoto, que é quem
