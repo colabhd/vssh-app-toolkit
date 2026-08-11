@@ -424,6 +424,118 @@ servidor não mostra porta de app **nenhum**, com o xpra rodando. Refuta: devolv
 
 ---
 
+## O incidente de 11/08/2026 — quatro defeitos, e um deles não é deste app
+
+**A onda tinha os itens do pacote fechados quando o motor ficou inalcançável por horas** num
+servidor real. O portal mostrava `ECONNRESET` e depois `HTTP 000` sem parar. Fica registrado aqui,
+e não num changelog, porque três dos quatro defeitos são **decisões desta onda** — e o quarto é do
+toolkit e ainda está aberto.
+
+`vsshapp-xpra` **0.6.1**.
+
+### O que os dados disseram, em 49 milissegundos
+
+```
+.542  socket-do-xpra  estado=removido      ← instância A
+.549  escutando       app.sock             ← A ganhou o endereço
+.591  socket-do-xpra  estado=inexistente   ← instância B, 49ms depois
+57.3  xpra-saiu       codigo=21            ← os dois xpras colidiram
+```
+
+O portal pediu **dois starts quase simultâneos** para o mesmo par usuário+app. Isso é defeito do
+`vssh-sso` — não há trava de start em voo —, e não deixa de ser defeito nosso ter quebrado com ele.
+
+| # | O defeito | De quem |
+|---|---|---|
+| **D1** | `subir()` fazia `spawn do xpra` → `escutar`. **`escutar()` é o único mecanismo de exclusão que existe**: é ele que descobre que outra instância já atende o endereço. Chamá-lo depois do efeito colateral é jogar a exclusão fora — B só soube que perdeu três linhas depois de o segundo xpra existir | item 2 desta onda |
+| **D2** | `xpra.sock` vivo → **`process.exit(0)`**. O lifecycle lê 0 como sucesso: nenhum start seguinte bindava o `app.sock`, ninguém tentava de novo, e o app ficou morto até alguém entrar por SSH e matar o xpra à mão | item 2 desta onda |
+| **D3** | saída antecipada não matava o filho — foi o que **orfanou** o xpra que travou tudo | item 2 desta onda |
+| **D4** | `log(...)` seguido de `process.exit()` **perde a linha** | **o toolkit**, e continua aberto |
+
+### D1 e D2: a ordem certa muda a resposta certa
+
+O conserto do D1 é uma reordenação: **ganhar o endereço primeiro, causar efeito depois.** Quem perde
+a corrida sai sem ter criado nada.
+
+E isso reescreve a pergunta do D2. Antes, com o `escutar` no fim, um `xpra.sock` vivo era ambíguo —
+podia ser um xpra de outra instância nossa ainda de pé, e desistir parecia prudente. **Depois da
+reordenação não é mais ambíguo:** nós já detemos o `app.sock`, que é o **único** endereço pelo qual
+o portal alcança este app. Se há xpra atendendo, ele é órfão de uma vida anterior, e a sessão dele
+está inalcançável por qualquer navegador.
+
+Então a resposta deixou de ser desistir e passou a ser **adotar** — e veio com uma propriedade que
+valia a pena de graça: **a sessão X11 do usuário sobrevive a um reinício do backend.** As janelas
+continuam abertas onde estavam.
+
+Um xpra adotado não tem `filho.on('exit')`, então ganhou vigília: uma sondagem a cada 15 s, que é a
+**mesma** operação que o `limparSocketOrfao` já faz no boot — o xpra não vê um tipo novo de tráfego,
+vê uma a mais. Sem ela, a morte do adotado deixaria o backend verde servindo o vazio, que é o estado
+que o próprio arquivo declara ser pior que uma queda.
+
+### D4: o log ficava cego exatamente nos momentos que importam — e é do toolkit
+
+O `createAppLog` escreve num `createWriteStream`: assíncrono e bufferizado. `process.exit()` não
+drena buffer nenhum. **Provado pelos dados do incidente, não por teoria:** o evento
+`xpra-ja-atende` aparece no `run.log` e **não** aparece no `app.log`, sendo a **mesma** chamada de
+`log()`. O `run.log` é stdout redirecionado para arquivo, e escrita em arquivo é síncrona no POSIX;
+o `app.log` é o stream, e ele morreu com o buffer cheio.
+
+O resultado é o pior tipo de buraco: o registro estruturado é cego justamente quando o processo
+desiste, que são os únicos instantes que interessam depois. Foi o que fez este diagnóstico depender
+de comparar dois arquivos de log para descobrir que um deles estava mentindo por omissão.
+
+**Isto vale para TODO vssh-app**, inclusive o template do toolkit — qualquer um que faça `log(...)` +
+`process.exit()` perde a última linha. O `vsshapp-xpra` resolveu por fora (`registrarSincrono`, sobre
+o `log.path` que o toolkit publica) porque o conserto de lá só chega quando a tag `v4` mover.
+
+**O conserto no toolkit** é abrir o arquivo uma vez e usar `fs.writeSync` em vez do stream: um
+syscall por linha, e o volume aqui é de eventos e não de quadros. Fica como item aberto — ver a
+tabela de status.
+
+**Guarda que o pacote já tem, e é a mais incomum delas:** um teste que sobe dois subprocessos, um
+gravando por stream e outro por `appendFileSync`, os dois com `process.exit(0)` imediato, e exige que
+o primeiro perca a linha. Ele mede a **premissa** do conserto, não o conserto. No dia em que o
+toolkit gravar síncrono ele fica vermelho — e será a notícia certa: dá para apagar o contorno.
+
+### E o que o incidente provou A FAVOR
+
+**O `--bind` unix do xpra funciona.** Era a única peça que o item 2 registrou como não verificada
+(*"o que continua sem prova é só o lado do servidor"*), e foi a primeira de que eu suspeitei. A
+sessão de `01:41:13` rodou **seis minutos** e saiu com `143` = 128+SIGTERM: desligamento limpo pelo
+portal, a pedido dele. Não há mais nada pendente de prova no item 2.
+
+E o colapso de SSH que aparece no fim do log do portal — `terminal-ws`, `ssh-exec` pooled, `coletor`
+e todos os `fs/*` com `Keepalive timeout` ao mesmo tempo, mais túneis de **outro usuário** fechando
+com 255 — é outro problema, e provavelmente **amplificado** por este: o laço de crash faz o portal
+abrir uma sessão SSH por `start`/`stop`/`list`, e 255 é o `ssh` saindo com erro, compatível com o
+`MaxStartups` do sshd começando a recusar.
+
+**Guardas:** `tests/boot-sem-xpra-orfao.test.js`, 9 casos — cada um é uma linha daquele `app.log`.
+Refutado: **8 mutações, 8 vermelhos**, entre elas devolver a ordem antiga do boot e devolver o
+`exit 0` da adoção. E a guarda que cobrava o literal `escutar(servidor)` passou a cobrar coisa mais
+forte: que o **padrão** do parâmetro injetável seja o `escutar` do toolkit — padrão errado é o modo
+de falhar que a injeção introduz, e nenhum teste que passe um duplo o pegaria.
+
+---
+
+## 6. 📋 O portal não deixa dois starts do mesmo app em voo
+
+**Item novo, e a causa primeira do incidente acima.** Dois `startApp` para o mesmo par usuário+app
+saíram a 49 ms de distância. O app foi consertado para não quebrar com isso — a exclusão dele agora
+está no lugar certo, e quem perde a corrida sai sem criar nada. Mas **pedir dois é do portal**, e
+custa duas sessões SSH, dois `vssh-app-run` e a chance de a corrida achar o próximo defeito.
+
+| | |
+|---|---|
+| onde | `vssh-sso`, no `startApp` (`vssh-apps.ts`) |
+| o quê | uma promessa em voo por `<usuário>:<appId>`, e o segundo pedido **espera a primeira** em vez de abrir a sua |
+| de brinde | o `HTTP 000` do healthcheck para de ser corrida: hoje duas sondagens concorrem pelo mesmo endereço |
+
+**Guarda:** dois `startApp` disparados no mesmo tick resultam em **um** `vssh-app-run` no servidor.
+Refuta: tirar o mapa de em-voo; o teste tem de contar dois.
+
+---
+
 ## A ordem, e por que ela é essa
 
 | # | O quê | Repo | Trava em |
@@ -434,9 +546,19 @@ servidor não mostra porta de app **nenhum**, com o xpra rodando. Refuta: devolv
 | 3a | ✅ a janela X11 vira uma `VsshWindow`; o cromo, o arraste, o resize e o `jquery-ui` (19.061 linhas) saem do motor | `vsshapp-xpra` | 1 |
 | 4 | ✅ o jQuery sai do pacote (**33.980 linhas**) — e o carrossel Alt+Tab é apagado, não portado | `vsshapp-xpra` | **3a**, não 3 |
 | — | ✅ **o repositório do pacote fechou** — o que resta da onda é todo do `vssh-sso` | | 4 |
+| — | ✅ **e reabriu por um incidente**: 0.6.1, quatro defeitos, três deles decisões do item 2 | `vsshapp-xpra` | — |
 | 3b | 📋 o outro lado: os proxies (**dois donos**), o `xpraAdapter` e os **31 ramos por família** saem | `vssh-sso` | 3a |
 | 4d | 📋 o ambiente ganha o Alt+Tab que o motor levou embora — sobre `VsshWindow._all` | `vssh-sso` | 3a |
 | 5 | 📋 **a orquestração de porta morre** — os onze lugares, o `nextLoopback` e o teto de **254** (era o `0d` da [Onda 9](08-editor-do-ambiente.md)) | `vssh-sso` | 2 |
+| 6 | 📋 o portal não deixa dois starts do mesmo app em voo — a **causa primeira** do incidente | `vssh-sso` | — |
+| — | 📋 **o `createAppLog` do toolkit grava síncrono** — hoje todo vssh-app perde a última linha antes de `process.exit()` | `toolkit` | — |
+
+**A onda declarou o pacote fechado e o pacote reabriu.** Vale registrar por que isso não é o processo
+falhando: o item 2 tinha uma peça marcada como não verificável sem servidor real, e o incidente foi
+o servidor real chegando. O que ele achou não foram detalhes de implementação — foram **três decisões
+de desenho**: a ordem do boot, o significado de um socket vivo, e quem mata o filho. Nenhuma delas
+teria aparecido em teste de unidade escrito antes, porque as três só existem sob concorrência que só
+o portal produz.
 
 **O item 1 destravou tudo e não dependia de nada**, porque servir o próprio frontend é o que todo
 vssh-app já faz. O item 3 não espera a ponte: agora que a página é nossa, o cliente é nosso para
