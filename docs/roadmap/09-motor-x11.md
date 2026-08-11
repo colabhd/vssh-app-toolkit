@@ -1,8 +1,8 @@
 # Onda 10 — O motor X11 para de ser um cliente hospedado: nós servimos a página, e as janelas dele viram nossas
 
-> **Estado:** 📋 **planejada — e a medida veio antes, na Onda 9.** As três respostas que decidem esta
-> onda foram tiradas de um xpra **6.5.2 de produção**, não da documentação dele.
-> · **Atualizado:** 2026-08-10
+> **Estado:** 🚧 **em execução — o item 1 fechou.** A medida veio antes, na Onda 9: as três
+> respostas que decidem esta onda foram tiradas de um xpra **6.5.2 de produção**, não da
+> documentação dele. · **Atualizado:** 2026-08-10
 >
 > **Repos:** `vsshapp-xpra` + `vssh-sso`
 >
@@ -30,42 +30,86 @@
 
 ---
 
-## A inversão, numa linha do `entrypoint.sh`
+## A inversão, numa linha — e como ela ficou
 
 ```sh
-# vsshapp-xpra/backend/entrypoint.sh:185-186
+# antes · vsshapp-xpra/backend/entrypoint.sh:185-186
   --bind-tcp="127.0.0.1:${VSSH_APP_PORT}" \
   --html="${AQUI}/frontend" \
+
+# depois · vsshapp-xpra/backend/xpra.sh (o mesmo arquivo, renomeado: ele não é mais o entrypoint)
+  --bind-tcp="${VSSH_X11_BIND}" \
+  --html=off \
 ```
 
-**`${AQUI}/frontend` é o nosso próprio diretório.** Não é o xpra nos dando um cliente — somos nós
-entregando a nossa pasta e pedindo que ele seja um servidor de arquivo estático. É a única razão de
-existir uma camada HTTP no bind dele, e é por isso que a porta não sai enquanto isso não mudar.
+**`${AQUI}/frontend` era o nosso próprio diretório.** Não era o xpra nos dando um cliente — éramos
+nós entregando a nossa pasta e pedindo que ele fosse um servidor de arquivo estático. Era a única
+razão de existir uma camada HTTP no bind dele, e é por isso que a porta não sai enquanto isso não
+mudar.
 
 O comentário de `:11` já dizia metade: *"`--bind-tcp` na porta que o lifecycle alocou, e SÓ nela"* —
-a porta veio do que o lifecycle sabia dar, não do que o xpra precisa.
+a porta veio do que o lifecycle sabia dar, não do que o xpra precisa. Hoje `$VSSH_X11_BIND` é
+**interna**, pedida ao kernel (`listen(:0)`) pelo backend a cada boot; a porta do lifecycle é do
+`backend/server.js`, e some no item 2.
 
 ---
 
-## 1. 📋 Nós servimos a página; o xpra fica com o protocolo
+## 1. ✅ Nós servimos a página; o xpra fica com o protocolo
 
-O backend do app passa a servir `frontend/` com o `static-spa` do toolkit — que é o que todo outro
-vssh-app já faz — e o xpra sobe com **`--html=off`**.
+O backend do app serve `frontend/` com o `static-spa` do toolkit — que é o que todo outro vssh-app
+já faz — e o xpra sobe com **`--html=off`**. `vsshapp-xpra` **0.4.0**.
 
-O endereço do WebSocket **já é configurável**: o cliente monta a URI de `host`/`port`/`path`
+O endereço do WebSocket **já era configurável**: o cliente monta a URI de `host`/`port`/`path`
 (`Client.js:535`, `Protocol.js:193`), e `motor/xpra-engine.js:738-744` registra a briga que isso já
-deu. Metade da inversão sempre esteve pronta.
+deu. Metade da inversão sempre esteve pronta — e por isso **nenhuma linha do lado-cliente mudou**.
 
-**Guarda:** `tests/serve-o-proprio-frontend.test.js` — com `--html=off`, `GET /` do backend devolve o
-`index.html` do pacote e o upgrade de WS devolve `101`. Refuta: devolver o `--html` ao xpra; o teste
-tem de ficar vermelho **por servir a página de outro lugar**, não por deixar de servir.
+**O que este item custou, e não estava escrito aqui:** o app não tinha backend nenhum. Ele era
+`runtime: "binary"` com `exec xpra`, e o PID rastreado pelo lifecycle era o do próprio xpra. Agora é
+`runtime: "node"`, o entrypoint é `backend/server.js`, e o xpra é **filho** dele — com a vida
+amarrada nas duas direções, porque um backend que sobrevive ao motor fica de pé servindo arquivos
+para uma sessão que não existe, com healthcheck verde, e o supervisor nunca o relança. O antigo
+`entrypoint.sh` virou `backend/xpra.sh` e continua sendo o único lugar que sabe montar a linha do
+xpra: display, teclado, Xvfb e mimeapps não subiram para o Node.
+
+**A premissa que a medida derrubou — e ela era minha, escrita aqui em cima:** *"`GET /` devolve o
+`index.html` do pacote"*. **Não há `index.html` neste pacote, nunca houve, e não deve haver.** Ele é
+`type: "engine"`: quem serve a página do ambiente é o portal, e o que este app entrega é o
+CARREGADOR (`motor/xpra-engine.js`), injetado como `<script>` depois de o backend responder. Servir
+um index aqui seria inventar uma segunda página. Então `/` responde **404 dizendo o que o app é**, e
+o `healthcheckPath` do manifesto foi para `/healthz` — um 404 conta como pronto para o lifecycle,
+mas apoiar a prontidão num erro envelhece mal. Fecha junto o **R3** da Onda 2c, que perguntava
+exatamente isto e supunha a mesma coisa errada.
+
+**E veio de graça o que o xpra nunca soube fazer: o `X-Vssh-App-Token`.** O proxy do portal injeta
+esse header no HTTP **e no upgrade de WebSocket** — e ele viajava para ninguém, porque quem atendia
+era o xpra, que não sabe conferi-lo. A porta é loopback, e loopback é compartilhado por toda conta
+Linux da máquina (medido na Onda 9: 14 de 23 portas de app responderam a um GET sem token, 12 delas
+de contas alheias). Do outro lado desta não há uma sessão X11 qualquer: há **a** sessão gráfica do
+usuário. Agora o backend confere o token em tudo menos no `/healthz`, inclusive no upgrade, e o
+token **não atravessa** para o xpra. Era a "decisão aberta" do README do pacote; a inversão a
+decidiu.
+
+**Guarda:** `tests/serve-o-proprio-frontend.test.js`, **10 casos** — os bytes do lado-cliente saem do
+nosso backend (comparados com o disco, arquivo a arquivo), o upgrade devolve `101` e atravessa nos
+dois sentidos, o `Host` é reescrito, o token é exigido e não vaza, e sem xpra do outro lado o
+upgrade **falha alto em vez de travar** a aba. A outra metade lê o `xpra.sh` e cobra `--html=off`.
+Refutação medida nas duas direções: devolver o `--html` ao xpra deixa **1 vermelho e 9 verdes** —
+vermelho *por servir a página de outro lugar*, não por deixar de servir; tirar o `static-spa` do
+backend deixa **3 vermelhos**, e nenhum deles é o do `--html`.
 
 ## 2. 📋 A ponte que desembrulha o WebSocket, e a porta some
 
-O listener de WS do xpra **não aceita caminho** (medido), então a ponte não pode ser um cano de bytes
-cru. O que fica de pé: o nosso backend termina o WebSocket do navegador e escreve o payload no
-`--bind` unix nativo — **o mesmo protocolo que vai dentro dos frames binários**. São dezenas de
+O listener de WS do xpra **não aceita caminho** (medido), então a ponte não pode ficar sendo um cano
+de bytes cru. O que fica de pé: o nosso backend termina o WebSocket do navegador e escreve o payload
+no `--bind` unix nativo — **o mesmo protocolo que vai dentro dos frames binários**. São dezenas de
 linhas com o `ws`, que o `vssh-sso` já usa.
+
+**O item 1 deixou o lugar pronto e a ponte no estado provisório**: hoje `backend/server.js` recebe o
+upgrade e o REPETE contra o listener do xpra, sem olhar frame nenhum (`ponteWebSocket`). É a metade
+que já se sabia funcionar, porque quem atende do outro lado é exatamente o listener que o navegador
+alcançava antes. O item 2 troca duas coisas nessa função — quem termina o WebSocket, e o endereço —
+e apaga **duas** portas de uma vez: a do lifecycle e a interna que o backend pede ao kernel para o
+xpra.
 
 **O que ainda não está provado, e é implementação e não medida:** `connect()` de pé prova que o
 transporte está aberto, não que o protocolo atravessa. A primeira guarda desta onda é o handshake
@@ -115,8 +159,15 @@ continua entregando jQuery ao navegador**, escondido dentro deste app:
 | **call sites de `$(` no cliente** | **35**, em três arquivos |
 
 **Trinta mil linhas para 35 chamadas** — e as chamadas são `.parents()`, `.closest()`, `.addClass()`
-e `.css()` (`Window.js:144,228,369,1234`), que são uma linha de DOM cada. O item 3 já apaga
-`Window.js`, que é onde a maioria delas mora.
+e `.css()` (`Window.js:144,228,369,1234`), que são uma linha de DOM cada.
+
+~~"O item 3 já apaga `Window.js`, que é onde a maioria delas mora."~~ **Contado, e é o contrário:**
+`Window.js` tem **5** ocorrências (uma delas comentário), `Notifications.js` tem **9**, e
+`Client.js` tem **21** — a maioria mora justamente no arquivo que o item 3 NÃO apaga. E as de lá não
+são uma linha de DOM cada: são o carrossel `slick` do Alt+Tab (`window-preview`, `.slick-current`) e
+a pasteboard do clipboard. Então este item não sai de carona no 3 — ele tem trabalho próprio, e o
+maior pedaço dele é substituir o carrossel. O `jquery-ui` (19.061 linhas) é que sai com o 3: quem o
+usa é o `draggable`/`resizable` do `Window.js`, em 16 lugares.
 
 > É a mesma forma do achado da Onda 8: *"a premissa do jQuery estava invertida, e a medida diz de que
 > lado"*. Lá o shell tinha menos jQuery do que se dizia; aqui o ambiente tem mais, e num lugar onde
@@ -164,15 +215,15 @@ servidor não mostra porta de app **nenhum**, com o xpra rodando. Refuta: devolv
 
 | # | O quê | Repo | Trava em |
 |---|---|---|---|
-| 1 | 📋 nós servimos o `frontend/`; xpra com `--html=off` | `vsshapp-xpra` | — |
+| 1 | ✅ nós servimos o `frontend/`; xpra com `--html=off` — e o app ganhou um backend Node | `vsshapp-xpra` | — |
 | 2 | 📋 a ponte WS → socket nativo, e o `transport` vira `socket` | `vsshapp-xpra` | 1 |
 | — | **o ambiente fica sem nenhum app em porta** | | 2 |
 | 3 | 📋 as janelas viram `VsshWindow`; os 47 proxies saem | `vsshapp-xpra` + `vssh-sso` | 1 |
 | 4 | 📋 o jQuery sai do pacote | `vsshapp-xpra` | 3 |
 | 5 | 📋 **a orquestração de porta morre** — os onze lugares, o `nextLoopback` e o teto de **254** (era o `0d` da [Onda 9](08-editor-do-ambiente.md)) | `vssh-sso` | 2 |
 
-**O item 1 destrava tudo e não depende de nada**, porque servir o próprio frontend é o que todo
-vssh-app já faz. O item 3 não espera a ponte: assim que a página for nossa, o cliente é nosso para
+**O item 1 destravou tudo e não dependia de nada**, porque servir o próprio frontend é o que todo
+vssh-app já faz. O item 3 não espera a ponte: agora que a página é nossa, o cliente é nosso para
 reformar.
 
 **E o item 5 é o único que toca o `vssh-sso`**, o que faz dele o fim da fila e não o começo: enquanto
