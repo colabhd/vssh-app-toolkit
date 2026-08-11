@@ -1141,6 +1141,39 @@ reinstalação e `~/.vssh-apps/vscode/data` órfão. Há guarda cobrando que o b
 usado** — a mesma armadilha que fez o `vssh-sso` ganhar um `soCodigo`. A pergunta é sobre o desenho,
 não sobre o texto ao redor dele.
 
+### ✅ 2j. Os ícones DENTRO do app, e onde a marca deve ser trocada
+
+O rename para VSSHCode parou na porta: a página do motor aponta para `resources/server/favicon.ico`,
+`code-192.png` e um `manifest.json` que é **arquivo estático** — e por isso ele continuava dizendo
+`"name": "Code - OSS"` depois de o `product.json` virar VSSHCode. Era um **terceiro** lugar guardando
+a identidade, e o único que ninguém tinha atualizado.
+
+⚠ **A primeira versão trocava os três `<link>` reescrevendo a página em runtime, e o lugar estava
+errado.** Funciona — e falha **calada**: se o upstream mexer naquela marcação, a expressão deixa de
+casar, o logo do VS Code volta e ninguém fica sabendo. Foi o usuário que apontou o lugar certo:
+*"a gente não pode copiar os arquivos estáticos para o tarball?"* — no **empacotamento**, junto da
+galeria e do commit, onde a mesma cirurgia **aborta** se não casar. É a diferença entre um remendo e
+um portão, e não custa rebuild, porque vestir o produto é passo pós-build.
+
+O `carimbar-produto.js` passou a copiar o `icon.svg` do pacote para `resources/server/vssh-icon.svg`,
+gerar o webmanifest do próprio `product.json` — a mesma fonte do nome que a barra de título usa — e
+apontar o `rel="icon"` e o `apple-touch-icon` para ele **com o tipo certo**: um SVG entregue como
+`image/x-icon` não desenha.
+
+**O que NÃO dá para fazer aqui, dito por extenso:** gerar os PNG e o `.ico`. Rasterizar um SVG pede
+um renderizador, e trazer um para dentro do build por causa de três arquivos seria pior que o
+problema. Eles continuam no tarball, sem ninguém apontando para eles.
+
+**Guarda:** `pagina-do-ambiente.test.js`, **42 casos** — o novo **executa** o carimbador contra um
+produto de mentira, confere os três `<link>` e o webmanifest, e exige que ele **reprove** uma página
+que não casa.
+
+⚠ E uma armadilha de operação que ficou clara aqui: `publicar-motor.sh` apaga a cópia local e traz a
+do container — então a marca sobrevive, porque a cirurgia é **antes** do `tar`. Mas quem mexer no
+ícone e publicar **sem** rodar `empacotar` publica o tarball anterior, calado. O publicador não pode
+editar bytes (é ele quem garante que o publicado é o que o build produziu); o que falta é ele
+**recusar** um tarball mais velho que suas entradas.
+
 ### 2a. 📋 O patch da plataforma — e ele é uma linha
 
 `CURRENT_TARGET_PLATFORM` deixa de derivar de `isWeb` e passa a vir do servidor remoto, que é quem
