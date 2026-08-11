@@ -1079,6 +1079,23 @@ não mede aritmética.
 ⚠ E eu li um `grep` vazio como sucesso e disse que um build tinha fechado quando ele havia falhado
 com `exit 1`. O código de saída estava no arquivo da tarefa, e eu não o li.
 
+### ✅ 2h. O arraste ficou certo e a janela parou de encaixar nas bordas
+
+O último desta série, e o mais curto de explicar: quando eu separei a conta do movimento do evento
+que a traz, escrevi `if (e) opts.drag?.(e)`. Um ponto que vem de fora não traz evento, então o
+callback não acontecia — e quem escuta ele é o `TilingManager.onDrag`. Sem ele não há
+`_pendingZone`; sem `_pendingZone`, o `onDragStop` não tem o que aplicar. **Levei o ponto e deixei o
+evento para trás**, e o sintoma foi um arraste perfeito que não encaixava em borda nenhuma.
+
+O que o consumidor lê do evento é `pageX ?? clientX` e mais nada (`TilingManager.js:419-420`), então
+o ponto basta: um evento sintético aqui não é remendo, é dizer a mesma coisa que o de verdade dizia
+para quem só perguntava isso. E o gesto que nasce no shell continua entregando o evento **original**,
+com todos os campos — a guarda cobra **identidade**, não formato, e a refutação inclui a mutação
+simétrica (trocar o evento real por um sintético).
+
+**Guarda:** `cabecalho-do-app.test.js`, **13 casos**, refutação **3/3**. Conserto só de shell
+(**4.4.1**): nenhum rebuild do motor, nenhuma reinstalação.
+
 ### 2a. 📋 O patch da plataforma — e ele é uma linha
 
 `CURRENT_TARGET_PLATFORM` deixa de derivar de `isWeb` e passa a vir do servidor remoto, que é quem
