@@ -592,32 +592,43 @@ já escrito no cabeçalho do arquivo:
 
 1. o `motor.yml` trocou de alvo, o `build-local.sh` ficou no `-min`, e a execução seguinte morreu num
    erro que já estava resolvido. O alvo passou a ser **lido** do workflow;
-2. o `prepareBuiltInCopilotRipgrepShim` derruba a tarefa com *"Copilot SDK directory not found"* —
-   com a fonte intacta e o bundle já pronto (o patch conferido dentro dele).
+2. **a extensão embutida do Copilot**, que derrubou a tarefa em **três builds** com
+   *"Copilot SDK directory not found"* — com a fonte intacta e o bundle já pronto, o patch
+   conferido dentro dele. E cujo diagnóstico eu **errei duas vezes**, cada uma registrada aqui
+   como se fosse o conserto.
 
-   ⚠ **E a minha primeira explicação para isso estava errada.** Eu escrevi que o produto da vez
-   anterior era estado consumido pelo próprio passo, mandei o `compilar()` apagar a saída, escrevi
-   a guarda e **registrei aqui como se estivesse resolvido**. Não estava: com a saída limpa, o
-   build falhou de novo, no mesmo lugar.
+   ⚠ **Primeiro eu disse que o produto da vez anterior era estado consumido pelo passo.** Mandei o
+   `compilar()` apagar a saída, escrevi guarda, registrei como resolvido. Com a saída limpa, falhou
+   no mesmo lugar.
 
-   O que a medida mostra, e é só isto: a fonte **tem**
-   `extensions/copilot/node_modules/@github/copilot/sdk` com conteúdo; o cache
-   `.build/extensions/…/sdk` existe e está **vazio**; e a saída não tem o diretório, porque um
-   diretório vazio não é copiado. O `.vscodeignore` do copilot lista negações que deveriam manter
-   arquivos ali dentro (`!node_modules/@github/copilot/sdk/*.js`, etc.), então o cache foi montado
-   num momento em que aqueles arquivos não estavam onde ele os procurou.
+   ⚠ **Depois eu disse que era o cache `.build/extensions`, consumido pelo build.** Mandei limpá-lo
+   também, escrevi guarda de novo, registrei de novo. Com tudo limpo por regra, falhou de novo — e
+   a medida do estado limpo é definitiva: **37 arquivos em `@github/copilot/sdk` na fonte, 0 em
+   `.build/extensions`**. O cache nunca teve aqueles arquivos para perder.
 
-   **A causa era o cache `.build/extensions`**, e a hipótese que eu tinha deixado escrita se
-   confirmou: ele foi montado num momento em que os `node_modules` do copilot não estavam onde o
-   empacotamento os procurou, e ficou assim — um cache que não se invalida quando a sua entrada
-   muda. Apagando-o, o `sdk` apareceu na saída e a tarefa passou.
+   **A causa é de empacotamento, e estava na fonte o tempo todo.** `copilot` está em
+   `excludedExtensions` (`build/lib/extensions.ts:319`), então a esteira normal o pula; um caminho
+   separado, declarado *"para builds locais não-CI, onde o copilot não é baixado como VSIX"*,
+   produz `dist/` e **não carrega** o `node_modules/@github/copilot/sdk`. O
+   `prepareBuiltInCopilotRipgrepShim` cobra exatamente esse diretório. Um passo pedindo o que o
+   anterior não entrega, numa configuração que o upstream monta de outro jeito — e por isso o CI
+   dele nunca vê.
 
-   **E a medida derruba a justificativa daquele cache:** 7,67 min com ele limpo contra 8,48 min
-   com ele. Ele não estava economizando nada — estava guardando um estado que envenenava o build.
+   **O conserto foi de produto, e é do dono do produto:** a extensão embutida do GitHub Copilot
+   **sai do build** (patch `0007`). Este é um fork OSS cuja galeria aponta para o Open VSX;
+   embutir um produto Microsoft/GitHub num build que assinamos e distribuímos é outra promessa.
+   Quem quiser Copilot instala pela galeria, como qualquer extensão.
 
-   A limpeza da saída, que era o meu primeiro palpite, continua: é higiene certa. Mas ela não era
-   o defeito, e o texto acima diz isso porque a alternativa seria deixar duas explicações em pé,
-   uma delas falsa.
+   E ele teve **duas metades**, o que quase me escapou: tirar o *passo* deixava o *diretório* na
+   saída — meio empacotado, e o VS Code carrega toda pasta sob `extensions/` como embutida. Seria
+   entregar a extensão num estado pior que o original. A segunda metade entrou onde a frase já
+   existia: a lista `// Do not ship the test extensions` (`gulpfile.reh.ts:380`).
+
+   **O que sobrou de verdadeiro nos dois palpites errados**, e fica: a saída anterior é estado e
+   não ponto de partida, e o `.build/extensions` é um **cache sem chave** — não se invalida quando
+   a fonte das extensões ou os `node_modules` mudam, e um cache assim dá verde sobre entrada
+   velha. Limpar os dois custa **nada**, medido: 7,67 min limpo contra 8,48 min com cache. É
+   higiene, e a guarda que a protege agora diz isso — em vez de dizer que era o conserto.
 
 ### O que a instalação real cobrou — e as bancadas mediam a bancada
 
