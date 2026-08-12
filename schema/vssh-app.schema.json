@@ -4,7 +4,11 @@
   "title": "vssh-app.json",
   "description": "Manifesto de um vssh-app. Fonte da verdade: este arquivo. Validado por inteiro no vssh-app-publish (o gate de entrada no repositório); o vssh-app-install valida só o mínimo, porque roda offline no servidor e não tem como buscar o schema. `additionalProperties: false` em TODO objeto, e a raiz foi a última a fechar: enquanto ela aceitava qualquer chave, `requiredPackage` (sem o s), `gpuu` e `opns` publicavam limpos e o campo era descartado em silêncio por quem lê. Um manifesto escrito para um toolkit mais NOVO passa a ser recusado por um mais velho, e isso é o comportamento desejado — 'este toolkit não conhece este campo' é a informação, e a alternativa é publicar um app cujo campo ninguém vai ler. AO MEXER AQUI: o `vssh-sso` mantém uma cópia vendorizada deste arquivo em `schema/`, com a procedência em `.vssh-schema-version`, e é contra ela que `tests/unit/contrato-do-manifesto.test.js` confere que todo campo que o portal LÊ está declarado. Campo novo que já tenha consumidor de lá precisa da cópia atualizada junto — o teste de lá fica vermelho dizendo o nome do campo.",
   "type": "object",
-  "required": ["id", "version", "backend"],
+  "required": [
+    "id",
+    "version",
+    "backend"
+  ],
   "additionalProperties": false,
   "properties": {
     "id": {
@@ -12,19 +16,28 @@
       "pattern": "^[a-z0-9-]+$",
       "description": "Imutável — vira path, ENDEREÇO (~/.vssh-apps/<id>/app.sock) e sentinel. Dizia 'porta' até a Onda 9, quando o endereço deixou de ser alocado e passou a ser derivado de (HOME, id). Trocar o id é publicar outro app."
     },
-    "name": { "type": "string", "description": "Nome exibido. Default: o próprio id." },
+    "name": {
+      "type": "string",
+      "description": "Nome exibido. Default: o próprio id."
+    },
     "version": {
       "type": "string",
       "pattern": "^[0-9A-Za-z][0-9A-Za-z.\\-+_]*$",
       "description": "Semver. O install é idempotente por versão, então bump a cada release."
     },
     "type": {
-      "enum": ["app", "engine"],
+      "enum": [
+        "app",
+        "engine"
+      ],
       "default": "app",
       "description": "'engine' = backend-only, sem janela nem ícone no Launchpad."
     },
     "kind": {
-      "enum": ["app", "service"],
+      "enum": [
+        "app",
+        "service"
+      ],
       "default": "app",
       "description": "Eixo de LIFECYCLE, ortogonal a `type`: 'service' é daemon supervisionado (start automático, auto-restart, status)."
     },
@@ -75,7 +88,11 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["id", "superficie", "rotulo"],
+            "required": [
+              "id",
+              "superficie",
+              "rotulo"
+            ],
             "properties": {
               "id": {
                 "type": "string",
@@ -84,7 +101,11 @@
               },
               "superficie": {
                 "type": "string",
-                "enum": ["arquivo", "pasta", "area-de-trabalho"],
+                "enum": [
+                  "arquivo",
+                  "pasta",
+                  "area-de-trabalho"
+                ],
                 "description": "Onde o item aparece. Não há superfície de jump list (clique direito no ícone do app) nesta versão, e é por falta de VERBO, não de superfície: `abrir` sem caminho é o item 'Abrir' que já existe ali. Ela entra junto com o segundo verbo."
               },
               "rotulo": {
@@ -108,14 +129,19 @@
                   "extensoes": {
                     "type": "array",
                     "minItems": 1,
-                    "items": { "type": "string", "pattern": "^\\.?[A-Za-z0-9][A-Za-z0-9+._-]*$" },
+                    "items": {
+                      "type": "string",
+                      "pattern": "^\\.?[A-Za-z0-9][A-Za-z0-9+._-]*$"
+                    },
                     "description": "Com ou sem ponto; normalizado pelo portal. Ausente = todo arquivo. É independente de `opens.extensions`: aquele campo diz o que o app sabe abrir (e o põe no submenu 'Abrir com'); este diz onde ele quer um item PRÓPRIO, de primeiro nível."
                   }
                 }
               },
               "acao": {
                 "type": "string",
-                "enum": ["abrir"],
+                "enum": [
+                  "abrir"
+                ],
                 "default": "abrir",
                 "description": "O verbo. Há um só, e isso é decisão e não começo: `abrir` abre este app com o caminho clicado, entregue pelo `open-context` que já é contrato publicado (SKILL.md, 'Contexto de abertura'). Um verbo DIFERENTE recusa o item — um app que pediu outra coisa não quis 'abrir', e atendê-lo com 'abrir' seria responder outra pergunta."
               }
@@ -171,7 +197,9 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "properties": {
           "name": {
             "type": "string",
@@ -190,12 +218,30 @@
         }
       }
     },
-    "icon": { "type": "string", "description": "Caminho relativo à raiz do pacote (.svg/.png/.jpg)." },
-    "category": { "type": "string", "description": "Informativo; a UI agrupa tudo em 'Apps Integrados'." },
-    "description": { "type": "string" },
+    "icon": {
+      "type": "string",
+      "description": "Caminho relativo à raiz do pacote (.svg/.png/.jpg)."
+    },
+    "category": {
+      "type": "string",
+      "description": "Informativo; a UI agrupa tudo em 'Apps Integrados'."
+    },
+    "description": {
+      "type": "string"
+    },
     "handles": {
-      "type": ["string", "null"],
-      "enum": ["terminal", "editor", "fileBrowser", "vscode", "browser", null],
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "terminal",
+        "editor",
+        "fileBrowser",
+        "vscode",
+        "browser",
+        null
+      ],
       "description": "Registra o app como substituto de um dos 5 launchers embutidos. O usuário ainda precisa escolher em Configurações."
     },
     "opens": {
@@ -205,29 +251,47 @@
       "properties": {
         "extensions": {
           "type": "array",
-          "items": { "type": "string", "pattern": "^\\.?[A-Za-z0-9][A-Za-z0-9+._-]*$" },
+          "items": {
+            "type": "string",
+            "pattern": "^\\.?[A-Za-z0-9][A-Za-z0-9+._-]*$"
+          },
           "description": "Com ou sem ponto; normalizado pelo portal."
         },
         "mimeTypes": {
           "type": "array",
-          "items": { "type": "string", "pattern": "^[a-zA-Z0-9!#$&^_.+-]+/[a-zA-Z0-9!#$&^_.+-]+$" }
+          "items": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9!#$&^_.+-]+/[a-zA-Z0-9!#$&^_.+-]+$"
+          }
         }
       }
     },
     "backend": {
       "type": "object",
-      "required": ["runtime", "entrypoint"],
+      "required": [
+        "runtime",
+        "entrypoint"
+      ],
       "additionalProperties": false,
       "properties": {
         "runtime": {
-          "enum": ["python3", "node", "binary"],
+          "enum": [
+            "python3",
+            "node",
+            "binary"
+          ],
           "description": "Prefira um runtime que o próprio mecanismo já exija (python3): um nvm/pyenv pessoal não aparece no PATH de um exec não-interativo por SSH."
         },
-        "entrypoint": { "type": "string", "description": "Relativo à raiz do pacote. Deve bindar no endereço que o `transport` decide: socket unix em $VSSH_APP_SOCKET (padrão para app novo) ou TCP em 127.0.0.1:$VSSH_APP_PORT." },
+        "entrypoint": {
+          "type": "string",
+          "description": "Relativo à raiz do pacote. Deve bindar no endereço que o `transport` decide: socket unix em $VSSH_APP_SOCKET (padrão para app novo) ou TCP em 127.0.0.1:$VSSH_APP_PORT."
+        },
         "transport": {
-          "enum": ["socket", "tcp"],
+          "enum": [
+            "socket"
+          ],
           "default": "socket",
-          "description": "Onde o backend escuta. 'socket' (padrão): um socket unix em $VSSH_APP_SOCKET, dentro de ~/.vssh-apps/<id>/, que já é 0700 — a permissão de arquivo faz o que a conferência de X-Vssh-App-Token só promete, e o app deixa de ter porta alcançável por qualquer outra conta Linux da máquina (medido: 14 de 23 portas de app responderam a um GET sem token, 12 delas de contas alheias). 'tcp': o modelo antigo, 127.0.0.1:$VSSH_APP_PORT, e hoje há UM caso legítimo no ambiente — o xpra, cujo listener de WebSocket só aceita HOST:PORT (medido em 6.5.2). Declarar 'tcp' é escolher expor uma porta, e a escolha fica escrita aqui em vez de ser um padrão silencioso."
+          "description": "Onde o backend escuta. Hoje há um valor só: 'socket' — um socket unix em $VSSH_APP_SOCKET, dentro de ~/.vssh-apps/<id>/, que já é 0700. A permissão de arquivo faz o que a conferência de X-Vssh-App-Token só promete, e o app deixa de ter porta alcançável por qualquer outra conta Linux da máquina (medido: 14 de 23 portas de app responderam a um GET sem token, 12 delas de contas alheias). ⚠ 'tcp' SAIU do produto na Onda 10, item 5. Ele existia por um caso declarado — o xpra, cujo listener de WebSocket só aceitava HOST:PORT — e esse caso acabou quando o pacote passou a atender por socket nativo (0.5.0). Sem ele sobrava um transporte que nenhum app fala e que a própria lib do toolkit não sabe bindar: escutar() só abre socket desde a v4, e trata um VSSH_APP_PORT sozinho como servidor desatualizado. O campo continua aqui para que um manifesto antigo receba um erro de validação que NOMEIA o problema, em vez de instalar e nunca responder."
         },
         "installCommand": {
           "type": "string",
@@ -245,11 +309,31 @@
       "description": "Ignorado por type:'engine'. O portal repassa este objeto INTEIRO ao cliente (`window: m.window || {}` em routes/apps.ts), e o cliente lê exatamente os quatro campos abaixo — então uma chave a mais aqui viaja o caminho todo para não ser lida por ninguém. É o campo em que o erro de digitação era mais barato de cometer e mais caro de perceber: `widht: 900` deixa a janela no tamanho padrão, sem erro em lugar nenhum.",
       "additionalProperties": false,
       "properties": {
-        "title": { "type": "string" },
-        "width": { "type": "integer", "minimum": 200, "maximum": 10000 },
-        "height": { "type": "integer", "minimum": 150, "maximum": 10000 },
-        "richChrome": { "type": "boolean", "description": "Tabbar de verdade no cabeçalho + itens de aba no menu de contexto." },
-        "cabecalho": { "enum": ["ambiente", "app"], "default": "ambiente", "description": "Quem desenha a barra de título. `ambiente` (padrão) é o cabeçalho do desktop. `app` é para quem JÁ TEM uma barra de título própria e boa — o editor, cuja barra é a do VS Code: o shell não monta a dele, e o app põe os botões de janela na sua, chamando `vssh.window.minimize/maximize/close`. Moldura, sombra e alças de resize continuam sendo do ambiente. Quem escolhe `app` fica responsável por três gestos que o cabeçalho padrão dava de graça: arrastar (`vssh.window.arrastar`), duplo-clique (`alternarMaximizado`) e menu de contexto (`menuDoCabecalho`) — um app que declara isto e não os liga entrega uma janela que não se move." }
+        "title": {
+          "type": "string"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 200,
+          "maximum": 10000
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 150,
+          "maximum": 10000
+        },
+        "richChrome": {
+          "type": "boolean",
+          "description": "Tabbar de verdade no cabeçalho + itens de aba no menu de contexto."
+        },
+        "cabecalho": {
+          "enum": [
+            "ambiente",
+            "app"
+          ],
+          "default": "ambiente",
+          "description": "Quem desenha a barra de título. `ambiente` (padrão) é o cabeçalho do desktop. `app` é para quem JÁ TEM uma barra de título própria e boa — o editor, cuja barra é a do VS Code: o shell não monta a dele, e o app põe os botões de janela na sua, chamando `vssh.window.minimize/maximize/close`. Moldura, sombra e alças de resize continuam sendo do ambiente. Quem escolhe `app` fica responsável por três gestos que o cabeçalho padrão dava de graça: arrastar (`vssh.window.arrastar`), duplo-clique (`alternarMaximizado`) e menu de contexto (`menuDoCabecalho`) — um app que declara isto e não os liga entrega uma janela que não se move."
+        }
       }
     }
   }

@@ -337,7 +337,7 @@ dispositivo** onde o shell espera `{x,y,w,h}` em pixel CSS. Com o `xpraAdapter` 
 do pacote corrigido (ou abandonado, porque o shell já deriva o dele da viewport), instalar o host passa
 a ser seguro — e é ele que faz o ambiente inteiro voltar a poder dizer "este teclado é meu".
 
-## 3d. 📋 O pacote passa a atender pelo verbo do ambiente
+## 3d. ✅ O pacote passa a atender pelo verbo do ambiente
 
 **Item novo, e ele é o resto do 3b que não cabia no `vssh-sso`.** A ponte entre os dois dialetos de
 janela está feita pela metade, e só numa direção: `XpraWindow` roteia `toggleMinimized()` para o
@@ -447,6 +447,44 @@ navegador o carrega) e `tests/unit/arraste-para-app.test.js` no `vssh-sso` (7, e
 tratador). Cada uma prende **o literal do MIME** com o valor por extenso — é o único ponto em que
 uma comparação com constante vale mais que um teste de comportamento, porque o outro lado mora
 noutro repositório, sem CI cruzado, e **cada lado fica verde sozinho com o literal errado**.
+
+### ✅ O que o 3d entregou — e a ponte estava virada para o lado que ninguém usava
+
+O item dizia que a ponte entre os dois dialetos de janela estava feita **pela metade e só numa
+direção**. Estava — e a medida, feita antes de inverter, mostrou que era pior: **a direção que
+existia não tinha um único chamador.**
+
+| antes | depois | chamadores do nome antigo |
+|---|---|---|
+| `toggle_pinned()` | `togglePinned()` | **zero**, no pacote e no shell |
+| `toggle_maximized()` | `toggleMaximized()` | **zero**, no pacote e no shell |
+
+Quem chama é o **verbo do ambiente**: o botão do cromo, o menu de contexto da barra, o
+`WindowStateManager` restaurando a sessão. Todos eles pulavam o espelhamento para o X11 — e a
+consequência era de todo dia: **maximizar uma janela X11 pelo botão nunca contou o tamanho novo ao
+X11**. A janela crescia na tela e a aplicação continuava desenhando no tamanho anterior.
+
+### ⚠ E a TERCEIRA regressão do 3b estava aqui — em seis pontos
+
+O 3b unificou os adaptadores do shell: apagou o `xpraAdapter` e renomeou o `pseudoAdapter` para
+`adaptadorDeJanela`. **Este repositório continuou chamando o nome antigo**, e o `vssh-sso` não tinha
+como ver: lá não existe uma linha que o cite.
+
+| onde | o que acontecia |
+|---|---|
+| `Client.js`, no Super+setas | `handleKey(tecla, win, undefined)` devolve `false` na primeira linha — **sem erro, sem log, sem nada acontecer** |
+| `Window.js`, no `_setupDragResize` | **cinco** pontos, e o modo de falha é pior: `onDragStart(this, undefined)` **lança** em `adapter.tileable`. O arraste de **toda** janela X11 morria com um `TypeError` no início do gesto |
+
+O Super+setas **não volta a funcionar aqui**: ele passou a ser do shell no item 4d, pela mesma razão
+do Alt+Tab. O bloco foi apagado, com a nota do porquê; o arraste foi consertado no lugar.
+
+**A lição de processo, e ela é a do 3b outra vez com outro raio:** renomear uma peça compartilhada
+alcança quem não está no repositório onde o `grep` roda. O que acha isso não é o texto — é **exercitar
+o gesto**, e neste caso o gesto morava do outro lado da fronteira.
+
+> **⚠ O pacote está commitado em 0.8.0 e NÃO foi empurrado.** Um push na `main` do `vsshapp-xpra`
+> dispara o `publish.yml`, que publica no `vssh-repo` — e **publicar não tem rota de retirada**.
+> Fica esperando decisão.
 
 ## 4. ✅ O último jQuery do ambiente saiu — e ele escondia o Alt+Tab
 
@@ -612,7 +650,7 @@ E duas linhas da tela de atalhos deixaram de ser "planejadas". A frase que estav
 janelas e o lado a lado nunca existiram"* — **estava errada, e de um jeito pior que faltar**: eles
 existiam **fora** do ambiente.
 
-## 5. 📋 A orquestração de porta morre — e ela mudou de onda para cá
+## 5. ✅ A orquestração de porta morre — e ela mudou de onda para cá
 
 **Era o passo `0d` da [Onda 9](08-editor-do-ambiente.md), e ficar lá era um erro de endereço.** O
 passo 0 daquela onda trocou o endereço de um vssh-app de porta para socket, e o `0d` seria a
@@ -661,6 +699,56 @@ servidor não mostra porta de app **nenhum**, com o xpra rodando. Refuta: devolv
 `tcp`; o teste tem de ficar vermelho por causa dele, e nomear qual.
 
 ---
+
+### ✅ O que o 5 entregou — o teto morreu, e ele nunca foi uma escolha
+
+**O gate era operacional, e passou:** o único app que ainda declarava `transport: "tcp"` era o xpra,
+e o manifesto dele diz `socket` desde a 0.5.0. A justificativa que o schema escrevia — *"há UM caso
+legítimo no ambiente, o xpra, cujo listener de WebSocket só aceita HOST:PORT"* — **deixou de valer**
+quando o item 2 fez o pacote atender por socket nativo. Sobrou um transporte que nenhum app fala e
+que a própria lib do toolkit não sabe bindar: o `escutar()` da v4 só abre socket.
+
+**O teto, que é o que o item entrega de verdade.** O `nextLoopback` dava a cada servidor registrado
+um `127.0.0.x` próprio, varrendo de 1 a 254 — e devolvendo `127.0.0.1` **calado** quando acabava. O
+255º servidor passaria a disputar o bind com o primeiro, sem aviso, e o sintoma apareceria como o
+túnel de um usuário caindo no de outro.
+
+O endereço por servidor existia por causa do **espelhamento**: a ponta local do `-L` repetia a porta
+que o app bindava no servidor remoto. O espelhamento acabou — a porta local é escolhida no portal,
+sondando um bind de verdade — e com ele o limite. Todo túnel binda em `127.0.0.1`, e quem separa dois
+servidores é **a mesma máquina que já separava dois usuários**: dez mil portas e um sondador que pula
+as ocupadas.
+
+| o que apagou | por que existia |
+|---|---|
+| `_allocateAppPort` + a varredura `ss -tlnp` remota | achar porta livre **no servidor** |
+| `_findRunningAppPort` (`/proc/<pid>/environ`) | descobrir onde o processo **realmente** estava |
+| `_reconcileAppPort` | as duas acima discordavam |
+| o ramo `tcp` de `enderecoDoApp`, `destinoDoApp` e `getUserAppPort` | a bifurcação com um lado morto |
+| `nextLoopback` | **o teto** |
+
+As duas do meio merecem a nota, porque são boas peças: elas resolviam um problema que **só existia
+porque duas coisas escolhiam a porta e podiam discordar**. Com o endereço derivado de `(HOME, appId)`
+a pergunta perde o sentido — não existe *"o app subiu noutro lugar"*. Processo vivo com endereço mudo
+é processo travado. O irmão `_findRunningAppToken` **fica**, e a diferença entre os dois é a diferença
+que o item faz: um token é sorteado a cada subida, então o processo é mesmo a fonte da verdade sobre
+ele. **Um endereço derivado não tem fonte: tem fórmula.**
+
+**E o 12º lugar, que o item 2 tinha achado:** o `startApp` escrevia `VSSH_APP_PORT=<porta>` no `env`
+de **todo** app, e nos de socket aquele número era a ponta LOCAL do túnel — sem relação nenhuma com
+onde o app escuta. Não quebrava nada, e é exatamente por isso que era armadilha. Pior: a lib v4 trata
+um `VSSH_APP_PORT` sozinho como *"servidor com lifecycle antigo"*, então mandá-lo junto era mandar um
+sinal que contradiz o outro. O mesmo valia para o `port` do recuo de `getServiceStatus`, que a
+interface mostra — agora é `null`, que é a resposta honesta.
+
+**Duas chaves de cache mudaram de nome de propósito**, e não por estética: `app_port:` → `app_tunel:`
+e `app_addr:` → `app_sock:`. As entradas antigas guardam outra coisa, e reaproveitar o nome faria o
+portal ler o formato velho por até 24 h depois do deploy — montando um `-L` para `[object Object]`.
+
+**Guarda:** `teto-de-servidores.test.js`, 4 casos, com **sockets de verdade** em `127.0.0.1` — a
+pergunta é sobre bind, e um teste que simulasse a ocupação estaria medindo a simulação. O caso central
+é o que o endereço por servidor resolvia: dois pedidos pela **mesma** porta preferida recebem portas
+diferentes. E a faixa esgotada **falha em voz alta**, que é o oposto do que o `nextLoopback` fazia.
 
 ## O incidente de 11/08/2026 — quatro defeitos, e um deles não é deste app
 
@@ -1460,9 +1548,9 @@ medida executando.
 | — | ✅ **e reabriu por um incidente**: 0.6.1, quatro defeitos, três deles decisões do item 2 | `vsshapp-xpra` | — |
 | 3b | ✅ **feito** — os proxies (**dois donos**), o observador de escala, o registro de zonas de drop e o `xpraAdapter` saem; 326 linhas entram, **560 saem**. ⚠ Deixou **duas regressões de CSS apontando para a casa antiga** (o laço invisível e o ícone que não arrasta), as duas invisíveis a teste de texto | `vssh-sso` | 3a |
 | 3c | ✅ **feito** — um contrato, e as três direções caem dele. A medida derrubou METADE do item: os caminhos já viajavam no `dataTransfer`, e a direção de ENTRADA não passa pelo shell (mesma origem) — o que faltava era a SAÍDA | toolkit + `vssh-sso` | 3b |
-| 3d | 📋 o pacote atende pelo **verbo do ambiente** — o resto do 3b, e ele não cabia no `vssh-sso` | `vsshapp-xpra` | 3b · exige publicar o pacote |
+| 3d | ✅ **no disco, NÃO publicado** (0.8.0) — os dois verbos invertidos, e a **terceira regressão do 3b** consertada: seis pontos deste repositório chamavam adaptadores que o 3b apagou | `vsshapp-xpra` | 3b · **empurrar o repo PUBLICA** |
 | 4d | ✅ **feito** — o Alt+Tab **e o lado a lado** passam a ser do ambiente, sobre `VsshWindow._all`. ⚠ Achou a **terceira regressão do 3b**: o Super+setas do pacote chama dois adaptadores apagados e devolve `false` calado | `vssh-sso` | 3a |
-| 5 | 📋 **a orquestração de porta morre** — os onze lugares, o `nextLoopback` e o teto de **254** (era o `0d` da [Onda 9](08-editor-do-ambiente.md)) | `vssh-sso` | 2 |
+| 5 | ✅ **feito** — a orquestração de porta morre, e com ela o **teto de 254 servidores**. `transport: "tcp"` saiu do produto: a justificativa escrita (*"o xpra, cujo WebSocket só aceita HOST:PORT"*) deixou de valer quando o item 2 fechou | `vssh-sso` | 2 |
 | 6 | ✅ **feito** — um start em voo por `<servidor, usuário, app>`; é trava e não cache, e o `restartApp` espera em vez de coalescer | `vssh-sso` | — |
 | 7 | 📋 o portal conta ao motor a **DPI** da tela — a metade do TAMANHO se dissolveu na 0.7.3 (o teto do Xvfb era 1920x1080) | `vssh-sso` | — |
 | 8 | ✅ **feito** — as pastas nascem junto da checagem do usuário; ⚠ e a **primeira versão não rodava em produção** (`JSON.stringify` no lugar de aspas de shell), com a guarda aprovando | `vssh-sso` | — (achado ao conferir o 3b) |
