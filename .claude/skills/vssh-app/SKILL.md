@@ -208,6 +208,21 @@ falta num app concreto.
                                        // "${VSSH_APP_REBUILD:-}" != 1 ] && test -x bin/algo ) ||
                                        // build-pesada` (ver installCommand de
                                        // terminal-latch/vssh-app.json).
+    "aoFechar": "encerrar",           // opcional, default "encerrar" — o que acontece com o
+                                       // backend quando a ÚLTIMA janela deste app fecha.
+                                       // "encerrar": o ambiente chama o stop. "manter": o backend
+                                       // fica, porque quem o mantém vivo é o trabalho e não a
+                                       // janela (dono de sessão de terceiro — um servidor de
+                                       // notebooks, um build em curso).
+                                       // Até a Onda 9 não havia contrato: fechar a janela não
+                                       // encerrava NADA, e a conta escalava por (usuário × app já
+                                       // aberto uma vez) — um app aberto em março seguia ocupando
+                                       // RAM em agosto, em toda sessão daquela conta.
+                                       // kind:"service" IGNORA este campo: um daemon não morre
+                                       // com uma janela, por definição.
+                                       // ARMADILHA: se o seu app segura processo caro que o
+                                       // usuário espera encontrar de volta (terminal, build), o
+                                       // valor é "manter" — o padrão vai matá-lo.
     "healthcheckPath": "/"            // opcional; endpoint que o lifecycle do portal faz poll até
                                        // responder (até 15x/1s, síncrono, bloqueando o clique de
                                        // "abrir app" do usuário) — responda rápido e sem depender

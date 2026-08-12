@@ -293,6 +293,14 @@
           "default": "socket",
           "description": "Onde o backend escuta. Hoje há um valor só: 'socket' — um socket unix em $VSSH_APP_SOCKET, dentro de ~/.vssh-apps/<id>/, que já é 0700. A permissão de arquivo faz o que a conferência de X-Vssh-App-Token só promete, e o app deixa de ter porta alcançável por qualquer outra conta Linux da máquina (medido: 14 de 23 portas de app responderam a um GET sem token, 12 delas de contas alheias). ⚠ 'tcp' SAIU do produto na Onda 10, item 5. Ele existia por um caso declarado — o xpra, cujo listener de WebSocket só aceitava HOST:PORT — e esse caso acabou quando o pacote passou a atender por socket nativo (0.5.0). Sem ele sobrava um transporte que nenhum app fala e que a própria lib do toolkit não sabe bindar: escutar() só abre socket desde a v4, e trata um VSSH_APP_PORT sozinho como servidor desatualizado. O campo continua aqui para que um manifesto antigo receba um erro de validação que NOMEIA o problema, em vez de instalar e nunca responder."
         },
+        "aoFechar": {
+          "enum": [
+            "encerrar",
+            "manter"
+          ],
+          "default": "encerrar",
+          "description": "O que acontece com o backend quando a ULTIMA janela deste app fecha. 'encerrar' (padrao): o ambiente chama o stop. 'manter': o backend fica, porque quem o mantem vivo e o trabalho e nao a janela — e o caso de quem e dono de sessao de terceiro. ⚠ Ate a Onda 9 nao havia contrato nenhum: fechar a janela nao encerrava NADA (POST /api/apps/:id/stop existia e ninguem o chamava), e a conta escalava por (usuario × app ja aberto uma vez) — um app aberto em marco seguia ocupando RAM em agosto, em toda sessao daquela conta, sem janela na tela. O padrao e 'encerrar' porque e o que a pessoa espera de um desktop, e porque um padrao que vaza memoria tem de ser o que se ESCOLHE e nao o que se herda. kind:'service' ignora este campo: um daemon nao morre com uma janela, por definicao. O terceiro valor previsto, 'ocioso:<N>m', NAO existe ainda de proposito — ele depende de duas medidas que nao temos (o RSS do app ocioso, e como distinguir um filho que e trabalho de alguem de um filho qualquer), e um valor aceito que nao faz nada e pior que um valor ausente."
+        },
         "installCommand": {
           "type": "string",
           "description": "Roda DUAS vezes: uma como root no install, outra por usuário no primeiro run. Escreva de forma idempotente."

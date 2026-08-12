@@ -1600,7 +1600,7 @@ acompanhada do que a desmente, ali perto?"*.
 
 ---
 
-## 8. 📋 O fim de vida de um vssh-app — hoje não existe, e a conta escala
+## 8. ✅ O fim de vida de um vssh-app — hoje não existe, e a conta escala
 
 **Este item é de PLATAFORMA, e não do editor.** Quem o revelou foi o editor, porque é o primeiro
 app do ambiente que segura um processo caro; mas o que falta falta para todos.
@@ -1679,6 +1679,59 @@ por `manter` tem de ficar vermelho — porque o padrão é a metade que decide a
 
 ---
 
+### ✅ O que o item 8 entregou — e o que ele deixou de fora de propósito
+
+| peça | como ficou |
+|---|---|
+| o contrato | `backend.aoFechar`: **`encerrar`** (padrão) e `manter` |
+| a precedência | **`kind: "service"` manda sobre o campo** — um daemon não morre com uma janela. Mora num módulo folha (`utils/fim-de-vida.ts`) e não dentro do `.map()` da rota, para poder ser EXECUTADA por uma guarda |
+| quem conta as janelas | o shell — e ele **pergunta às outras abas** antes de encerrar |
+| `ocioso:<N>m` | ❌ **não entrou**, e a razão é a que o próprio item escreveu |
+
+**O padrão é `encerrar` porque um padrão que vaza memória tem de ser o que se ESCOLHE, não o que se
+herda.** Até aqui o padrão implícito era o contrário, e ninguém o tinha decidido.
+
+### ⚠ "A última janela" não é uma pergunta que UMA aba saiba responder
+
+`findWindows` enxerga só a própria página. Duas abas do portal com o mesmo app aberto são **duas
+contagens independentes**: fechar na aba A mataria o backend que a janela da aba B está usando, e a
+aba B veria o iframe morrer sem nada ter acontecido nela.
+
+A resposta é perguntar, e o meio já existe: um `BroadcastChannel` de mesma origem — o mesmo que o
+[`api.md`](../api.md) oferece aos apps. Quem vai encerrar pergunta, espera uma janela curta e só
+encerra **no silêncio**. Uma resposta que chega tarde não custa nada: o backend fica, que é o estado
+de antes deste item.
+
+**O que isso NÃO cobre, e está dito:** um navegador que morre sem avisar nunca chama o `stop`. É o
+que o `ocioso` resolveria, do lado do servidor.
+
+### Por que o `ocioso:<N>m` ficou de fora
+
+Porque o próprio item já dizia que ele **depende de duas medidas que não temos**: o RSS do app
+ocioso (os 9,3 GiB do passo 0 são de uma sessão inteira, não do motor parado) e como distinguir um
+filho que é *trabalho de alguém* de um filho qualquer. Sem a segunda, `ocioso` vira um temporizador
+que mata trabalho — pior que não ter.
+
+**Aceitar o valor no schema sem implementá-lo seria pior ainda**: um app declararia `"ocioso:30m"`,
+receberia `encerrar` na prática, e a divergência não apareceria em lugar nenhum. O portão de
+instalação recusa o valor, e `aoFecharDoManifesto` cai em `encerrar` para o manifesto que foi
+instalado antes do portão.
+
+### ⚠ E um defeito achado ao rodar a suíte, que não é de teste
+
+O canal nasce na **carga do módulo** — quem responde precisa estar ouvindo antes de alguém
+perguntar. Só que o `BroadcastChannel` do Node **segura o event loop** enquanto estiver aberto: todo
+teste que carregasse o `AppLauncher` deixava o processo pendurado **para sempre**. Travar é a pior
+forma de falhar, porque não fica vermelho — é a mesma frase que o `docs/qualidade.md` do `vssh-sso`
+usa sobre o `--test-timeout`. `_canal.unref?.()`: no navegador o método não existe; no Node ele é a
+diferença entre a suíte terminar e não terminar.
+
+**Guarda:** `fim-de-vida-de-app.test.js`, 10 casos. O instrumento precisou ser consertado antes de
+valer — a primeira versão deixava as duas abas compartilharem um `VsshWindow._all` global, e aí a
+aba A enxergava a janela da aba B no próprio `findWindows` e **voltava antes de perguntar**: verde,
+com o canal nunca exercitado. Agora cada aba recebe o registro dela como parâmetro do módulo.
+Refutação: trocar a pergunta às abas por `if (false)` derruba **o caso certo, e só ele**.
+
 ## A ordem, e por que ela é essa
 
 | # | O quê | Repo | Trava em |
@@ -1699,7 +1752,7 @@ por `manter` tem de ficar vermelho — porque o padrão é a metade que decide a
 | — | 📋 **arrastar arquivo para dentro do editor** virou o [item 3c da Onda 10](09-motor-x11.md) — o bloqueio é `_acceptsDragRaise`, e ele sai junto com o proxy de janelas | toolkit + `vssh-sso` | ⛔ Onda 10, item 3b |
 | 6 | ✅ **feito** — o corpo de um pedido proxiado é do outro lado; e "413" era 500 | `vssh-sso` | — |
 | 7 | ✅ **a revisão da documentação — feita** | toolkit | — (o que dependia de 0b e 2 ficou de fora, e está dito no item) |
-| 8 | 📋 **o fim de vida de um vssh-app** — hoje não existe, e a conta escala por (usuário × app já aberto) | toolkit + vssh-sso | — (é de plataforma; o editor só foi quem revelou) |
+| 8 | ✅ **feito** — `backend.aoFechar`, com `encerrar` como PADRÃO ESCOLHIDO; `kind:"service"` manda sobre ele; e "a última janela" passou a ser perguntada às outras ABAS. O `ocioso:<N>m` NÃO entrou, de propósito | toolkit + vssh-sso | — (é de plataforma; o editor só foi quem revelou) |
 
 **A dependência dura é uma só, e é onde a onda pode machucar alguém:** enquanto um servidor não tiver
 o app, `/proxy/vscode/` é o único caminho até o editor. E há um agravante que a 2.7 não teve — lá o
