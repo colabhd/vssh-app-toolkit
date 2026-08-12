@@ -407,6 +407,43 @@ interface Vssh {
 
   /** "Abra assim": o path de "Abrir Terminal Aqui", ou o arquivo escolhido para abrir com este app. */
   onOpenContext(handler: (ctx: VsshContextoDeAbertura) => void): void;
+
+  /**
+   * O tipo MIME do arraste de arquivo do ambiente: caminhos absolutos, um por linha.
+   *
+   * Exposto para quem quiser escrever os ouvintes à mão. Se for esse o caso, lembre do
+   * `preventDefault` no `dragover` — sem ele o navegador recusa a soltura, e o `drop` nunca
+   * acontece, sem erro nenhum.
+   */
+  readonly ARQUIVOS_MIME: string;
+
+  /**
+   * Chama o handler quando arquivos do ambiente são soltos no app. Devolve a função que desliga —
+   * cancelar importa, porque o ouvinte fica no documento.
+   */
+  onArquivosSoltos(
+    handler: (info: VsshArquivosSoltos) => void,
+    opts?: { alvo?: EventTarget },
+  ): () => void;
+
+  /**
+   * Põe caminhos do usuário num arraste que o APP inicia — chamado de dentro do `dragstart` dele.
+   * O fim do gesto é avisado ao ambiente sozinho. Devolve `false` se nenhum caminho era absoluto.
+   */
+  arrastarArquivos(
+    dataTransfer: DataTransfer | null,
+    caminhos: string | string[],
+    opts?: { efeito?: string },
+  ): boolean;
+}
+
+interface VsshArquivosSoltos {
+  /** Caminhos absolutos no servidor. Sempre pelo menos um. */
+  caminhos: string[];
+  /** Onde a soltura aconteceu, no viewport do app. */
+  x: number;
+  y: number;
+  alvo: EventTarget | null;
 }
 
 declare const vssh: Vssh;

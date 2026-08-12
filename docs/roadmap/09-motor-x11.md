@@ -367,7 +367,7 @@ dois verbos quebrar algum caminho do upstream que ainda os chame pelo nome antig
 **Guarda:** com uma janela X11 aberta, maximizar pelo botão do cromo e pelo menu da barra produz o
 **mesmo** estado, e o servidor recebe a geometria nova nos dois. Refuta: tirar o override.
 
-## 3c. 📋 Um vssh-app passa a receber (e a produzir) arquivo arrastado
+## 3c. ✅ Um vssh-app passa a receber (e a produzir) arquivo arrastado
 
 > **⚠ O 3b saiu, e a trava deste item saiu com ele.** O texto abaixo está como foi escrito, e o
 > parágrafo "por que travar no 3b" descreve uma máquina que **não existe mais**: `_dragRaised`,
@@ -419,6 +419,34 @@ separando arquivo de pasta. Um arquivo solto na janela é o mesmo destino por ou
 arquivo, e o caminho chega ao ouvinte do app; um que não declara não recebe nada. Refuta: voltar
 `_acceptsDragRaise` para `false` fixo. E a de junção: o MIME que o shell escreve é o mesmo que o
 shim lê — **um valor, um lugar**, porque dois seriam duas verdades sobre a mesma coisa.
+
+### ✅ O que o 3c entregou — e a medida derrubou METADE do que ele previa
+
+Duas das quatro peças planejadas **já existiam ou não precisavam existir**, e as duas correções
+cabem numa frase cada:
+
+| o que o item previa | o que a medida disse |
+|---|---|
+| *"o MIME vira contrato publicado"* | **certo, e era só isso**: os caminhos **já viajam** no `dataTransfer` (`FileBrowserWindow:1694`, `Desktop:424`). O comentário do `FileOps` que diz *"o payload NÃO vai no dataTransfer"* fala de **outra coisa** — da decisão de ACEITAR, no `dragover`, onde `getData` é ilegível |
+| *"o app declara no manifesto que aceita arquivo"* | ❌ **não existe portão a construir.** O app é servido na MESMA origem, então o `drop` cai no documento dele e o `dataTransfer` é legível direto: o shell **não está no caminho**. E não teria o que guardar — o backend do app já lê qualquer arquivo que o usuário lê |
+| `vssh.onArquivosSoltos(cb)` | ✅ feito, e a linha que importa é o **`preventDefault` no `dragover`**: sem ele o navegador **recusa** a soltura, o `drop` nunca acontece, e não há erro nem log em lugar nenhum |
+| o app escreve o mesmo MIME no `dragstart` | ✅ `vssh.arrastarArquivos()` — **e é esta direção que precisava do shell** |
+
+**A saída era o item de verdade.** Todo alvo de soltura do ambiente — a área de trabalho, o
+gerenciador, a lixeira — abre o portão em `FileOps.getDragState()`, que é **estado de módulo do
+documento do shell**. Um arraste nascido dentro do iframe nunca o escreve, e por isso um arquivo
+arrastado para fora do app caía sem que nada acendesse. Então o app **avisa** (`arraste`, com fase
+`inicio`/`fim`) e o shell escreve. O `fim` é obrigatório: **`dragend` não atravessa documentos**, e
+sem ele o ambiente ficaria com alvo aceso para um arraste que já acabou.
+
+E a terceira direção — de uma janela do app para outra — caiu de graça, como o item previa. É o caso
+que a guarda do toolkit mede, porque ele é a prova de que **o contrato é um só**.
+
+**Guardas:** `tests/arraste-de-arquivo.test.js` no toolkit (9 casos, carregando o shim como o
+navegador o carrega) e `tests/unit/arraste-para-app.test.js` no `vssh-sso` (7, executando o
+tratador). Cada uma prende **o literal do MIME** com o valor por extenso — é o único ponto em que
+uma comparação com constante vale mais que um teste de comportamento, porque o outro lado mora
+noutro repositório, sem CI cruzado, e **cada lado fica verde sozinho com o literal errado**.
 
 ## 4. ✅ O último jQuery do ambiente saiu — e ele escondia o Alt+Tab
 
@@ -526,7 +554,7 @@ pergunta. Refutado: **nove mutações, nove vermelhos**, e verde de volta ao fim
 
 ---
 
-## 4d. 📋 O ambiente ganha o Alt+Tab que o motor levou embora
+## 4d. ✅ O ambiente ganha o Alt+Tab que o motor levou embora
 
 **Item novo, e ele nasceu de uma medida do item 4:** o Alt+Tab do ambiente morava no pacote do xpra
 e listava só janelas X11. Ele saiu na 0.6.0. O shell nunca teve um — e documenta um, na tela de
@@ -545,6 +573,44 @@ Não há `id_to_window` a consultar, nem adaptador a escolher.
 
 **Guarda:** abrir um terminal e uma janela X11, e o alternador listar **as duas**. É a frase que o
 carrossel nunca conseguiu cumprir. Refuta: filtrar a lista por família.
+
+### ✅ O que o 4d entregou — e o item cresceu por uma medida, não por escopo
+
+O item dizia "o Alt+Tab". Ao medir onde ele seria ligado, apareceu que **o lado a lado por tecla
+tem exatamente a mesma doença, e está quebrado hoje**:
+
+`Client.js` chama `TilingManager.pseudoAdapter` e `TilingManager.xpraAdapter` — e o **item 3b apagou
+o segundo e renomeou o primeiro** para `adaptadorDeJanela`. `handleKey(tecla, win, undefined)`
+devolve `false` na primeira linha: **sem erro, sem log, sem nada acontecer**. É a **terceira
+regressão do 3b**, e a única que mora no outro repositório — por isso a varredura do `vssh-sso` não
+a viu: aqui não há uma linha que a cite.
+
+E `TilingManager.handleKey` **não tinha chamador nenhum no shell**. A máquina de estados do encaixe
+(metade → quadrante → maximizar) estava escrita há ondas, completa, esperando uma tecla que morava
+noutro repositório.
+
+| | |
+|---|---|
+| onde | `vssh-client/js/AtalhosDoAmbiente.js` — **um** `keydown` no documento, e não um por comportamento |
+| a lista | `VsshWindow._all`, por uso recente. **O critério de "listável" é o botão da taskbar** — que já é a resposta do ambiente para essa pergunta: o `VsshDialog` declara `_getTaskbarEl() { return null }` por conta própria, e as superfícies nuas do X11 nem chegam ao registro |
+| o gesto | a lista é **congelada** na primeira tecla e o foco só muda quando o Alt é **solto**. É a mesma decisão duas vezes: focar a cada `Tab` reordenaria a lista por uso recente debaixo do dedo, e a terceira janela seria inalcançável |
+| a limpeza | `css/slick.css` (109 linhas) apagado com o carrossel; `menu-skin.css` → `alternador.css`, com o nome do que ele veste; `#window_preview` deixou de ser markup órfão |
+
+**⚠ E há um limite que não é escolha nossa, dito na tela de atalhos:** o Alt+Tab **só chega à página
+em tela cheia**. Fora dela quem consome a tecla é o gerenciador de janelas do sistema operacional, e
+nenhum `preventDefault` alcança o que não foi entregue. O que a torna nossa é a **Keyboard Lock**,
+que o shell **já pede** no `toggle_fullscreen()` (`AltLeft`, `AltRight`, `Tab`, `Meta*`, …) — foi
+medido antes de escrever a primeira linha, porque sem isso o item nasceria morto. O Super+setas não
+depende disso.
+
+**Guarda:** `alternador-de-janelas.test.js`, 11 casos, executando o módulo com um DOM de mentira. O
+que se cobra é o **gesto**, que tem ordem — uma guarda de texto veria as três decisões escritas em
+qualquer sequência, e a sequência é o item. Um dos casos cobra o **argumento** passado ao
+`handleKey`, que é o defeito que o pacote tem hoje.
+
+E duas linhas da tela de atalhos deixaram de ser "planejadas". A frase que estava lá — *"alternar
+janelas e o lado a lado nunca existiram"* — **estava errada, e de um jeito pior que faltar**: eles
+existiam **fora** do ambiente.
 
 ## 5. 📋 A orquestração de porta morre — e ela mudou de onda para cá
 
@@ -1393,9 +1459,9 @@ medida executando.
 | — | ✅ **o repositório do pacote fechou** — o que resta da onda é todo do `vssh-sso` | | 4 |
 | — | ✅ **e reabriu por um incidente**: 0.6.1, quatro defeitos, três deles decisões do item 2 | `vsshapp-xpra` | — |
 | 3b | ✅ **feito** — os proxies (**dois donos**), o observador de escala, o registro de zonas de drop e o `xpraAdapter` saem; 326 linhas entram, **560 saem**. ⚠ Deixou **duas regressões de CSS apontando para a casa antiga** (o laço invisível e o ícone que não arrasta), as duas invisíveis a teste de texto | `vssh-sso` | 3a |
-| 3c | 📋 um vssh-app recebe e produz arquivo arrastado — **um contrato**, e as três direções caem dele | toolkit + `vssh-sso` | ✅ **destravado**: o 3b saiu e o `drop` já chega, medido num Chrome |
+| 3c | ✅ **feito** — um contrato, e as três direções caem dele. A medida derrubou METADE do item: os caminhos já viajavam no `dataTransfer`, e a direção de ENTRADA não passa pelo shell (mesma origem) — o que faltava era a SAÍDA | toolkit + `vssh-sso` | 3b |
 | 3d | 📋 o pacote atende pelo **verbo do ambiente** — o resto do 3b, e ele não cabia no `vssh-sso` | `vsshapp-xpra` | 3b · exige publicar o pacote |
-| 4d | 📋 o ambiente ganha o Alt+Tab que o motor levou embora — sobre `VsshWindow._all` | `vssh-sso` | 3a |
+| 4d | ✅ **feito** — o Alt+Tab **e o lado a lado** passam a ser do ambiente, sobre `VsshWindow._all`. ⚠ Achou a **terceira regressão do 3b**: o Super+setas do pacote chama dois adaptadores apagados e devolve `false` calado | `vssh-sso` | 3a |
 | 5 | 📋 **a orquestração de porta morre** — os onze lugares, o `nextLoopback` e o teto de **254** (era o `0d` da [Onda 9](08-editor-do-ambiente.md)) | `vssh-sso` | 2 |
 | 6 | ✅ **feito** — um start em voo por `<servidor, usuário, app>`; é trava e não cache, e o `restartApp` espera em vez de coalescer | `vssh-sso` | — |
 | 7 | 📋 o portal conta ao motor a **DPI** da tela — a metade do TAMANHO se dissolveu na 0.7.3 (o teto do Xvfb era 1920x1080) | `vssh-sso` | — |

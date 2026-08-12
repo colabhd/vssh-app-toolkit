@@ -35,6 +35,8 @@ no-op. Você desenvolve fora do VSSH sem `if` nenhum.
 | Abrir um arquivo no visualizador certo | `vssh.openFile()` |
 | Deixar o usuário escolher com que abrir | `vssh.openWith()` |
 | Receber um arquivo que abriram com o meu app | `vssh.onOpenContext()` |
+| Receber arquivo **arrastado** para dentro do app | `vssh.onArquivosSoltos()` |
+| Arrastar um arquivo **para fora** do app | `vssh.arrastarArquivos()` no `dragstart` |
 | Abas no cabeçalho da janela | `vssh.tabs.*` (exige `richChrome`) |
 | Tocar som obedecendo ao volume do ambiente | **nada** — já é automático |
 | Ler o volume que o ambiente aplica | `vssh.audio.gain()` / `.muted()` / `.onChange()` |
@@ -748,6 +750,46 @@ A régua de `ordem`, publicada — o default de quem não declara é **100**, de
 
 O ícone é **o do próprio app** — não há id de sprite a declarar. Item inválido é omitido em
 silêncio, e os irmãos válidos continuam: um item torto não pode impedir o menu de abrir.
+
+---
+
+## Arquivo arrastado, nas duas direções
+
+O contrato é **um só**: o tipo MIME `application/x-vssh-files`, com os **caminhos absolutos
+separados por linha**. Ele já era como o gerenciador de arquivos e a área de trabalho conversam
+entre si; o que mudou é que agora ele é **publicado**, e o app entra dos dois lados.
+
+```js
+// ← receber: o arquivo que o usuário arrastou do gerenciador para dentro do app
+const desligar = vssh.onArquivosSoltos(({ caminhos, x, y, alvo }) => {
+  for (const p of caminhos) abrirNoEditor(p);
+});
+
+// → produzir: arrastar de dentro do app para a área de trabalho, o gerenciador ou a lixeira
+aba.draggable = true;
+aba.addEventListener('dragstart', (e) => vssh.arrastarArquivos(e.dataTransfer, [caminhoDaAba]));
+```
+
+**Não há nada a declarar no manifesto.** O app é servido na **mesma origem** do ambiente, então o
+`drop` cai no documento do próprio app e o `dataTransfer` é legível direto — o shell não está no
+caminho e não tem o que autorizar. (Nem teria o que guardar: o backend do app já lê qualquer
+arquivo que o usuário lê.)
+
+Três coisas que economizam uma tarde:
+
+- **`onArquivosSoltos` chama `preventDefault` no `dragover`, e isso não é detalhe.** Sem esse
+  `preventDefault` o navegador entende que o elemento **recusa** a soltura: o `drop` nunca acontece,
+  o cursor fica "proibido", e **não há erro nem log** em lugar nenhum. Se você escrever o ouvinte à
+  mão, é esta a linha que falta.
+- **`arrastarArquivos` avisa o shell sozinho, inclusive o fim do gesto.** Todo alvo de soltura do
+  ambiente decide se acende olhando um estado que vive no documento do shell, e um arraste nascido
+  no seu iframe não o alcança. O fim vai junto porque `dragend` **não atravessa documentos**.
+- **Caminho tem de ser absoluto.** O que viaja é caminho de disco do usuário; um relativo é
+  descartado, e a função devolve `false`.
+
+**A terceira direção — de uma janela do seu app para outra — cai de graça:** uma escreve, a outra
+lê, e o ambiente no meio não precisa saber de nada. Funciona igual fora do desktop VSSH; o que não
+acontece lá é só o aviso ao shell, que não existe para ser ouvido.
 
 ---
 
