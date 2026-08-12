@@ -1276,16 +1276,16 @@ ecossistema"*. Hoje um vssh-app **consome** o ambiente e quase não **contribui*
 **um** mecanismo completo (`contributes.settings`) e **uma** superfície com registro
 (`SettingsRegistry.register`, `SettingsRegistry.js:81-85`). Todo o resto é array literal no shell.
 
-## 4. 🔶 O contrato de contribuição — o menu de contexto **feito**, e quatro linhas ainda abertas
+## 4. 🔶 O contrato de contribuição — três das quatro linhas **feitas**, e a jump list ainda aberta
 
 | Superfície | Hoje | Depois |
 |---|---|---|
 | menu de contexto de arquivo, pasta, área de trabalho | `ContextMenu.js:823-831` não tem `register`; itens em `FileContextMenu.js:49-148`, `Desktop.js:912,929,948`, `arquivos/lateral.js:115,318` | ✅ `contributes.contextMenu` no manifesto, com **precedência declarada** |
 | menu do ícone no Launchpad | três itens fixos (`ContextMenu.js:559-576`) | 📋 jump list vinda do manifesto — o que o Windows faz com o botão direito no ícone |
 | "Abrir com" | o app entra **sempre depois** dos embutidos, atrás de um separador, com ícone fixo `apps` (`abrir-com.js:143-146`); o OnlyOffice é sempre o primeiro (`:77-83`) | 🔶 o ícone é o do próprio app — **feito**; a ordem contra os embutidos continua fixa |
-| `opens.mimeTypes` | aceito, projetado e **nunca roteado** (`docs/api.md:700-702`) | 📋 roteado pelo mesmo portão |
-| `handles` | enum fechado de 5, e `vscode` é o único valor que nomeia **um produto** (`schema:142-146`) | 📋 categoria, não nome de produto |
-| `category` | sobrescrito por `'Apps Integrados'` (`Launchpad.js:73-75`) | 📋 volta a valer |
+| `opens.mimeTypes` | aceito, projetado e **nunca roteado** (`docs/api.md:700-702`) | ✅ roteado pelo mesmo portão — e sem taxonomia nova |
+| `handles` | enum fechado de 5, e `vscode` é o único valor que nomeia **um produto** (`schema:142-146`) | ✅ `ide`: papel, não nome de produto |
+| `category` | sobrescrito por `'Apps Integrados'` (`Launchpad.js:73-75`) | ✅ vale, e a seção fixa acabou |
 
 O molde é o `SettingsRegistry`, que já provou o formato. A regra é a da casa: **um portão, não N
 `if`s**, e precedência declarada — porque dois apps vão querer o mesmo item de menu, e "quem carregou
@@ -1366,6 +1366,89 @@ onda.
 teste e sai 0. O script passou a contar quantos testes o filtro alcançou, e recusa a rodada quando o
 filtro vem vazio — é a mesma lição do comando de medida da Onda 8, cuja guarda perguntava sobre
 escape e nunca sobre se aquilo era shell que roda.
+
+### ✅ 4b. `category` volta a valer — e o que saiu foi a seção "Apps Integrados"
+
+**A primeira forma que escrevi estava errada, e errada no sentido.** Eu fiz a `category` declarada
+ser obedecida e mantive a seção fixa como destino de quem não declara — e a conversa corrigiu o
+eixo: *"o 'Apps Integrados' surgiu quando nós tínhamos o ambiente xpra como padrão, e agora isso não
+existe; o objetivo é o x11 ser um nicho e não um padrão"*. A seção não era um destino a preservar. Ela
+era um **resquício de quando o menu era o menu XDG da distribuição e um vssh-app era a exceção** —
+juntá-los num bloco em destaque dizia "estes aqui são os nossos". Isso inverteu: o vssh-app é o
+cidadão comum do ambiente, e o que ele precisa é estar em `Development` ao lado do que faz a mesma
+coisa, que é onde alguém procura por ele.
+
+Quem não declara cai em **`Other`**, e é de propósito que essa palavra não é nossa: o menu
+freedesktop já chama assim a seção das entradas sem categoria, então, havendo motor X11, as duas se
+**fundem** em vez de virarem dois nomes para o mesmo fato. Do lado do servidor o default saiu:
+`m.category || 'Utility'` **mentia** — um manifesto que não declara não está pedindo "Utilitários",
+não está pedindo nada.
+
+**Os dois menus tinham o MESMO bloco de trinta linhas escrito duas vezes**, e é assim que eles
+discordariam um dia. Agora quem decide é `AppLauncher.entradasDeMenu()`, num lugar só — e foi ao
+juntá-los que dois defeitos apareceram:
+
+- **Uma falha de rede esvaziava o menu.** Quem chama apaga a injeção anterior antes de escrever a
+  nova, e o registro devolvia lista vazia tanto para "nenhum app" quanto para "não consegui
+  perguntar". `entradasDeMenu()` devolve `null` no segundo caso — é o mesmo `respondeu` que o lock
+  file precisou aprender no item 3 da Onda 10.
+- **O filtro "recomendados" podava vssh-app.** Ele é poda de menu XDG de distribuição (esconde o que
+  veio junto com o sistema); um vssh-app é o oposto — foi instalado um a um por um administrador. E a
+  poda é por **substring do comando**: um app com `chrome`, `rofi` ou `code` no id sumia do menu por
+  causa do próprio nome.
+
+**Guarda:** `categoria-de-app.test.js`, **12 casos**. Refutado: repor a seção fixa derruba 9 dos 12.
+Shell **4.9.0**.
+
+### ✅ 4c. `opens.mimeTypes` roteia — e o medo era a taxonomia, que não foi precisa
+
+O campo era aceito, validado e projetado em `GET /api/apps` — e **morria no único lugar que decide**,
+o `appsParaExtensao` do "Abrir com". Um app que declarasse só `mimeTypes` não aparecia em lugar
+nenhum, e nada acusava: o campo existia em três camadas e não tinha leitor.
+
+**O que travava era a suposição de que rotear exigia um mapa extensão→MIME nosso.** A medida a
+derrubou: o MIME é propriedade do **arquivo**, e o servidor já o manda — `GET /api/fs/list` devolve
+`mime` por item (`system.ts:465`, `_tipoDeConteudo`). Montar o mapa aqui seria uma segunda noção do
+mesmo fato, divergindo em silêncio da do servidor — que é exatamente o defeito que a taxonomia de
+Office duplicada JS↔TS já documenta nesta onda.
+
+Então: quem tem o item em mãos repassa o `mime` (`FileBrowserWindow`, `FileContextMenu`); quem só
+tem um caminho — o `openWith` que vem de dentro de um app — roteia pela extensão, e **isso é a
+verdade da situação, não um atalho**. O `Content-Type` é normalizado antes de comparar, porque o real
+vem com sufixo (`text/plain; charset=utf-8`) e a string inteira não casaria nunca.
+
+**Guarda:** `abrir-com-por-mime.test.js`, **7 casos**. Refutado: tirar o MIME do filtro derruba
+exatamente os 3 casos que só tinham MIME.
+
+### ✅ 4d. `handles` diz um papel — `vscode` era o único que nomeava um produto
+
+Das cinco categorias, quatro dizem o que a coisa **faz** — quem abre um terminal, quem edita texto,
+quem navega em arquivos, quem navega na web — e uma dizia o nome de um programa da Microsoft. Um app
+que quisesse ocupar aquele lugar tinha de se declarar em função dele. Agora é **`ide`**, palavra que
+também não é nossa: é a categoria do próprio menu freedesktop (`Development;IDE;`), pelo mesmo motivo
+que o `Other` do 4b.
+
+`vscode` continua **aceito** e é traduzido na entrada — um manifesto já publicado não pode deixar de
+instalar por causa de uma palavra que trocamos. É apelido de entrada, não segundo nome: do portão
+para dentro só existe `ide`. O portão mora num módulo folha (`utils/categoria-de-handler.ts`) para
+poder ser executado por uma guarda, como o `fim-de-vida.ts` do item 8.
+
+**E ele fechou o vocabulário, que era aberto.** `handles: m.handles || null` deixava passar qualquer
+string: um manifesto com `"vs-code"` criava uma categoria fantasma que nenhuma tela oferecia e nenhum
+launcher consultava — declarada, aceita e inalcançável.
+
+**Do lado do cliente a mesma pergunta estava escrita cinco vezes**, uma por `*Launcher.js`. Agora há
+um portão, `AppLauncher.appDaCategoria(categoria)` — e é nele que mora o apelido, então a preferência
+de quem escolheu um app sob o nome antigo continua valendo. Ninguém perde uma escolha porque nós
+trocamos uma palavra. A tela acompanhou: a linha chamava-se "VS Code" no meio de quatro que dizem
+papel, e passa a ser "Ambiente de desenvolvimento".
+
+**Guarda:** `handles-por-papel.test.js`, **11 casos** — os dois lados da troca, a entrada (o
+manifesto) e a preferência já gravada. Shell **4.10.0**, schema do toolkit ressincronizado.
+
+**O que continua aberto neste item:** a **jump list** do ícone no Launchpad, pelo motivo já escrito
+em 4a — falta um segundo verbo com **rota**, e a regra de rota segura mora hoje dentro do
+`VsshAppWindow`; e a **ordem do "Abrir com"** contra os embutidos, que continua fixa.
 
 ## 5. ✅ A extensão VSSH, servida pelo próprio app — **feita**, e ela tem DUAS metades
 

@@ -224,7 +224,7 @@
     },
     "category": {
       "type": "string",
-      "description": "Informativo; a UI agrupa tudo em 'Apps Integrados'."
+      "description": "A seção do Start Menu/Launchpad onde este app aparece — use o nome de categoria do menu freedesktop ('Development', 'Office', 'Graphics', 'Utility', 'System'…) para cair junto do que faz a mesma coisa. Sem declaração, o app vai para 'Other'. ERA informativo: até a Onda 9 o cliente agrupava todo vssh-app numa seção fixa 'Apps Integrados' e este campo não valia nada."
     },
     "description": {
       "type": "string"
@@ -238,11 +238,12 @@
         "terminal",
         "editor",
         "fileBrowser",
+        "ide",
         "vscode",
         "browser",
         null
       ],
-      "description": "Registra o app como substituto de um dos 5 launchers embutidos. O usuário ainda precisa escolher em Configurações."
+      "description": "Registra o app como substituto de um dos 5 launchers embutidos, pelo PAPEL que ele ocupa. O usuário ainda precisa escolher em Configurações → Ambiente → Abrir com. `vscode` é o nome antigo de `ide` e continua aceito (um manifesto já publicado não deixa de instalar por causa de uma palavra que trocamos), mas era o único valor do enum que nomeava um produto em vez de um papel — declare `ide`."
     },
     "opens": {
       "type": "object",

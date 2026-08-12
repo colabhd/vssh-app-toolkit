@@ -158,8 +158,8 @@ Apps de referência mais completos moram em repositórios próprios: `colabhd/vs
    Push em `main` publica. **Sem `tools_token`, sem PAT.**
 
 4. **Instale no servidor** (admin): `sudo vssh-app-install <id> --force`, ou pela aba admin
-   **Repositório** → Instalar/Atualizar. O app aparece na seção "Apps Integrados" do Start
-   Menu/Launchpad da sessão do usuário.
+   **Repositório** → Instalar/Atualizar. O app aparece no Start Menu/Launchpad do usuário, na
+   `category` que o manifesto declarou.
 
 ## Publicar localmente (dev, sem CI)
 

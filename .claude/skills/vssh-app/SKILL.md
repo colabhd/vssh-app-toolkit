@@ -67,14 +67,24 @@ falta num app concreto.
                                        // estado em Configurações → Serviços. O `alwaysRunning: true`
                                        // legado equivale a kind:"service" e é lido por compat.
   "icon": "icon.svg",                 // caminho relativo à raiz do pacote
-  "category": "Utility",              // só informativo em GET /api/apps hoje — o cliente lista
-                                       // todo vssh-app numa seção única "Apps Integrados" no Start
-                                       // Menu/Launchpad, sem agrupar por esse campo (não gera mais
-                                       // .desktop/XDG — ver "Como o app aparece no menu" abaixo)
+  "category": "Utility",              // a seção do Start Menu/Launchpad onde o app aparece. Use um
+                                       // nome de categoria do menu freedesktop ("Development",
+                                       // "Office", "Graphics", "Utility", "System"…) pra cair junto
+                                       // do que faz a mesma coisa; sem declarar, o app vai pra
+                                       // "Other". ⚠ **Era só informativo, e não é mais**: até a
+                                       // Onda 9 o cliente jogava TODO vssh-app numa seção fixa
+                                       // "Apps Integrados" e este campo não valia nada — resquício
+                                       // de quando o ambiente X11 era o padrão e um vssh-app era a
+                                       // exceção em destaque (não gera .desktop/XDG — ver "Como o
+                                       // app aparece no menu" abaixo)
   "description": "...",
-  "handles": null,                    // opcional: "terminal"|"editor"|"fileBrowser"|"vscode"|
+  "handles": null,                    // opcional: "terminal"|"editor"|"fileBrowser"|"ide"|
                                        // "browser" — registra este app como substituto de um
-                                       // launcher embutido (ver "App padrão por categoria" abaixo)
+                                       // launcher embutido (ver "App padrão por categoria" abaixo).
+                                       // ⚠ **`ide` chamava-se `vscode`**, e era o único valor que
+                                       // nomeava um PRODUTO em vez de um papel; o nome antigo
+                                       // continua aceito e é traduzido na entrada, mas declare
+                                       // `ide`
   "opens": {                          // opcional: tipos de arquivo que este app sabe abrir. É o
     "extensions": ["md", "org"],       // que coloca o app no submenu "Abrir com" e o torna
     "mimeTypes": ["text/markdown"]     // elegível a padrão por tipo (Configurações →
@@ -517,8 +527,8 @@ então a página carrega e você desenvolve o resto normalmente.
 2. Instale como root: `sudo vssh-app-install /tmp/meu-app --force`.
 3. Confirme que `/opt/vssh-apps/<id>/` foi criado.
 4. Autenticado no portal, `GET /api/apps` deve listar o app (cache de até 60s).
-5. Abra a sessão Xpra do usuário no portal — o app aparece na seção "Apps Integrados" do Start
-   Menu/Launchpad sem precisar reconectar (cache do cliente tem TTL de 30s, ver AppLauncher.js).
+5. Abra o ambiente do usuário no portal — o app aparece no Start Menu/Launchpad, na `category` que
+   o manifesto declarou, sem precisar recarregar (TTL de 30s no cliente, ver AppLauncher.js).
 6. Se algo falhar: você tem **dois** logs, e eles se complementam.
    - **`~/.vssh-apps/<id>/run.log`** — stdout/stderr do backend, gravado pelo lifecycle. Legível
      sem SSH: clique direito no cabeçalho da janela do app → **Ver log do backend** (ou
@@ -539,8 +549,8 @@ então a página carrega e você desenvolve o resto normalmente.
 - Copia o pacote para `/opt/vssh-apps/<id>/` (somente leitura para usuários).
 - Roda `backend.installCommand` uma vez como root (dependências de sistema).
 - Recusa sobrescrever um `id` já instalado sem `--force`.
-- **Não gera `.desktop`/XDG** — o app aparece no desktop via `GET /api/apps` direto (seção
-  "Apps Integrados" no Start Menu/Launchpad), não via menu XDG nativo. Isso existe de propósito:
+- **Não gera `.desktop`/XDG** — o app aparece no desktop via `GET /api/apps` direto (no Start
+  Menu/Launchpad, na `category` que ele declarou), não via menu XDG nativo. Isso existe de propósito:
   o mecanismo antigo (gerar `.desktop` em `/usr/local/share/applications`) exigia reiniciar a
   sessão Xpra inteira pro app aparecer (o cliente só relê o menu XDG no handshake da conexão) e
   vazava a entrada pra qualquer outra sessão de desktop na mesma máquina (Chrome Remote Desktop,
@@ -658,7 +668,7 @@ Launchpad/Start Menu/`AppLauncher.open()`.
 Diferenças concretas em relação a um app `"type": "app"` normal:
 - **Sem `window` no manifest** (não se aplica — não existe `VsshAppWindow` pra ele).
 - **Não aparece no Launchpad/Start Menu/menu de apps** — `AppLauncher.listApps()` (consumido por
-  ambos pra montar a seção "Apps Integrados") filtra `type !== 'engine'` antes de listar.
+  ambos pra montar as entradas do menu) filtra `type !== 'engine'` antes de listar.
   `GET /api/apps` continua devolvendo a entrada (com `type: 'engine'`) pra quem precisar
   descobri-la programaticamente — só a UI de lançar apps é que a esconde.
 - **Não usa `AppLauncher.open()`** (que monta janela). Em vez disso, o consumidor chama
@@ -788,16 +798,25 @@ extensão reaproveita `FileBrowserWindow.openPathInViewer(path)` / `FileBrowserW
 ## App padrão por categoria (opt-in, via `"handles"` no manifest)
 
 Um vssh-app pode se registrar como substituto de um dos 5 launchers embutidos do desktop:
-`terminal`, `editor`, `fileBrowser`, `vscode`, `browser` — basta declarar `"handles": "terminal"`
+`terminal`, `editor`, `fileBrowser`, `ide`, `browser` — basta declarar `"handles": "terminal"`
 (ou o valor correspondente) no manifest. Isso NÃO troca o comportamento sozinho: o usuário escolhe
-explicitamente em **Configurações → Aplicativos → Apps Integrados por Categoria** qual app usar
-pra cada categoria (persistido em `categoryHandlers`, ver `src/routes/settings.ts`); sem essa
+explicitamente em **Configurações → Ambiente → Abrir com** qual app usar
+pra cada categoria (⚠ **este caminho dizia "Aplicativos → Apps Integrados por Categoria", e essa
+tela não existe com esse nome**; persistido em `categoryHandlers`, ver `src/routes/settings.ts`); sem essa
 escolha, o app embutido continua sendo o padrão mesmo que seu manifest declare `handles`.
 
 Mecanismo (nenhum código seu além do campo no manifest): cada `*Launcher.js` nativo
 (`TerminalLauncher.js`, `TextEditorLauncher.js`, `FileBrowserLauncher.js`, `VsCodeLauncher.js`,
-`BrowserLauncher.js`) checa `window.vsshSettings?.categoryHandlers?.<categoria>` antes de abrir a
-janela embutida — se apontar pro seu app, chama `AppLauncher.open(appId)` no lugar.
+`BrowserLauncher.js`) pergunta `AppLauncher.appDaCategoria('<categoria>')` antes de abrir a janela
+embutida — se apontar pro seu app, chama `AppLauncher.open(appId)` no lugar. (Os cinco liam
+`window.vsshSettings.categoryHandlers.<categoria>` cada um por si: cinco cópias da mesma pergunta, e
+nenhum lugar onde respondê-la de novo — que é onde o apelido `vscode`→`ide` mora hoje.)
+
+⚠ **A categoria `vscode` chamou-se assim e não se chama mais.** Das cinco, era a única que nomeava
+um produto em vez de um papel — quem ocupa esse lugar responde por *o ambiente de desenvolvimento*,
+não por *o VS Code*. Declare `ide`; `vscode` continua aceito na entrada (um manifesto já publicado
+não deixa de instalar por causa de uma palavra que trocamos) e é traduzido antes de chegar ao
+cliente.
 
 ### Contexto de abertura (opt-in, via `open-context`)
 
