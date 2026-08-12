@@ -537,23 +537,23 @@ Então o trabalho é em três passos, e **o primeiro é o caro**, com dois obst�
 janela X11 e uma do shell abertas, clicar no botão da nativa na barra a traz de volta — e o teste
 tem de ficar vermelho com o `focused_wid` não zerado, que é a linha inteira.
 
-## ⏸ O que o pacote deve: DUAS versões esperando publicação
+## ✅ O que o pacote devia: as DUAS versões foram publicadas
 
-**Medido:** os servidores estão na **0.7.6**. O repositório tem duas versões commitadas e **não
-empurradas**, e um push na `main` publica as duas de uma vez.
+⚠ **Esta seção dizia "esperando publicação", e isso deixou de ser verdade** — as duas subiram juntas
+em **2026-08-12 21:58 UTC** (workflow `Publish`, `success` em 32 s, commit `6c7abec`). O que segue é
+o registro do que elas levaram, e do preço que a espera tinha.
 
 | versão | o que ela leva | por que importa |
 |---|---|---|
 | **0.7.7** | uma carga do motor por página, e ela retoma — recarregar não é reconectar | dois defeitos do carregador, achados num log de duas linhas |
 | **0.8.0** | os dois verbos do ambiente invertidos **e a terceira regressão do 3b**, em seis pontos | hoje, em produção, **o arraste de toda janela X11 morre com `TypeError`** e o Super+setas do pacote não faz nada |
 
-**A 0.8.0 conserta um defeito que está no ar.** `Window.js` chamava `TilingManager.pseudoAdapter` em
-cinco pontos do `_setupDragResize`, e `onDragStart(this, undefined)` lança em `adapter.tileable`
-— ou seja, desde que a 3b subiu ao shell, arrastar uma janela X11 quebra no primeiro movimento.
-Enquanto a publicação não acontece, **isso continua acontecendo com quem usa**.
+**A 0.8.0 consertou um defeito que estava no ar.** `Window.js` chamava `TilingManager.pseudoAdapter`
+em cinco pontos do `_setupDragResize`, e `onDragStart(this, undefined)` lança em `adapter.tileable`
+— ou seja, desde que a 3b subiu ao shell, arrastar uma janela X11 quebrava no primeiro movimento.
 
-> **Publicar não tem rota de retirada** (a dívida do `vssh-repo`), e por isso a decisão é sua e não
-> minha. O que fica registrado aqui é o preço de esperar, para a decisão ser tomada com ele à vista.
+> **Publicar não tem rota de retirada** (a dívida do `vssh-repo`), e por isso a decisão era sua e não
+> minha. Ficou registrado o preço de esperar, para a decisão ser tomada com ele à vista — e ela foi.
 
 ## 4. ✅ O último jQuery do ambiente saiu — e ele escondia o Alt+Tab
 
