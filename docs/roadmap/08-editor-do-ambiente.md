@@ -1174,6 +1174,48 @@ do container — então a marca sobrevive, porque a cirurgia é **antes** do `ta
 editar bytes (é ele quem garante que o publicado é o que o build produziu); o que falta é ele
 **recusar** um tarball mais velho que suas entradas.
 
+### ✅ 2k. O `window-appicon`, a marca d'água, e o portão para o lugar que eu ainda não vi
+
+O 2j trocou a iconografia de `resources/server/` e eu dei o assunto por encerrado. **Estava
+incompleto**, e quem achou o resto foi o usuário, colando a URL:
+
+```
+…/static/out/media/code-icon.svg   →  ainda o logo do VS Code
+```
+
+Ela dói mais que o favicon, e o CSS diz por quê: é ela que desenha o **`.window-appicon`** — à
+esquerda da barra de título, na mesma faixa onde este fork põe os botões de janela do ambiente.
+Também aparece no `product-logo` do tooltip de atualização, na página de boas-vindas e no onboarding.
+
+**É o mesmo defeito da noite inteira: troquei os arquivos de um diretório e não perguntei se havia
+outro.** A terceira vez — depois de uma das duas chamadas de `timeout` no CI e dos `resources/server`
+sem o `out/media`. Por isso, além de acrescentar o arquivo à lista, entrou um **portão que responde
+por quem eu não conheço**: `#167abf` é o azul da marca do VS Code, e a varredura mediu que ele não
+aparece em mais nenhum SVG do artefato (os da página de boas-vindas usam `#0065A9`/`#007ACC`, que são
+ilustração de UI). Qualquer arquivo que saia do empacotamento com esse azul **derruba o build**.
+
+**A marca d'água do editor vazio também virou nossa.** ⚠ E aqui vale corrigir uma leitura: o
+`letterpress` do upstream **não é o logo deles** — é uma ilustração de editor (janela com barra
+lateral e linhas de texto), preta a 30% de opacidade, medido, sem filtro no CSS. Trocá-la não é tirar
+marca alheia, é ter a nossa. A versão VSSHCode é o **símbolo** — chevron e cursor, sem a placa —,
+porque marca d'água quer o símbolo: a placa escura viraria um retângulo no meio do editor. Uma
+geometria só, quatro variantes geradas dela, com as cores e opacidades que cada tema já usava.
+
+⚠ **O molde é um SVG de verdade, e não um arquivo com `__COR__` no lugar da cor.** A pergunta foi do
+usuário — *"stroke=`__COR__`?"* — e ela pegou uma contradição de uma linha de distância: eu tinha
+acabado de escrever uma guarda dizendo que **ícone tem de abrir**, e criei em seguida um `.svg` que
+não abre. O molde passou a ser a variante escura, que se abre e se vê, e as outras três saem dela
+trocando dois pontos explícitos — com o passo abortando se o molde perdê-los.
+
+⚠ **E o passo virou idempotente, depois de o segundo `empacotar` abortar.** A guarda exigia que cada
+expressão **casasse**, e na segunda execução a página já estava reescrita. Agora se cobra o **estado
+final** — *"a página saiu sem a marca alheia?"* —, que é verdade nas duas execuções e falso
+exatamente quando o upstream mudar a marcação. É a mesma lição do caso que media o mecanismo do
+arraste em vez do invariante, e a terceira vez que ela aparece nesta onda.
+
+**Guarda:** `pagina-do-ambiente.test.js`, **42 casos**. O da iconografia **executa** o carimbador
+seis vezes: página que casa, página que não casa, arquivo novo com a marca, e duas passadas seguidas.
+
 ### 2a. 📋 O patch da plataforma — e ele é uma linha
 
 `CURRENT_TARGET_PLATFORM` deixa de derivar de `isWeb` e passa a vir do servidor remoto, que é quem
