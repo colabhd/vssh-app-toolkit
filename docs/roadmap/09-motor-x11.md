@@ -242,6 +242,17 @@ que existe HOJE para proteger a mecânica do proxy e tem de **inverter**: passar
 existe e que o `pointer-events` está no lugar. É a mesma inversão que a conferência do `jquery-ui`
 sofreu no 3a.
 
+> **⚠ A inversão foi feita e depois APAGADA no mesmo dia — e o motivo vale mais que ela.** A guarda
+> invertida virou cinco casos, e quatro perguntavam se um símbolo continuava ausente do arquivo. A
+> [regra dos testes](README.md) decidida em 2026-08-12 proíbe exatamente isso: *ninguém vai
+> reintroduzir o que foi apagado com motivo, e se reintroduzir é porque decidiu.* O arquivo saiu, sem
+> perda de cobertura — o que ele tentava garantir está coberto por **execução** no
+> `arraste-entre-janelas.test.js`, com a refutação já feita sobre a fonte real.
+>
+> **A lição corrige o parágrafo acima:** quando uma mecânica sai, a guarda que a protegia não precisa
+> inverter — precisa ser **substituída por uma que execute o comportamento que a mecânica servia**.
+> Inverter é continuar medindo palavras, só que ao contrário.
+
 **Guarda:** ✅ `tests/browser/arraste-entre-janelas.test.js` — **7 casos, e num Chrome de verdade**,
 porque a pergunta é *hit-test*: dados dois elementos sobrepostos, quem recebe o evento. Nenhum DOM
 falso responde isso, e uma guarda de texto responderia outra coisa — que a linha está escrita, não
@@ -1292,7 +1303,7 @@ estar instalado nos servidores deixa o motor sem endereço.
   servidor serviu por TCP na mesma corrida; sem isso, "o socket não respondeu" seria a montagem do
   teste. Toda medida nova aqui carrega o par.
 - **Cada guarda por refutação**, com linha de base verde antes e a fonte real mutada.
-- `npm test` do `vssh-sso` parte de **1.491** e não pode cair. **⚠ Este número dizia 1.362, e estava
+- `npm test` do `vssh-sso` parte de **1.486** e não pode cair — e ele CAIU de propósito, com uma guarda de texto apagada pela regra nova. Piso que desce por deleção declarada não é regressão; piso que desce sozinho é. **⚠ Este número dizia 1.362, e estava
   velho de novo** — a suíte cresceu 109 casos entre a escrita e a execução do item 6, e um piso
   desatualizado não segura nada. É a **segunda** vez que o mesmo número envelhece nesta dupla de
   ondas; ele só vale relido no dia em que se fecha um item.
