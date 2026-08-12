@@ -1322,6 +1322,65 @@ A guarda passou a executar o **comando inteiro**, com um `sudo` de mentira no `P
 O conserto é base64, que é o caminho que o `GET /api/user-dirs` já usava: nada é interpretado no
 meio, e o script só encontra **um** shell — o do usuário certo, depois do `sudo`.
 
+## 9. ✅ Um app desinstalado prendia a sessão num laço que só piorava
+
+A linha, colhida do servidor:
+
+```
+[session] aberta: ipprivm01.lantri.org:22:vssh-admin::cpps_mavisilva (uid 1210)
+[apps] Error starting app: Error: App 'recoll' não está instalado no servidor.
+    at _iniciarApp (…/vssh-apps.ts:894:11)
+```
+
+**Não é um erro que acontece uma vez.** O lock file de restauração é escrito **por janela** e só é
+apagado por quem a **FECHA** — e desinstalar um app não fecha janela nenhuma. Então o lock ficava. A
+cada entrada da pessoa no ambiente, a restauração pedia `POST /start` de um app que não existe mais,
+o servidor respondia **500 com a stack inteira**, o usuário levava um diálogo de erro na cara, e o
+lock continuava lá para repetir tudo no acesso seguinte. **Nada nesse laço melhorava sozinho** — e
+essa é a diferença entre um erro e um estado preso.
+
+### A pergunta certa vem ANTES do start, e não é o tratamento do erro dele
+
+`/api/apps` já é buscada no boot para montar o menu, e é ela quem sabe o que existe. Perguntar antes
+tem duas consequências que tratar o erro depois não teria: o servidor não é incomodado com um start
+impossível, e — a que importa — o registro consegue responder **"não sei"**.
+
+| A resposta | O que a restauração faz | Por quê |
+|---|---|---|
+| `true` — está instalado | abre a janela, como sempre | — |
+| `false` — não está | **apaga o lock** e avisa uma vez, por app | o laço acaba onde ele nasceu: no arquivo |
+| `null` — **o registro não respondeu** | tenta abrir, e o lock fica | uma falha de rede não é uma desinstalação |
+
+**O `null` é o item inteiro.** `_ensureRegistry` devolvia o **mesmo `Map` vazio** para *"nenhum app
+instalado"* e para *"não consegui perguntar"*, e enquanto ninguém tirava conclusão de uma lista vazia
+isso dava no mesmo. Quem tira é esta mudança — e ela **apaga arquivo**. Lida como "sumiu todo mundo",
+uma falha de rede em `/api/apps` levaria **a sessão salva inteira**, sem rota de volta. Uma guarda de
+texto sobre `estaInstalado(...)` aprovaria as duas leituras com as mesmas palavras; a guarda executa
+os dois módulos de verdade, e um dos seis casos é justamente o registro mudo.
+
+### E o erro do servidor era mudo de duas maneiras
+
+Duas coisas que não são o laço, e que apareceram ao consertá-lo:
+
+- **"não está instalado" era `500`.** Não é falha de servidor nenhum: é uma pergunta sobre algo que
+  não está lá, e a resposta disso é **404**. Virou uma classe (`AppNaoInstalado`) com a tradução para
+  HTTP morando **junto de quem lança** — na rota a distinção já se perdeu, porque um `catch (err)` só
+  enxerga `Error`, e comparar mensagem por substring seria uma junção que a primeira tradução
+  quebraria calada. O status decide também o log: **pedido impossível merece uma linha, não um
+  rastro**.
+- **O cliente jogava fora o corpo da resposta de erro.** O servidor dizia a frase certa e o
+  `ensureRunning` a substituía pelo número — o diálogo que a pessoa via dizia **"HTTP 500"**.
+
+**Guarda:** `app-desinstalado-na-sessao.test.js`, 6 casos, executando `AppLauncher` e
+`WindowStateManager` de verdade (o `fetch` é o único faz-de-conta). A refutação foi **pulada a
+pedido** — o CI é quem vai rodar.
+
+E uma guarda **saiu**: o recorte de texto que afirmava a restauração de janela de app em
+`app-varias-janelas.test.js` fatiava o bloco do `case 'VsshAppWindow'` por `indexOf` e o cobrava por
+regex. O bloco virou uma função com nome e o recorte deixou de achá-lo — **a guarda ficaria vermelha
+sem nada estar errado**, que é o outro lado do defeito de medir por texto. A mesma coisa passou a ser
+medida executando.
+
 ## A ordem, e por que ela é essa
 
 | # | O quê | Repo | Trava em |
@@ -1342,6 +1401,7 @@ meio, e o script só encontra **um** shell — o do usuário certo, depois do `s
 | 7 | 📋 o portal conta ao motor a **DPI** da tela — a metade do TAMANHO se dissolveu na 0.7.3 (o teto do Xvfb era 1920x1080) | `vssh-sso` | — |
 | 8 | ✅ **feito** — as pastas nascem junto da checagem do usuário; ⚠ e a **primeira versão não rodava em produção** (`JSON.stringify` no lugar de aspas de shell), com a guarda aprovando | `vssh-sso` | — (achado ao conferir o 3b) |
 | 8a | ✅ **feito** — a barra lateral PERGUNTA (`GET /api/user-dirs`) em vez de adivinhar; sem o XDG instalado ela SONDA, e a diferença é um `[ -d ]` | `vssh-sso` | 8 |
+| 9 | ✅ **feito** — um app desinstalado com janela salva pedia start a cada acesso, para sempre; a restauração pergunta ANTES e apaga o lock, e o registro passou a saber dizer **"não sei"** | `vssh-sso` | — (achado num log de produção) |
 | — | 📋 **o `createAppLog` do toolkit grava síncrono** — hoje todo vssh-app perde a última linha antes de `process.exit()` | `toolkit` | — |
 
 **A onda declarou o pacote fechado e o pacote reabriu.** Vale registrar por que isso não é o processo
