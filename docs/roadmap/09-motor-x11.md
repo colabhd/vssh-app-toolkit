@@ -1182,6 +1182,50 @@ desaparece com um servidor X que aceite redimensionar ao vivo — ou seja, com o
 
 ---
 
+## 8. ✅ As pastas do usuário — o ambiente pressupunha uma, e ninguém a criava
+
+**Item novo, e ele veio da conferência do 3b numa sessão real:** *"faltou o arraste do gerenciador de
+arquivos para a área de trabalho — e acho que meu usuário não tem as pastas Desktop/Documentos"*. As
+duas metades da frase são a mesma coisa.
+
+**Não era regressão do 3b: é o mesmo antes e depois.** `GET /api/desktop-files` procura a área de
+trabalho por `xdg-user-dir DESKTOP` e, sem resposta, por `~/Desktop` e `~/Área de Trabalho`
+(`system.ts:252-273`). Sem nenhuma delas, responde `desktopPath: null` — e no cliente **todo** gesto
+da área de trabalho sai calado, porque o guard é `if (!_desktopPath) return`. Soltar um arquivo lá
+não fazia nada: sem erro, sem aviso, porque não havia para onde soltar.
+
+**O conserto é de onde a pasta nasce, não de quem a procura.** O `vssh-setup-user.sh` passa a criá-la
+pelo mesmo mecanismo que a rota já consulta, em vez de o servidor perguntar por algo que ninguém
+cria. É a regra da casa aplicada: **encanamento nasce sozinho, não vira tarefa manual.** E como o
+script roda a cada provisionamento (`key-provisioner.ts:73`) e não só no `useradd`, quem já tem conta
+ganha a pasta na próxima sessão, sem migração e sem alguém ter de pedir.
+
+O caminho é **lido de volta**, e não escrito à mão: o XDG respeita o locale — em pt_BR a pasta nasce
+`Área de Trabalho` — e presumir o nome no script reintroduziria exatamente o palpite que a rota já
+evita.
+
+**Guarda:** `tests/unit/pastas-do-usuario.test.js`, **5 casos, refutação 2/2**. Ela **executa** o
+bloco real do script numa HOME de mentira, com um `xdg-user-dir` falso **sombreando** o de verdade —
+inclusive o ramo que não se enxerga lendo: a ferramenta devolve a **própria HOME** quando não há área
+de trabalho declarada, e criar a home de novo não é o que se quer dizer. Mais uma de **junção**: o
+nome de reserva do script tem de estar na lista que a rota procura, senão a pasta existe e mesmo
+assim não é achada — que é pior de diagnosticar do que a ausência dela.
+
+### 8a. 📋 Os lugares da barra lateral são um palpite
+
+**Medido junto, e deixado de fora de propósito:** `arquivos/lateral.js:39-54` declara sete lugares com
+nome fixo — `Desktop`, `Downloads`, `Documentos`, `Música`, `Imagens`, `Vídeos` — e monta o caminho
+como `home + '/' + nome`. Só o `Desktop` tem caminho de verdade (vem do `desktop()`, que é a rota).
+
+A lista **não bate com nenhum locale**: em `C` o XDG cria `Desktop`/`Documents`/`Music`; em `pt_BR`,
+`Área de Trabalho`/`Documentos`/`Música`. Seis dos sete atalhos apontam para pastas que podem não
+existir, e a barra os desenha do mesmo jeito — clicar leva a uma listagem vazia.
+
+O conserto é o mesmo movimento do item 8: **perguntar ao XDG em vez de adivinhar**. Precisa de uma
+rota que devolva os `xdg-user-dir` de uma vez (uma ida de SSH, não sete) e de a barra desenhar só o
+que existe. **O que o derruba:** se a maioria dos servidores não tiver `xdg-user-dirs` instalado — aí
+a resposta é o fallback do item 8, e a barra continuaria adivinhando os outros seis.
+
 ## A ordem, e por que ela é essa
 
 | # | O quê | Repo | Trava em |
@@ -1200,6 +1244,8 @@ desaparece com um servidor X que aceite redimensionar ao vivo — ou seja, com o
 | 5 | 📋 **a orquestração de porta morre** — os onze lugares, o `nextLoopback` e o teto de **254** (era o `0d` da [Onda 9](08-editor-do-ambiente.md)) | `vssh-sso` | 2 |
 | 6 | ✅ **feito** — um start em voo por `<servidor, usuário, app>`; é trava e não cache, e o `restartApp` espera em vez de coalescer | `vssh-sso` | — |
 | 7 | 📋 o portal conta ao motor a **DPI** da tela — a metade do TAMANHO se dissolveu na 0.7.3 (o teto do Xvfb era 1920x1080) | `vssh-sso` | — |
+| 8 | ✅ **feito** — as pastas do usuário nascem no provisionamento; sem elas a área de trabalho inteira saía **calada** | `vssh-sso` | — (achado ao conferir o 3b) |
+| 8a | 📋 os lugares da barra lateral são um palpite — seis dos sete não batem com locale nenhum | `vssh-sso` | 8 |
 | — | 📋 **o `createAppLog` do toolkit grava síncrono** — hoje todo vssh-app perde a última linha antes de `process.exit()` | `toolkit` | — |
 
 **A onda declarou o pacote fechado e o pacote reabriu.** Vale registrar por que isso não é o processo
@@ -1231,7 +1277,7 @@ estar instalado nos servidores deixa o motor sem endereço.
   servidor serviu por TCP na mesma corrida; sem isso, "o socket não respondeu" seria a montagem do
   teste. Toda medida nova aqui carrega o par.
 - **Cada guarda por refutação**, com linha de base verde antes e a fonte real mutada.
-- `npm test` do `vssh-sso` parte de **1.484** e não pode cair. **⚠ Este número dizia 1.362, e estava
+- `npm test` do `vssh-sso` parte de **1.489** e não pode cair. **⚠ Este número dizia 1.362, e estava
   velho de novo** — a suíte cresceu 109 casos entre a escrita e a execução do item 6, e um piso
   desatualizado não segura nada. É a **segunda** vez que o mesmo número envelhece nesta dupla de
   ondas; ele só vale relido no dia em que se fecha um item.
