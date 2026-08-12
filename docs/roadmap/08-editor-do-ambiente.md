@@ -1367,20 +1367,126 @@ teste e sai 0. O script passou a contar quantos testes o filtro alcançou, e rec
 filtro vem vazio — é a mesma lição do comando de medida da Onda 8, cuja guarda perguntava sobre
 escape e nunca sobre se aquilo era shell que roda.
 
-## 5. 📋 A extensão VSSH, servida pelo próprio app
+## 5. ✅ A extensão VSSH, servida pelo próprio app — **feita**, e ela tem DUAS metades
 
 `additionalBuiltinExtensions` aceita *"location of the extension where it is hosted"*
 (`web.api.ts:248-254`): o backend do app serve uma extensão que o workbench carrega embutida e o
 usuário não desinstala. **É o caminho para tudo o que o embedder não alcança** — `explorer/context`,
 `editor/title`, comandos em menus de verdade —, já que `asMenuId` só conhece dois `MenuId`.
 
-O que ela entrega: abrir um arquivo do editor no visualizador do ambiente, mandar uma pasta para o
-gerenciador de arquivos, notificar pelo `vssh.notify` em vez do toast interno, e o selo
-`windowIndicator` dizendo em que servidor o workbench está — o verde do Codespaces, com o nosso nome.
+**⚠ Uma linha do parágrafo acima já estava entregue quando este item foi escrito:** o selo
+`windowIndicator` está em `pagina.js` desde o item 2, e é DADO, não extensão. O que a extensão
+entrega são os três gestos dentro do editor.
 
-**Guarda:** `tests/unit/extensao-vssh.test.js` — a extensão declara os contribution points, e o
-workbench montado a carrega sem passar pela galeria. Refuta: removê-la de
-`additionalBuiltinExtensions`; o teste tem de ficar vermelho por ausência, não por erro de rede.
+### As duas metades, e nenhuma serve sozinha
+
+|  | o que é | por que a outra não basta |
+|---|---|---|
+| **A** — patch `0009` | os handlers, **na página**, onde `window.vssh` existe | uma extensão web roda num Web Worker: sem `window`, sem `parent`, sem `postMessage`. A ponte é inalcançável de lá |
+| **B** — `extensao/` | a **colocação** no menu, e o repasse por `executeCommand` | `asMenuId` (`web.factory.ts:76-81`) conhece dois MenuIds. `explorer/context` não é alcançável de fora |
+
+O elo foi medido antes de escrito: `mainThreadCommands.ts:92` manda o `$executeCommand` do ext host
+para o **mesmo** `CommandsRegistry` em que `web.factory.ts:45` escreve. E
+`extHostExtensionService.ts:87` (worker) carrega o arquivo com
+`new Function('module', 'exports', 'require', fonte)` — **CommonJS puro, sem bundler**: dois arquivos
+escritos à mão, nada para vendorizar.
+
+**⚠ Falha nesse caminho é SILENCIOSA.** `webExtensionsScannerService.ts:241-243` engole erro de carga
+de extensão vinda de location num `logService.info`: manifesto torto, `browser` ausente, 404 no
+`package.json` — nada na tela, o menu só não tem os itens. É por isso que a bancada **executa** a
+extensão pela mesma forma do carregador real, e por que cada comando avisa quando o outro lado não
+responde.
+
+### ⚠ A VOLTA não existia, e três bancadas verdes não viram
+
+O item ficou "pronto" e **não funcionava** para quem clicava no ambiente. Todo caminho do ambiente
+para "abrir isto no editor" — o menu de contexto do gerenciador, o "Abrir com", o duplo-clique numa
+extensão declarada — termina na mesma mensagem publicada, `{ type: 'open-context', path }`. E **nada
+no app escutava**: a janela abria, o caminho ia para lugar nenhum, sem erro em canto nenhum.
+
+**As bancadas mediam a IDA — o editor falando com o ambiente — e nenhuma media a VOLTA.** É o defeito
+mais instrutivo desta onda, e é de forma, não de código: um eixo inteiro sem cobertura passa por três
+revisões sem que ninguém repare, porque cada caso individual está certo.
+
+O conserto é o patch `0010`, e ele pediu meia palavra do outro lado: o que chega ao app é uma
+**string**, e "abrir" um arquivo e "abrir" uma pasta são ações diferentes. Quem sabe qual é qual é o
+ambiente, que montou o menu sabendo em que superfície o clique caiu — então ele passa a mandar `tipo`
+junto (acréscimo compatível: quem só lê `path` continua funcionando, e por isso não há
+`minShellVersion` novo).
+
+**⚠ E o `forceReuseWindow` estava errado, também descoberto na tela.** A justificativa que eu tinha
+escrito — *"o ambiente já escolheu a janela"* — não se sustenta: o ambiente focou aquela janela por
+ser a janela **do app**, não por ser o lugar certo para **aquela** pasta. Abrir ali dentro joga fora o
+workspace em que a pessoa trabalha. Vai `forceNewWindow`, e ele **não é opcional**:
+`vscode.openFolder` documenta *"Defaults to opening in the same window"*. Janela **vazia** é
+reaproveitada, de propósito — não há o que perder ali, e sobraria uma vazia.
+
+### O que a execução cobrou do FERRAMENTAL, e vale mais que o item
+
+**O `build-local.sh` vinha aplicando TRÊS dos nove patches** e imprimindo `==> patches conferidos`.
+`docker cp origem/ destino` copia *para dentro* quando o destino existe, e o container sobrevive entre
+execuções — da segunda vez em diante a cópia caía em `/src/patches/patches/`. O script que existe para
+"errar barato antes de gastar CI" montava outra árvore. Só depois de consertar isso apareceu o
+segundo: **o patch `0007` carregava uma cópia do hunk do `0003`**, então a série não aplicava em
+árvore limpa. E o terceiro foi meu: a contagem que eu escrevi contava **tentativas**, não sucessos.
+
+**E o quarto quase publicou.** `compilar` compila o que o último `fonte` deixou. Editei um patch,
+compilei, e saiu um motor com a versão **anterior** dele — e o smoke passou 8/8, porque perguntava se
+`vscode.openFolder` estava lá, não com que argumento. Os quatro são a mesma família: **a árvore do
+container é ESTADO, e o script a tratava como cache.** Agora o `fonte` grava a impressão digital dos
+patches e o `compilar` recusa árvore defasada.
+
+**Guarda:** `tests/extensao-do-ambiente.test.js`, **21 casos, refutação 14/14** (mais 6/6 nas do
+`open-context`, dos dois lados). Suíte do app: **63**. Motor `1.132.0-local202608121709`, app
+`vscode@0.1.37`, shell **4.5.1**.
+
+**O que ela ainda NÃO alcança:** arrastar um arquivo do ambiente para dentro do editor. O bloqueio é
+`VsshWindow._acceptsDragRaise()`, e ele sai junto com o proxy de janelas — é o
+[item 3c da Onda 10](09-motor-x11.md).
+
+### A guarda original deste item mudou de forma, e a conversa que a mudou
+
+Estava escrito: *"`tests/unit/extensao-vssh.test.js` — a extensão declara os contribution points, e o
+workbench montado a carrega sem passar pela galeria"*. A primeira metade virou o que está lá; a
+segunda nunca foi escrita como estava, e o motivo veio de uma crítica que reorganizou a bancada
+inteira:
+
+> *"um teste que só testa se a cura pra uma doença já conhecida ainda está lá é só perda de tempo de
+> CI, porque ninguém vai tirar ela"*
+
+**Está certo, e esta onda tem a prova**: as guardas de texto que eu escrevi ficaram vermelhas **três
+vezes lendo os próprios comentários**, e nenhuma delas pegou o buraco do `open-context`. O eixo não é
+bem *conteúdo × execução* — é **afirmar um fato sobre o texto** × **realizar a operação e ver dar
+certo**. `git apply` é a operação; `grep -q` é uma afirmação sobre o resultado dela.
+
+O que saiu daí, e vale para toda bancada daqui em diante:
+
+| o que era | o que virou |
+|---|---|
+| **oito `grep`** na fonte do upstream (`motor.yml` + `build-local.sh`) | apagados. A pergunta legítima deles — "os patches ainda valem quando o upstream anda?" — foi para `motor-nova-versao.yml`, que **aplica os patches de verdade** na tag nova e abre PR ou issue. Pronto e desligado, à espera de runner self-hosted |
+| quatro `assert.match` no texto do patch `0010` | **executam** o bloco acrescentado, com o mundo do embedder de mentira. A troca se pagou na hora: o caso novo — "a URI é remota quando há authority" — achou um defeito no instrumento que um regex não teria como contar |
+| nada perguntava ao produto | **o smoke de serviço** (`scripts/smoke-do-servico.sh`), 8 casos, refutação 5/5: sobe o app inteiro contra o motor recém-construído e pergunta. O melhor deles baixa o **bundle servido** e cobra as quatro pontes lá dentro — prova que o bloco do patch sobreviveu à compilação, ao bundling e ao empacotamento. Entra no `motor.yml` **antes** de publicar, porque versão no `vssh-repo` não tem rota de retirada |
+
+**E o limite disso, dito porque eu quase o escondi:** executar o bloco prova **comportamento**, não
+**alcance**. O `open-context` era falta de alcance — não havia bloco para executar. O único
+instrumento que pega isso é o navegador contra o app de pé, e o toolkit já o tem
+(`tests/browser/chrome.js`, CDP à mão sobre o `WebSocket` do Node). Está registrado como item próprio
+abaixo, porque muda a régua de todas as bancadas e merece desenho, não puxadinho no fim de um build.
+
+## 5a. 📋 O `chrome.js` contra o app de pé — o instrumento que mede ALCANCE
+
+O que nenhuma bancada desta onda respondeu: **este código roda no produto?** As três que passaram
+verdes sobre o `open-context` ausente respondiam "dada esta entrada, esta função faz o certo" — e a
+função não existia.
+
+O que ele faria: subir o app (o mesmo `/src/smoke` do smoke de serviço), abrir a página num Chrome
+headless, esperar o workbench montar, e **dirigir o gesto** — `postMessage({type:'open-context', …})`
+e cobrar que um editor abriu; clique direito no Explorer e cobrar que os três itens estão lá.
+
+**Onde ele roda:** no container, ou no CI. Não na máquina de quem desenvolve — o motor é `linux-x64`
+e são 164 MiB. **O que o derruba:** se o custo de manter um Chrome dirigido por CDP passar do que ele
+pega. A resposta vem da primeira vez que ele achar algo que o smoke de serviço não achou; até lá é
+hipótese, e está dito como tal.
 
 ## 6. ✅ O portão do body parser — **feito**, e a medida corrigiu duas coisas do que estava escrito aqui
 
@@ -1588,7 +1694,9 @@ por `manter` tem de ficar vermelho — porque o padrão é a metade que decide a
 | 3 | 📋 `/proxy/vscode/` deixa de existir | `vssh-sso` | ⛔ o passo acima |
 | 3a | 📋 `changeOrigin`/`xfwd` ganham dono medido | `vssh-sso` | 3 |
 | 4 | 📋 o contrato de contribuição | toolkit + `vssh-sso` | — |
-| 5 | 📋 a extensão VSSH | `vsshapp-vscode` | 2, 4 |
+| 5 | ✅ **a extensão VSSH** — duas metades; e a VOLTA (`open-context`) não existia, com três bancadas verdes | `vsshapp-vscode` | 2, 4 |
+| 5a | 📋 o `chrome.js` contra o app de pé — o instrumento que mede **alcance**, não comportamento | toolkit + `vsshapp-vscode` | 5 |
+| — | 📋 **arrastar arquivo para dentro do editor** virou o [item 3c da Onda 10](09-motor-x11.md) — o bloqueio é `_acceptsDragRaise`, e ele sai junto com o proxy de janelas | toolkit + `vssh-sso` | ⛔ Onda 10, item 3b |
 | 6 | ✅ **feito** — o corpo de um pedido proxiado é do outro lado; e "413" era 500 | `vssh-sso` | — |
 | 7 | ✅ **a revisão da documentação — feita** | toolkit | — (o que dependia de 0b e 2 ficou de fora, e está dito no item) |
 | 8 | 📋 **o fim de vida de um vssh-app** — hoje não existe, e a conta escala por (usuário × app já aberto) | toolkit + vssh-sso | — (é de plataforma; o editor só foi quem revelou) |

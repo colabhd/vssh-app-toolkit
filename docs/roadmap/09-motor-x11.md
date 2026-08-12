@@ -248,6 +248,52 @@ que o comentário descreve, virado teste. Refuta: reintroduzir o canvas em tela 
 E uma segunda, que é a que prova a frase deste item: **nenhum arquivo do shell pergunta de que
 família a janela é** — os 31 pontos viram zero, e o `xpraAdapter` não existe mais.
 
+## 3c. 📋 Um vssh-app passa a receber (e a produzir) arquivo arrastado
+
+**Trava no 3b, e a razão não é a que parece.** O pedido veio do VSSHCode — arrastar um arquivo do
+gerenciador para dentro do editor —, e a primeira leitura foi "o proxy de janelas atrapalha". A
+medida diz outra coisa, e o bloqueio é **uma linha**:
+
+```js
+// Só o gerenciador de arquivos aceita — assim um Terminal no caminho do arraste
+// nunca é levantado.
+_acceptsDragRaise() { return false; }        // VsshWindow.js:176
+```
+
+Só o `FileBrowserWindow` sobrescreve para `true` (`:1863`). Uma janela de vssh-app **nunca é
+elevada** durante um arraste, então o proxy invisível continua na frente e o `drop` não chega ao
+iframe. Não é defeito: é política deliberada, escrita quando app nenhum podia aceitar arquivo.
+
+**Então por que travar no 3b, se o bloqueio é outro?** Porque construir agora é construir **contra a
+máquina que o 3b demole**: `_dragRaised`, `_armDragRaise`, o watchdog de 600 ms e os 43 proxies. Com
+`#screen { pointer-events: none }`, não há elevação nem proxy — o `drop` simplesmente chega, e
+`_acceptsDragRaise` deixa de existir junto. Feito antes, seria escrito duas vezes.
+
+### O contrato é UM, e as três direções caem dele
+
+O terreno já existe: o ambiente arrasta `application/x-vssh-files` (`FileOps.js:117`), com os
+caminhos absolutos separados por linha. O que falta é publicá-lo e deixar o app dos dois lados.
+
+| peça | onde | o que ela resolve |
+|---|---|---|
+| o MIME vira contrato **publicado** | toolkit (`api.md` + shim) | hoje ele é constante interna do shell; um app não tem como saber que existe |
+| o app **declara** que aceita arquivo solto | manifesto | é o que substitui `_acceptsDragRaise`: dado declarado, e quem decide é o shell — a mesma forma do `contributes.contextMenu` |
+| o app **lê** o que caiu | `vssh.onArquivosSoltos(cb)` | o iframe é mesma origem, então o `dataTransfer` é legível direto — não há postMessage no caminho |
+| o app **escreve** o mesmo MIME no `dragstart` dele | o mesmo contrato, ao contrário | é o que faz "arrastar de dentro do editor para a área de trabalho" existir |
+
+**A terceira direção — entre duas janelas do mesmo app — cai de graça das outras duas:** A escreve o
+MIME, B lê o MIME, e o ambiente no meio não precisa saber de nada. Isso é o teste de que o contrato é
+um só, e não três integrações.
+
+**O VSSHCode é o primeiro cliente dos três lados**, e ele já tem onde encostar: o patch `0010` da
+[Onda 9](08-editor-do-ambiente.md) traduz caminho em `vscode.open`/`vscode.openFolder`, com o `tipo`
+separando arquivo de pasta. Um arquivo solto na janela é o mesmo destino por outra porta.
+
+**Guarda:** `tests/unit/arraste-para-app.test.js` — um manifesto de mentira declara que aceita
+arquivo, e o caminho chega ao ouvinte do app; um que não declara não recebe nada. Refuta: voltar
+`_acceptsDragRaise` para `false` fixo. E a de junção: o MIME que o shell escreve é o mesmo que o
+shim lê — **um valor, um lugar**, porque dois seriam duas verdades sobre a mesma coisa.
+
 ## 4. ✅ O último jQuery do ambiente saiu — e ele escondia o Alt+Tab
 
 A [Onda 8](07-shell-proprio.md) tirou o jQuery do shell (**824 KB a menos**) e fechou. **O ambiente
@@ -870,6 +916,7 @@ desaparece com um servidor X que aceite redimensionar ao vivo — ou seja, com o
 | — | ✅ **o repositório do pacote fechou** — o que resta da onda é todo do `vssh-sso` | | 4 |
 | — | ✅ **e reabriu por um incidente**: 0.6.1, quatro defeitos, três deles decisões do item 2 | `vsshapp-xpra` | — |
 | 3b | 📋 o outro lado: os proxies (**dois donos**), o `xpraAdapter` e os **31 ramos por família** saem | `vssh-sso` | 3a |
+| 3c | 📋 um vssh-app recebe e produz arquivo arrastado — **um contrato**, e as três direções caem dele | toolkit + `vssh-sso` | **3b**, para não escrever contra a máquina que ele demole |
 | 4d | 📋 o ambiente ganha o Alt+Tab que o motor levou embora — sobre `VsshWindow._all` | `vssh-sso` | 3a |
 | 5 | 📋 **a orquestração de porta morre** — os onze lugares, o `nextLoopback` e o teto de **254** (era o `0d` da [Onda 9](08-editor-do-ambiente.md)) | `vssh-sso` | 2 |
 | 6 | 📋 o portal não deixa dois starts do mesmo app em voo — a **causa primeira** do incidente | `vssh-sso` | — |
