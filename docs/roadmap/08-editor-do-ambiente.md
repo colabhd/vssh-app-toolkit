@@ -1346,8 +1346,13 @@ guarda verde porque os outros dois ainda casavam. É "consertei um dos dois" pel
 onda. A conta agora é exata por chave, mais a soma contra `aberturas.push(` — que é o que pega um
 item **novo** empurrado sem posição nenhuma.
 
-**O VSSHCode é o primeiro cliente**, com três itens (pasta, área de trabalho, e arquivo de código com
-filtro de extensão). Durante a transição ele aparece **ao lado** do "Abrir no VS Code" embutido, e
+**O VSSHCode é o primeiro cliente**, com três itens: pasta, área de trabalho e arquivo.
+
+**⚠ O item de arquivo nasceu com filtro de 47 extensões, e o filtro estava errado.** Era escolha
+minha, não do produto: no Windows, "Open with Code" aparece em **qualquer** arquivo, e o editor é
+justamente o que se abre quando não se sabe o que a coisa é. O filtro continua existindo no
+contrato — um editor de markdown vai querer —, mas quem não declara nada aparece em tudo, e é esse
+o caso aqui. Durante a transição o item aparece **ao lado** do "Abrir no VS Code" embutido, e
 isso é a verdade do estado: o embutido ainda aponta para `/proxy/vscode/`, que só deixa de ser
 endereço no item 3. Trocar um pelo outro antes de todo servidor ter o app é a dependência dura desta
 onda.
