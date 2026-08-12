@@ -2,7 +2,7 @@
 
 > **Estado:** 🚧 **em execução — os itens 1 e 2 fecharam, e com eles o ambiente ficou sem nenhum app
 > em porta.** A medida veio antes, na Onda 9: as três respostas que decidem esta onda foram tiradas
-> de um xpra **6.5.2 de produção**, não da documentação dele. · **Atualizado:** 2026-08-10
+> de um xpra **6.5.2 de produção**, não da documentação dele. · **Atualizado:** 2026-08-12
 >
 > **Repos:** `vsshapp-xpra` + `vssh-sso`
 >
@@ -688,6 +688,70 @@ xrdb -query | grep -i dpi
 Se a resposta de (3) for "entra", a escolha passa a ser de produto e não técnica: **DPI por sessão
 seguindo o primeiro cliente** (melhor para o caso real, que é uma pessoa numa máquina) **ou 96 fixo
 com supersampling** (neutro para qualquer cliente). Só então vale escrever código.
+
+---
+
+## O teclado da janela X11 — uma linha que a Onda 2.7 apagou e ninguém herdou
+
+`vsshapp-xpra` **0.7.5**. Sessão real, com a `0.7.4` rodando: *"as janelas do Xpra não estão
+capturando o teclado."*
+
+`capture_keyboard` nasce **falso** (`Client.js`, `do_init_keyboard`), e quem o ligava era o shell — uma
+linha dentro do `client.on_connect` que o `index.html` montava à mão:
+
+```js
+// vssh-client/index.html, antes do commit e03f9b0
+if (client) client.on_connect = function() {
+  if (typeof client.send_keymap === 'function') client.send_keymap(true);
+  enable_clipboard_autofocus();
+  client.capture_keyboard = true;      // ← esta
+```
+
+O passo 2 da Onda 2.7 apagou aquele arquivo junto com o cliente, **corretamente** — o cliente saiu de
+lá. O `send_keymap(true)` foi herdado pelo `xpra-engine.js`; a linha do teclado **não teve
+substituta**, em lugar nenhum. Medida: `grep` em todo o pacote e em todo o `vssh-client/js` — o único
+`= true` que existe hoje é o `_releaseKeyboard()` do ambiente e o fechar de menu.
+
+> **A lição, e ela não é sobre teclado:** quando um subsistema muda de casa, o que se audita é o que
+> ele *usava* — os globais nus, as libs, os arquivos. O que passa batido é o que **alguém fazia por
+> ele** de fora. `client` e `jQuery` foram cobrados de volta porque quebravam ALTO, com
+> `ReferenceError`. Esta era um booleano: quebrou **em silêncio**, no commit `e03f9b0` (04/08/2026), e
+> só apareceu oito dias depois, quando alguém tentou digitar.
+
+**E o defeito era intermitente, que é como ele sobreviveu a uma bancada.** O ambiente liga a captura
+de lado — `_releaseKeyboard()` de toda janela com input próprio (terminal, editor, diálogos), e o
+fechar do menu de contexto, do Iniciar e do Launchpad. Bastava clicar com o botão direito na janela
+uma vez para o teclado "voltar" até a próxima sessão.
+
+**A linha antiga não serve de volta como era**, e essa é a decisão do item: no ambiente de hoje o
+motor conecta em **segundo plano**, a qualquer hora, com um terminal possivelmente em foco. Ligar a
+captura no connect roubaria as teclas de quem está digitando. Quem tem de ligá-la é o **foco** — que é
+também o único momento em que existe para onde mandar tecla, porque `_keyb_process` manda para
+`focused_wid`.
+
+| onde | por que ali |
+|---|---|
+| `Window.js`, `_onFocus()` | o ambiente focou a janela. **Antes** da trava de reentrância: ela existe para cortar o laço `foco → servidor → updateFocus → foco`, e escrever um booleano não participa dele — depois dela, a linha perderia justamente o foco que veio do X11 |
+| `Window.js`, `updateFocus()`, ramo sem cromo | menu Qt, tooltip, bandeja e o modo desktop **não passam** pelo foco do ambiente. Sem isto, um submenu aberto não responde a seta nem a Enter |
+
+O par disto já existia do outro lado, e é por isso que são duas linhas e não um mecanismo: toda janela
+do ambiente com input próprio **desliga** a captura no `_onFocus()` dela. Ninguém devolve o teclado ao
+perder o foco — quem ganha o foco declara o que quer, e duas autoridades sobre o mesmo booleano é
+exatamente como o proxy nasceu.
+
+**Nada do `vssh-sso` muda**, e isso era requisito: o Xpra é a prioridade mais baixa, então o conserto
+não pode encostar nos proxies que o item 3b vai apagar. A correção é do pacote, nos dois arquivos que
+já são dele.
+
+**Guarda** — conferência nº 10, cinco mutações refutadas uma a uma: sem `_tomarTeclado`; o booleano ao
+contrário; só um dos dois sítios chamando; a tomada **depois** da trava; e o de-init do motor deixando
+de devolver o teclado. A última é a que protege o ambiente — sem ela, desligar o X11 nas configurações
+deixaria um cliente morto engolindo tecla, porque `_keyb_process` não pergunta nada além do booleano.
+
+**Fica em aberto, e é do `vssh-sso`:** o `enable_clipboard_autofocus()` da mesma função também não foi
+herdado por ninguém, e a `SettingsWindow` desliga a captura no `_onFocus()` **sem** `_onDefocus` que a
+devolva. Nenhum dos dois é o defeito relatado — com a tomada por foco, o segundo deixou de alcançar as
+janelas X11 —, mas os dois são a mesma família e valem uma varredura quando o 3b abrir o arquivo.
 
 ---
 
