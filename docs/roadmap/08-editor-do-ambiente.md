@@ -1728,9 +1728,10 @@ a medida daquela configuração.
 - **Cada guarda por refutação:** mutar a fonte real, rodar o teste filtrado, restaurar, com linha de
   base verde antes. Guarda que não fica vermelha ao quebrar o produto não mede nada.
 - **A guarda do 2a é de junção** — mede os **dois** caminhos de resolução de plataforma, não um.
-- `npm test` do `vssh-sso` parte de **1.362** e não pode cair. **⚠ Este número dizia 1.266, e estava
-  velho** — a suíte cresceu entre a escrita da onda e a execução dela, e um piso desatualizado é um
-  piso que não segura nada.
+- `npm test` do `vssh-sso` parte de **1.476** e não pode cair. **⚠ Este número já disse 1.266 e
+  1.362, e as duas vezes estava velho** — a suíte cresceu entre a escrita da onda e a execução dela,
+  e um piso desatualizado é um piso que não segura nada. A conclusão que sobrou das duas: o piso só
+  vale relido no dia em que se fecha um item, e não copiado do que estava escrito.
 
 ## O que esta onda NÃO faz
 

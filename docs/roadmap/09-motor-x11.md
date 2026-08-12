@@ -564,7 +564,7 @@ de falhar que a injeção introduz, e nenhum teste que passe um duplo o pegaria.
 
 ---
 
-## 6. 📋 O portal não deixa dois starts do mesmo app em voo
+## 6. ✅ O portal não deixa dois starts do mesmo app em voo — **feito**
 
 **Item novo, e a causa primeira do incidente acima.** Dois `startApp` para o mesmo par usuário+app
 saíram a 49 ms de distância. O app foi consertado para não quebrar com isso — a exclusão dele agora
@@ -573,12 +573,41 @@ custa duas sessões SSH, dois `vssh-app-run` e a chance de a corrida achar o pr�
 
 | | |
 |---|---|
-| onde | `vssh-sso`, no `startApp` (`vssh-apps.ts`) |
-| o quê | uma promessa em voo por `<usuário>:<appId>`, e o segundo pedido **espera a primeira** em vez de abrir a sua |
-| de brinde | o `HTTP 000` do healthcheck para de ser corrida: hoje duas sondagens concorrem pelo mesmo endereço |
+| onde | `vssh-sso`, no `startApp` (`vssh-apps.ts`) — o trabalho virou `_iniciarApp`, e o `startApp` passou a ser a trava |
+| a chave | `<serverId>:<sshUser>:<appId>` — **e não `<usuário>:<appId>`**, como este item dizia: o mesmo usuário pode ter o mesmo app em dois servidores, e esses dois backends não têm nada a ver um com o outro |
+| o quê | uma promessa em voo por par, e o segundo pedido **espera a primeira** em vez de abrir a sua |
+| de brinde | o `HTTP 000` do healthcheck deixa de ser corrida — duas sondagens não concorrem mais pelo mesmo endereço |
 
-**Guarda:** dois `startApp` disparados no mesmo tick resultam em **um** `vssh-app-run` no servidor.
-Refuta: tirar o mapa de em-voo; o teste tem de contar dois.
+**O cliente já coalescia, e não alcançava o caso.** `AppLauncher._inflightStarts` existe desde a
+Onda 8 e faz exatamente isto — mas aquele mapa vive **numa página**. Duas abas, dois navegadores, o
+eager start de engines e um `restartApp` concorrente são chamadores diferentes, e nenhum vê o mapa
+do outro. Trava de concorrência tem de morar onde o **efeito** mora, não onde o pedido nasce.
+
+### Três decisões que só a implementação cobrou
+
+| | |
+|---|---|
+| **É trava, não cache** | um start que **falha** solta a chave. Guardar o resultado impediria o par usuário+app de subir até o pod reiniciar — um defeito **pior** que o que a trava conserta |
+| **O veredito é um, os interessados são N** | `aoResolver` é por chamador (é por ele que a janela sai de "Iniciando…"). Coalescer ingenuamente **descarta o do segundo**, e aquela janela fica em "Iniciando…" para sempre. Eles são acumulados e avisados todos — e um que lança não cala os outros |
+| **`restartApp` NÃO coalesce** | ele **espera** o start em voo terminar antes de matar. Sem isso o `_killAppTree` mataria o processo que o start acabou de subir, e o `startApp` do fim devolveria a promessa daquele start — reportando *pronto* um backend que já não existe |
+
+**Guarda:** `tests/unit/um-start-por-vez.test.js`, **5 casos, refutação 5/5**. E ela **executa o
+`startApp` real** — sem mock, sem recorte de texto: num ambiente sem banco ele falha em **~1 ms**
+dentro do `getPooledSshConnection`, **depois** da trava, e a **identidade do objeto `Error`** diz se
+dois chamadores compartilharam o mesmo trabalho. Foi assim que o defeito foi confirmado **antes** do
+conserto: dois `startApp` no mesmo tick devolviam dois `Error` distintos.
+
+A versão fácil desta bancada seria procurar `_startsEmVoo` no texto do arquivo — e ela ficaria verde
+com o mapa declarado e nunca consultado, com a chave montada errada e com um `delete` que nunca
+roda. As duas últimas são os modos de falha **reais** de uma trava de concorrência, e as cinco
+mutações da refutação são exatamente elas.
+
+**E uma bancada existente ficou vermelha, pelo motivo certo:** `gpu-e-cofre.test.js` recortava
+`async function startApp` por texto para cobrar que o cofre **não** é escrito onde o `env` é
+truncado. Com o start dividido em dois, o recorte pegou a trava — que não escreve `env` nenhum. Ela
+falhou com a própria mensagem que previa isso (*"o startApp mudou de forma — reveja a premissa"*) e
+passou a recortar `_iniciarApp`. O `assert.ok` de delimitação é o que fez isso aparecer em vez de o
+teste ficar verde medindo a coisa errada.
 
 ---
 
@@ -960,7 +989,7 @@ desaparece com um servidor X que aceite redimensionar ao vivo — ou seja, com o
 | 3c | 📋 um vssh-app recebe e produz arquivo arrastado — **um contrato**, e as três direções caem dele | toolkit + `vssh-sso` | **3b**, para não escrever contra a máquina que ele demole |
 | 4d | 📋 o ambiente ganha o Alt+Tab que o motor levou embora — sobre `VsshWindow._all` | `vssh-sso` | 3a |
 | 5 | 📋 **a orquestração de porta morre** — os onze lugares, o `nextLoopback` e o teto de **254** (era o `0d` da [Onda 9](08-editor-do-ambiente.md)) | `vssh-sso` | 2 |
-| 6 | 📋 o portal não deixa dois starts do mesmo app em voo — a **causa primeira** do incidente | `vssh-sso` | — |
+| 6 | ✅ **feito** — um start em voo por `<servidor, usuário, app>`; é trava e não cache, e o `restartApp` espera em vez de coalescer | `vssh-sso` | — |
 | 7 | 📋 o portal conta ao motor a **DPI** da tela — a metade do TAMANHO se dissolveu na 0.7.3 (o teto do Xvfb era 1920x1080) | `vssh-sso` | — |
 | — | 📋 **o `createAppLog` do toolkit grava síncrono** — hoje todo vssh-app perde a última linha antes de `process.exit()` | `toolkit` | — |
 
@@ -993,7 +1022,10 @@ estar instalado nos servidores deixa o motor sem endereço.
   servidor serviu por TCP na mesma corrida; sem isso, "o socket não respondeu" seria a montagem do
   teste. Toda medida nova aqui carrega o par.
 - **Cada guarda por refutação**, com linha de base verde antes e a fonte real mutada.
-- `npm test` do `vssh-sso` parte de **1.362** e não pode cair.
+- `npm test` do `vssh-sso` parte de **1.476** e não pode cair. **⚠ Este número dizia 1.362, e estava
+  velho de novo** — a suíte cresceu 109 casos entre a escrita e a execução do item 6, e um piso
+  desatualizado não segura nada. É a **segunda** vez que o mesmo número envelhece nesta dupla de
+  ondas; ele só vale relido no dia em que se fecha um item.
 
 ## O que esta onda NÃO faz
 
