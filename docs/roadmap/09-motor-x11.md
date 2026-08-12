@@ -1215,17 +1215,26 @@ roda** — `key-provisioner.ts` e `code-server.ts` o chamam dentro de `if (isNew
 `useradd`. Do jeito que estava, o conserto não teria alcançado **ninguém que já usa o ambiente**, que
 é exatamente o caso de onde o relato veio.
 
-Então a criação vai também para onde a pergunta é feita **toda vez**: o `GET /api/desktop-files` cria
-a pasta quando não acha nenhuma. **A precedência fica declarada nos dois arquivos** — o script decide
-o CONJUNTO de pastas, com o locale certo, uma vez; a rota garante a única de que precisa, sempre. As
-duas leem a mesma fonte (o XDG), então não são duas opiniões sobre o nome: é criação de reserva para
-quem o script não alcança.
+**E a segunda tentativa também estava errada, por outro motivo.** Pôr a criação no
+`GET /api/desktop-files` funcionava e alcançava todo mundo — mas é uma rota de LEITURA escrevendo em
+disco a cada carga do desktop, que é o tipo de coisa que ninguém procura quando algo estranho
+acontece.
+
+**O lugar certo é onde já se pergunta se o usuário existe** (`ensureLinuxUser`), e foi para lá:
+`garantirPastasDoUsuario`, uma ida de SSH por provisionamento, um dono só. Vão junto as pastas que a
+barra lateral do gerenciador oferece.
+
+**Locale-aware por construção:** quem decide o NOME é o `xdg-user-dirs-update` — em pt_BR nasce `Área
+de Trabalho`, em C nasce `Desktop` — e nós lemos o que ele declarou. Só a área de trabalho tem
+reserva (`~/Desktop`), porque sem ela o ambiente perde uma superfície inteira; as outras, num
+servidor sem `xdg-user-dirs`, ficam para o item 8a. E o comando vai num shell de **login**: o
+`xdg-user-dirs-update` decide o idioma pelo `LANG`, e um `sudo -u` sem login não tem `LANG` nenhum.
 
 O caminho é **lido de volta**, e não escrito à mão: o XDG respeita o locale — em pt_BR a pasta nasce
 `Área de Trabalho` — e presumir o nome no script reintroduziria exatamente o palpite que a rota já
 evita.
 
-**Guarda:** `tests/unit/pastas-do-usuario.test.js`, **7 casos, refutação 3/3, e todos executam.** Os
+**Guarda:** `tests/unit/pastas-do-usuario.test.js`, **4 casos, refutação 2/2, e todos executam.** Os
 dois lados rodam de verdade, cada um numa HOME de mentira: o bloco do script, com um `xdg-user-dir`
 falso **sombreando** o de verdade; e o Python do endpoint, extraído do template literal onde ele
 mora. Rodar é o que mostra os ramos que não se enxergam lendo — a ferramenta devolve a **própria
