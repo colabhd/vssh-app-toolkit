@@ -1196,20 +1196,35 @@ não fazia nada: sem erro, sem aviso, porque não havia para onde soltar.
 
 **O conserto é de onde a pasta nasce, não de quem a procura.** O `vssh-setup-user.sh` passa a criá-la
 pelo mesmo mecanismo que a rota já consulta, em vez de o servidor perguntar por algo que ninguém
-cria. É a regra da casa aplicada: **encanamento nasce sozinho, não vira tarefa manual.** E como o
-script roda a cada provisionamento (`key-provisioner.ts:73`) e não só no `useradd`, quem já tem conta
-ganha a pasta na próxima sessão, sem migração e sem alguém ter de pedir.
+cria. É a regra da casa aplicada: **encanamento nasce sozinho, não vira tarefa manual.**
+
+**⚠ E aqui eu escrevi uma coisa errada, que valia o item inteiro.** Estava escrito que o script roda
+a cada provisionamento, e que por isso quem já tem conta ganharia a pasta na próxima sessão. **Não
+roda** — `key-provisioner.ts` e `code-server.ts` o chamam dentro de `if (isNewUser)`, uma vez, no
+`useradd`. Do jeito que estava, o conserto não teria alcançado **ninguém que já usa o ambiente**, que
+é exatamente o caso de onde o relato veio.
+
+Então a criação vai também para onde a pergunta é feita **toda vez**: o `GET /api/desktop-files` cria
+a pasta quando não acha nenhuma. **A precedência fica declarada nos dois arquivos** — o script decide
+o CONJUNTO de pastas, com o locale certo, uma vez; a rota garante a única de que precisa, sempre. As
+duas leem a mesma fonte (o XDG), então não são duas opiniões sobre o nome: é criação de reserva para
+quem o script não alcança.
 
 O caminho é **lido de volta**, e não escrito à mão: o XDG respeita o locale — em pt_BR a pasta nasce
 `Área de Trabalho` — e presumir o nome no script reintroduziria exatamente o palpite que a rota já
 evita.
 
-**Guarda:** `tests/unit/pastas-do-usuario.test.js`, **5 casos, refutação 2/2**. Ela **executa** o
-bloco real do script numa HOME de mentira, com um `xdg-user-dir` falso **sombreando** o de verdade —
-inclusive o ramo que não se enxerga lendo: a ferramenta devolve a **própria HOME** quando não há área
-de trabalho declarada, e criar a home de novo não é o que se quer dizer. Mais uma de **junção**: o
-nome de reserva do script tem de estar na lista que a rota procura, senão a pasta existe e mesmo
-assim não é achada — que é pior de diagnosticar do que a ausência dela.
+**Guarda:** `tests/unit/pastas-do-usuario.test.js`, **7 casos, refutação 3/3, e todos executam.** Os
+dois lados rodam de verdade, cada um numa HOME de mentira: o bloco do script, com um `xdg-user-dir`
+falso **sombreando** o de verdade; e o Python do endpoint, extraído do template literal onde ele
+mora. Rodar é o que mostra os ramos que não se enxergam lendo — a ferramenta devolve a **própria
+HOME** quando não há área de trabalho declarada (e criar a home de novo não é o que se quer dizer), e
+um `makedirs` com `HOME` vazio criaria `Desktop` no diretório de trabalho do processo.
+
+**⚠ Um dos casos era de TEXTO e saiu no mesmo dia em que foi escrito.** Ele comparava o nome de
+reserva do script com a lista de nomes da rota — junção por regex. A [regra dos testes](README.md)
+decidida em 2026-08-12 a proíbe, e o substituto é melhor: rodar os dois lados prova o mesmo acordo
+**e** que cada um funciona.
 
 ### 8a. 📋 Os lugares da barra lateral são um palpite
 
@@ -1277,7 +1292,7 @@ estar instalado nos servidores deixa o motor sem endereço.
   servidor serviu por TCP na mesma corrida; sem isso, "o socket não respondeu" seria a montagem do
   teste. Toda medida nova aqui carrega o par.
 - **Cada guarda por refutação**, com linha de base verde antes e a fonte real mutada.
-- `npm test` do `vssh-sso` parte de **1.489** e não pode cair. **⚠ Este número dizia 1.362, e estava
+- `npm test` do `vssh-sso` parte de **1.491** e não pode cair. **⚠ Este número dizia 1.362, e estava
   velho de novo** — a suíte cresceu 109 casos entre a escrita e a execução do item 6, e um piso
   desatualizado não segura nada. É a **segunda** vez que o mesmo número envelhece nesta dupla de
   ondas; ele só vale relido no dia em que se fecha um item.
