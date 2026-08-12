@@ -60,13 +60,67 @@
     },
     "contributes": {
       "type": "object",
-      "description": "O que este app acrescenta às superfícies do AMBIENTE — coisas que não são a janela dele. Vale para qualquer app, e não só para `type:'engine'`: um app com janela pode perfeitamente ter preferências, e até aqui não tinha onde colocá-las. NÃO substitui `engine.loader`, e a diferença é de tamanho: o loader de um motor traz o lado-cliente INTEIRO (megabytes, assets, servidos pelo backend do app, que é um serviço e está de pé); uma contribuição é um script que registra alguma coisa e é servido do DISCO pelo portal — então funciona com o backend desligado, que é o caso normal de um app comum.",
+      "description": "O que este app acrescenta às superfícies do AMBIENTE — coisas que não são a janela dele. Vale para qualquer app, e não só para `type:'engine'`. NÃO substitui `engine.loader`, e a diferença é de tamanho: o loader de um motor traz o lado-cliente INTEIRO (megabytes, assets, servidos pelo backend do app, que é um serviço e está de pé); uma contribuição é servida do DISCO pelo portal, então funciona com o backend desligado, que é o caso normal de um app comum. As duas formas que existem aqui são de naturezas diferentes de propósito — `settings` é CÓDIGO, `contextMenu` é DADO —, e o porquê está escrito em cada uma.",
       "additionalProperties": false,
       "properties": {
         "settings": {
           "type": "string",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9/._-]*\\.js$",
           "description": "Caminho, relativo à raiz do PACOTE, de um script que registra uma seção em Configurações (`SettingsRegistry.register`). Carregado quando a janela de Configurações abre — não no boot: um app que ninguém configura não custa nada, e o ambiente não passa a depender de N apps para subir. ATENÇÃO ao que isto concede: o script roda na origem do shell, com a confiança do shell. O portão é o mesmo do resto do modelo — quem pode rodar `vssh-app-install`."
+        },
+        "contextMenu": {
+          "type": "array",
+          "maxItems": 8,
+          "description": "Itens que este app põe no menu de contexto do AMBIENTE — clique direito num arquivo, numa pasta, na área de trabalho. É DADO, e não um caminho de script como `settings`, e a razão é o momento: Configurações abre porque alguém pediu e pode demorar; o menu de contexto abre no clique direito e não pode esperar fetch nenhum. O app DECLARA; quem monta o item, decide a ordem e executa é o shell — um app não roda uma linha na origem do shell para pôr um item de menu. Item inválido é OMITIDO em silêncio, e os irmãos válidos continuam: um item torto não pode impedir o menu de abrir. Teto de 8 por app (o teto da SOMA, entre todos os apps, é do shell).",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "superficie", "rotulo"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,47}$",
+                "description": "Estável e único DENTRO deste app. Serve de desempate quando dois itens pedem a mesma `ordem`."
+              },
+              "superficie": {
+                "type": "string",
+                "enum": ["arquivo", "pasta", "area-de-trabalho"],
+                "description": "Onde o item aparece. Não há superfície de jump list (clique direito no ícone do app) nesta versão, e é por falta de VERBO, não de superfície: `abrir` sem caminho é o item 'Abrir' que já existe ali. Ela entra junto com o segundo verbo."
+              },
+              "rotulo": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 48,
+                "description": "O texto do item. Nome de PRODUTO, na voz do ambiente ('Abrir no VSSHCode'), não jargão de manifesto. O teto de 48 não é segurança: é a largura do painel — um rótulo maior faz um menu que não cabe na tela."
+              },
+              "ordem": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 999,
+                "default": 100,
+                "description": "A POSIÇÃO no bloco de abertura, medida contra os itens do próprio shell — que é o que faz um item contribuído poder ficar ANTES de um embutido, em vez de sempre no fim atrás de um separador. A régua publicada: Abrir/Nova Pasta 10, Novo Arquivo 15, Abrir Terminal Aqui 20, Editor de Texto / Abrir em Arquivos 25, VS Code 30, Fixar na barra lateral 40, Abrir com 60, Baixar 70, Imprimir 80. O default 100 põe o item depois de todo embutido de abertura, que é onde um app novo pertence enquanto ninguém disser o contrário. Valor fora da faixa RECUSA o item, e não é aparado para o teto: quem pediu 10^9 estava pedindo para ficar sempre em último por um mecanismo que não foi escolhido."
+              },
+              "quando": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "Restringe onde o item aparece. Só vale para `superficie: \"arquivo\"` — numa pasta ou na área de trabalho não há extensão, e um filtro que nunca casa é um item declarado, aceito e invisível (por isso ele é RECUSADO ali, em vez de ignorado).",
+                "properties": {
+                  "extensoes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "type": "string", "pattern": "^\\.?[A-Za-z0-9][A-Za-z0-9+._-]*$" },
+                    "description": "Com ou sem ponto; normalizado pelo portal. Ausente = todo arquivo. É independente de `opens.extensions`: aquele campo diz o que o app sabe abrir (e o põe no submenu 'Abrir com'); este diz onde ele quer um item PRÓPRIO, de primeiro nível."
+                  }
+                }
+              },
+              "acao": {
+                "type": "string",
+                "enum": ["abrir"],
+                "default": "abrir",
+                "description": "O verbo. Há um só, e isso é decisão e não começo: `abrir` abre este app com o caminho clicado, entregue pelo `open-context` que já é contrato publicado (SKILL.md, 'Contexto de abertura'). Um verbo DIFERENTE recusa o item — um app que pediu outra coisa não quis 'abrir', e atendê-lo com 'abrir' seria responder outra pergunta."
+              }
+            }
+          }
         }
       }
     },

@@ -34,8 +34,15 @@ abaixo, o que costuma ser pedido:
 | Janela de verdade: título, abas, menu de contexto do cabeçalho | baixo | `window.richChrome`, `vssh.window.*` |
 | Ser aberto ao clicar num arquivo | baixo | `opens.extensions` + o evento `open-context` |
 | Substituir um launcher embutido (terminal, editor, navegador…) | baixo | `handles` |
-| Preferências dentro da tela de Configurações do ambiente | baixo | `contributes.settings` (o único mecanismo de contribuição completo que existe hoje) |
-| Item no menu de contexto do ambiente, ou no ícone do Launchpad | **não existe** | é o item 4 da [Onda 9](roadmap/08-editor-do-ambiente.md) |
+| Preferências dentro da tela de Configurações do ambiente | baixo | `contributes.settings` |
+| Item no menu de contexto do ambiente (arquivo, pasta, área de trabalho) | baixo | `contributes.contextMenu` — ver [`api.md`](api.md#ter-item-próprio-no-menu-de-contexto-do-ambiente) |
+| Item no menu do ícone no Launchpad (jump list) | **não existe** | falta o segundo verbo, não a superfície — item 4 da [Onda 9](roadmap/08-editor-do-ambiente.md) |
+
+> **⚠ Duas linhas desta tabela estavam certas e ficaram erradas.** Ela dizia que
+> `contributes.settings` era *"o único mecanismo de contribuição completo que existe hoje"* e que
+> item de menu de contexto *"não existe"*. As duas eram verdade quando foram escritas; o item 4 da
+> Onda 9 acrescentou `contributes.contextMenu`, e o que continua sem existir é só a **jump list**
+> do ícone do Launchpad — por falta de um segundo verbo, e não da superfície.
 
 **A regra que sai daí:** um app que respondeu "nada" à segunda pergunta não está pronto para ser
 portado — está pronto para ser **redesenhado**. É o mesmo formato do critério 3.2 em
