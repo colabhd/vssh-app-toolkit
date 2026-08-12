@@ -486,6 +486,75 @@ o gesto**, e neste caso o gesto morava do outro lado da fronteira.
 > dispara o `publish.yml`, que publica no `vssh-repo` — e **publicar não tem rota de retirada**.
 > Fica esperando decisão.
 
+## 3e. 📋 O pacote registra o próprio host — e é isso que devolve o teclado ao ambiente
+
+**Item novo, e ele é a metade do 3d que não cabia numa inversão de verbo.** O `MenuCustom.js` ainda
+diz `window.client` em três lugares, e a regra escrita no topo do `vssh-host.js` é clara: *"NENHUM
+arquivo do shell volta a mencionar `window.client`"*.
+
+Dois deles já têm par no `vsshHost` — `nativeWindow(wid)` e `focusedNativeWid()`. O terceiro **não
+tem**, e ele não é um repasse:
+
+```js
+function activateNativeWindow(win) {          // MenuCustom.js:114-121
+  if (client.focused_wid === win.wid) client.focused_wid = 0;
+  client.set_focus(win);
+}
+```
+
+**O zerar-antes é o item.** `set_focus()` faz *early-return* quando o wid já está focado — e uma
+janela do shell focada **não** zera o `focused_wid` do X11, que segue apontando para a última
+nativa. Sem aquela linha, a janela X11 nunca recupera o `.taskbar-active` que o `focus()` do shell
+tirou dela. É conhecimento do motor, e por isso atravessa a fronteira **inteiro**: se o host expusesse
+só um `setFocus`, o shell teria de saber do early-return, e continuaria conhecendo o motor por outro
+nome.
+
+| capacidade nova | o que ela cobre |
+|---|---|
+| `focarJanelaNativa(win)` | o `activateNativeWindow` inteiro, zerar-antes incluído |
+| `pausarPonteiro(on)` | `client.mouse_grabbed` no arraste de botão da barra (`MenuCustom.js:180,212`) — o par do `captureKeyboard`, para o ponteiro |
+
+### ⚠ Acrescentá-las hoje não as faz funcionar — e essa é a medida que define o item
+
+O `host-xpra.js` **mora no pacote** (`vsshapp-xpra/frontend/js/host/host-xpra.js`) e **ninguém o
+instala**: `VsshHost.autoSelect()` escolhe o `standalone` sempre, desde a 2.7. É a mesma razão pela
+qual `captureKeyboard()` é um no-op hoje e `can('keyboardGrab')` responde `false` — registrado no
+`Window.js:701` do pacote.
+
+Então o trabalho é em três passos, e **o primeiro é o caro**, com dois obstáculos já medidos no 3b:
+
+1. **o pacote passar a registrar o host dele.** Ligá-lo hoje acende junto o `nativeWindows()`, que
+   devolveria as janelas X11 ao `TilingManager` **duplicando** o que `VsshWindow._all` já entrega
+   desde o 3a; e o `workarea()`, que devolve um **array em pixel de dispositivo** onde o shell espera
+   `{x,y,w,h}` em pixel CSS. Com o `xpraAdapter` já apagado e o `workarea` corrigido — ou abandonado,
+   porque o shell já deriva o dele da viewport — instalar o host passa a ser seguro;
+2. `focarJanelaNativa` e `pausarPonteiro` na interface e no `host-xpra.js`;
+3. o `MenuCustom.js` para de dizer `window.client`.
+
+**É ele que faz o ambiente inteiro voltar a poder dizer "este teclado é meu."**
+
+**Custo:** mexe no `vsshapp-xpra` e no `vssh-sso`, e exige publicar o pacote. **Guarda:** com uma
+janela X11 e uma do shell abertas, clicar no botão da nativa na barra a traz de volta — e o teste
+tem de ficar vermelho com o `focused_wid` não zerado, que é a linha inteira.
+
+## ⏸ O que o pacote deve: DUAS versões esperando publicação
+
+**Medido:** os servidores estão na **0.7.6**. O repositório tem duas versões commitadas e **não
+empurradas**, e um push na `main` publica as duas de uma vez.
+
+| versão | o que ela leva | por que importa |
+|---|---|---|
+| **0.7.7** | uma carga do motor por página, e ela retoma — recarregar não é reconectar | dois defeitos do carregador, achados num log de duas linhas |
+| **0.8.0** | os dois verbos do ambiente invertidos **e a terceira regressão do 3b**, em seis pontos | hoje, em produção, **o arraste de toda janela X11 morre com `TypeError`** e o Super+setas do pacote não faz nada |
+
+**A 0.8.0 conserta um defeito que está no ar.** `Window.js` chamava `TilingManager.pseudoAdapter` em
+cinco pontos do `_setupDragResize`, e `onDragStart(this, undefined)` lança em `adapter.tileable`
+— ou seja, desde que a 3b subiu ao shell, arrastar uma janela X11 quebra no primeiro movimento.
+Enquanto a publicação não acontece, **isso continua acontecendo com quem usa**.
+
+> **Publicar não tem rota de retirada** (a dívida do `vssh-repo`), e por isso a decisão é sua e não
+> minha. O que fica registrado aqui é o preço de esperar, para a decisão ser tomada com ele à vista.
+
 ## 4. ✅ O último jQuery do ambiente saiu — e ele escondia o Alt+Tab
 
 A [Onda 8](07-shell-proprio.md) tirou o jQuery do shell (**824 KB a menos**) e fechou. **O ambiente
@@ -1549,6 +1618,7 @@ medida executando.
 | 3b | ✅ **feito** — os proxies (**dois donos**), o observador de escala, o registro de zonas de drop e o `xpraAdapter` saem; 326 linhas entram, **560 saem**. ⚠ Deixou **duas regressões de CSS apontando para a casa antiga** (o laço invisível e o ícone que não arrasta), as duas invisíveis a teste de texto | `vssh-sso` | 3a |
 | 3c | ✅ **feito** — um contrato, e as três direções caem dele. A medida derrubou METADE do item: os caminhos já viajavam no `dataTransfer`, e a direção de ENTRADA não passa pelo shell (mesma origem) — o que faltava era a SAÍDA | toolkit + `vssh-sso` | 3b |
 | 3d | ✅ **no disco, NÃO publicado** (0.8.0) — os dois verbos invertidos, e a **terceira regressão do 3b** consertada: seis pontos deste repositório chamavam adaptadores que o 3b apagou | `vsshapp-xpra` | 3b · **empurrar o repo PUBLICA** |
+| 3e | 📋 o pacote **registra o próprio host** — `focarJanelaNativa` e `pausarPonteiro`; é o que tira os últimos três `window.client` do shell e devolve o teclado ao ambiente | `vsshapp-xpra` + `vssh-sso` | 3d · **exige publicar** |
 | 4d | ✅ **feito** — o Alt+Tab **e o lado a lado** passam a ser do ambiente, sobre `VsshWindow._all`. ⚠ Achou a **terceira regressão do 3b**: o Super+setas do pacote chama dois adaptadores apagados e devolve `false` calado | `vssh-sso` | 3a |
 | 5 | ✅ **feito** — a orquestração de porta morre, e com ela o **teto de 254 servidores**. `transport: "tcp"` saiu do produto: a justificativa escrita (*"o xpra, cujo WebSocket só aceita HOST:PORT"*) deixou de valer quando o item 2 fechou | `vssh-sso` | 2 |
 | 6 | ✅ **feito** — um start em voo por `<servidor, usuário, app>`; é trava e não cache, e o `restartApp` espera em vez de coalescer | `vssh-sso` | — |
