@@ -289,6 +289,30 @@ motor X11 nenhum**, o que antes dependia de o `#screen` existir.
 | **1** | **`allTiled()` lia DOIS registries e devolvia a mesma janela duas vezes.** Um laço sobre `vsshHost.nativeWindows()` com o `xpraAdapter`, outro sobre `VsshWindow._all` com o `pseudoAdapter` — e desde o 3a a janela X11 está nos dois, sendo o **mesmo objeto** (`id_to_window[wid] === _all.get(id)`). Uma janela X11 encaixada era empurrada duas vezes, com adaptadores diferentes, para quem quer que lesse a lista |
 | **2** | **Dois caminhos para o mesmo gesto na mesma janela.** O botão do cromo chama `toggleMaximized()`; o menu de contexto da barra chamava `toggle_maximized()`. E o `?.` escondia o resto: numa janela do **shell**, que não tem os verbos do xpra, os três primeiros itens daquele menu não faziam **nada**, em silêncio |
 
+### ⚠ Duas regressões do 3b, e as duas eram CSS que ficou apontando para a casa antiga
+
+Nenhuma das duas apareceu em teste; as duas chegaram pela tela. E as duas têm a mesma forma: o
+elemento **mudou de casa** e uma regra de CSS continuou falando do endereço anterior.
+
+| o que quebrou | a linha | por quê |
+|---|---|---|
+| **o laço da área de trabalho ficou invisível** | a regra era `#screen .desktop-laco`, e o retângulo passou a nascer no `#desktop-icons` | o `div` continuava sendo criado, com `left/top/width/height` inline, e a seleção **acontecia** — mas sem `position`, sem borda e sem fundo |
+| **não dava para mover ícone na grade** | `-webkit-user-drag: none` no `.desktop-icon` | ela fazia sentido enquanto o ícone **nunca** era a origem do arraste (o proxy era, e um ícone arrastável ao lado produziria um segundo fantasma). Com o proxy fora, o `draggable` passou para o ícone — e essa linha impedia o navegador de iniciar o arraste. Sem erro no console, porque não há erro: o `dragstart` simplesmente não acontece |
+
+**As duas são invisíveis a qualquer teste de texto** — a função existe, é chamada, a classe está
+escrita e está no CSS. O que faltava era o casamento entre o seletor e o lugar onde o elemento
+nasceu, e quem resolve isso é o navegador aplicando a cascata.
+
+A segunda foi **reproduzida numa bancada de navegador e achada na primeira tentativa**: o gesto vai
+por `Input.dispatchDragEvent` com `Input.setInterceptDrags`, que é o caminho de um arraste de
+verdade, e o `Input.dragIntercepted` nunca chegou — o navegador não iniciou arraste nenhum. Guardas:
+`tests/browser/laco-da-area-de-trabalho.test.js` e `tests/browser/arraste-da-grade.test.js`, as duas
+com refutação sobre a fonte real.
+
+**A lição, e ela é de processo:** ao mudar um elemento de contêiner, o CSS que o alcança muda junto —
+e `grep` pelo nome da classe não acha isso, porque a classe continua lá. O que acha é o gesto,
+executado.
+
 ### ⚠ "Os 31 pontos viram zero" não cabia num repositório só — e isso virou o 3d
 
 A frase deste item dizia que **nenhum arquivo do shell pergunta de que família a janela é**. Os dois
@@ -1246,20 +1270,57 @@ reserva do script com a lista de nomes da rota — junção por regex. A [regra 
 decidida em 2026-08-12 a proíbe, e o substituto é melhor: rodar os dois lados prova o mesmo acordo
 **e** que cada um funciona.
 
-### 8a. 📋 Os lugares da barra lateral são um palpite
+### 8a. ✅ Os lugares da barra lateral eram um palpite — agora ela pergunta
 
-**Medido junto, e deixado de fora de propósito:** `arquivos/lateral.js:39-54` declara sete lugares com
-nome fixo — `Desktop`, `Downloads`, `Documentos`, `Música`, `Imagens`, `Vídeos` — e monta o caminho
-como `home + '/' + nome`. Só o `Desktop` tem caminho de verdade (vem do `desktop()`, que é a rota).
+**O defeito:** `arquivos/lateral.js` declarava sete lugares com nome fixo — `Desktop`, `Downloads`,
+`Documentos`, `Música`, `Imagens`, `Vídeos` — e montava o caminho como `home + '/' + nome`. Só o
+`Desktop` tinha caminho de verdade. A lista **não bate com nenhum locale**: em `C` o XDG cria
+`Desktop`/`Documents`/`Music`; em `pt_BR`, `Área de Trabalho`/`Documentos`/`Música`. Seis dos sete
+atalhos podiam apontar para pasta inexistente, e a barra os desenhava do mesmo jeito — clicar levava
+a uma listagem vazia, sem explicação.
 
-A lista **não bate com nenhum locale**: em `C` o XDG cria `Desktop`/`Documents`/`Music`; em `pt_BR`,
-`Área de Trabalho`/`Documentos`/`Música`. Seis dos sete atalhos apontam para pastas que podem não
-existir, e a barra os desenha do mesmo jeito — clicar leva a uma listagem vazia.
+**O conserto:** `GET /api/user-dirs`, **uma ida de SSH para as seis**, e a barra desenha só o que
+voltou. Lugar sem resposta não aparece: uma barra menor e verdadeira vale mais que uma completa e
+mentirosa.
 
-O conserto é o mesmo movimento do item 8: **perguntar ao XDG em vez de adivinhar**. Precisa de uma
-rota que devolva os `xdg-user-dir` de uma vez (uma ida de SSH, não sete) e de a barra desenhar só o
-que existe. **O que o derruba:** se a maioria dos servidores não tiver `xdg-user-dirs` instalado — aí
-a resposta é o fallback do item 8, e a barra continuaria adivinhando os outros seis.
+| decisão | por quê |
+|---|---|
+| o script mora em `utils/pastas-do-usuario.ts`, módulo **folha** | `routes/system.ts` levanta express, db e SSH quando importado — a regra que dá para exercitar sozinha não pode ficar atrás dessa parede |
+| sem `xdg-user-dirs` instalado, a resposta **não volta a ser palpite: vira SONDA** | os nomes conhecidos são testados com `-d`, e só entra o que existe. **A diferença entre adivinhar e sondar é esse `[ -d ]`** — é ela que separa o conserto do defeito |
+| a área de trabalho aparece no **primeiro desenho** | ela já veio no `GET /api/desktop-files` que o desktop carregou antes. Não são duas fontes: as duas rotas perguntam ao mesmo XDG, e é a mesma resposta chegando por um caminho já pago |
+
+**Guarda:** `tests/unit/pastas-do-usuario-rota.test.js`, **6 casos, refutação 3/3**, executando o
+script real contra uma HOME de mentira. Cada caso é uma decisão invisível em leitura: o XDG
+devolvendo a própria HOME, a pasta declarada que não existe, a sonda sem o XDG, e a ordem dos
+candidatos quando existem as duas (a do idioma e uma legada em inglês).
+
+### ⚠ E o item 8 estava QUEBRADO em produção — a guarda dele aprovou um comando que o bash recusava
+
+O log do portal, em toda sessão:
+
+```
+[provisioner] pastas do usuário X não puderam ser garantidas:
+bash: -c: linha 1: erro de sintaxe próximo ao token inesperado `{\n'
+… mkdir -p "/home/vssh-admin/" …
+```
+
+Duas coisas de uma vez, e a mesma causa: o comando montava o script com **`JSON.stringify`**, que são
+aspas de **JavaScript** e não de shell. Dentro de aspas duplas o bash mantém `\n` **literal** (a
+função virou uma linha só, e o `{` deu erro de sintaxe) e **expande** `$d`, `$1`, `$2` e `$HOME` — no
+shell de FORA, que é o do usuário do SSH. Daí o `/home/vssh-admin/` no log: a home de quem conecta,
+não a de quem ia receber as pastas.
+
+**E a guarda tinha aprovado isso.** Ela extraía o script de dentro do comando e o entregava direto ao
+`bash` — ou seja, **pulava exatamente a parte quebrada** — e afirmava a forma do comando por regex
+(`/^sudo -u fulano bash -lc /`), que casava perfeitamente. É o modo de falha que a
+[regra dos testes](README.md) descreve, encontrado no dia seguinte à regra: *um teste de conteúdo
+pode ir verde sem validar nada*.
+
+A guarda passou a executar o **comando inteiro**, com um `sudo` de mentira no `PATH` que ignora
+`-u <usuário>` e executa o resto. A refutação (devolver o `JSON.stringify`) derruba **4 de 4**.
+
+O conserto é base64, que é o caminho que o `GET /api/user-dirs` já usava: nada é interpretado no
+meio, e o script só encontra **um** shell — o do usuário certo, depois do `sudo`.
 
 ## A ordem, e por que ela é essa
 
@@ -1272,15 +1333,15 @@ a resposta é o fallback do item 8, e a barra continuaria adivinhando os outros 
 | 4 | ✅ o jQuery sai do pacote (**33.980 linhas**) — e o carrossel Alt+Tab é apagado, não portado | `vsshapp-xpra` | **3a**, não 3 |
 | — | ✅ **o repositório do pacote fechou** — o que resta da onda é todo do `vssh-sso` | | 4 |
 | — | ✅ **e reabriu por um incidente**: 0.6.1, quatro defeitos, três deles decisões do item 2 | `vsshapp-xpra` | — |
-| 3b | ✅ **feito** — os proxies (**dois donos**), o observador de escala, o registro de zonas de drop e o `xpraAdapter` saem; 326 linhas entram, **560 saem** | `vssh-sso` | 3a |
+| 3b | ✅ **feito** — os proxies (**dois donos**), o observador de escala, o registro de zonas de drop e o `xpraAdapter` saem; 326 linhas entram, **560 saem**. ⚠ Deixou **duas regressões de CSS apontando para a casa antiga** (o laço invisível e o ícone que não arrasta), as duas invisíveis a teste de texto | `vssh-sso` | 3a |
 | 3c | 📋 um vssh-app recebe e produz arquivo arrastado — **um contrato**, e as três direções caem dele | toolkit + `vssh-sso` | ✅ **destravado**: o 3b saiu e o `drop` já chega, medido num Chrome |
 | 3d | 📋 o pacote atende pelo **verbo do ambiente** — o resto do 3b, e ele não cabia no `vssh-sso` | `vsshapp-xpra` | 3b · exige publicar o pacote |
 | 4d | 📋 o ambiente ganha o Alt+Tab que o motor levou embora — sobre `VsshWindow._all` | `vssh-sso` | 3a |
 | 5 | 📋 **a orquestração de porta morre** — os onze lugares, o `nextLoopback` e o teto de **254** (era o `0d` da [Onda 9](08-editor-do-ambiente.md)) | `vssh-sso` | 2 |
 | 6 | ✅ **feito** — um start em voo por `<servidor, usuário, app>`; é trava e não cache, e o `restartApp` espera em vez de coalescer | `vssh-sso` | — |
 | 7 | 📋 o portal conta ao motor a **DPI** da tela — a metade do TAMANHO se dissolveu na 0.7.3 (o teto do Xvfb era 1920x1080) | `vssh-sso` | — |
-| 8 | ✅ **feito** — as pastas do usuário nascem no provisionamento; sem elas a área de trabalho inteira saía **calada** | `vssh-sso` | — (achado ao conferir o 3b) |
-| 8a | 📋 os lugares da barra lateral são um palpite — seis dos sete não batem com locale nenhum | `vssh-sso` | 8 |
+| 8 | ✅ **feito** — as pastas nascem junto da checagem do usuário; ⚠ e a **primeira versão não rodava em produção** (`JSON.stringify` no lugar de aspas de shell), com a guarda aprovando | `vssh-sso` | — (achado ao conferir o 3b) |
+| 8a | ✅ **feito** — a barra lateral PERGUNTA (`GET /api/user-dirs`) em vez de adivinhar; sem o XDG instalado ela SONDA, e a diferença é um `[ -d ]` | `vssh-sso` | 8 |
 | — | 📋 **o `createAppLog` do toolkit grava síncrono** — hoje todo vssh-app perde a última linha antes de `process.exit()` | `toolkit` | — |
 
 **A onda declarou o pacote fechado e o pacote reabriu.** Vale registrar por que isso não é o processo
