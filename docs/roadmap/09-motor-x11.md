@@ -248,6 +248,17 @@ que o comentário descreve, virado teste. Refuta: reintroduzir o canvas em tela 
 E uma segunda, que é a que prova a frase deste item: **nenhum arquivo do shell pergunta de que
 família a janela é** — os 31 pontos viram zero, e o `xpraAdapter` não existe mais.
 
+**E o 3b desbloqueia uma coisa que ele não sabia que estava bloqueando: o `host-xpra`.** Ninguém
+instala aquele host — `VsshHost.autoSelect()` escolhe o `standalone` sempre —, e por isso o
+`vsshHost.captureKeyboard(false)` das treze subclasses de `VsshWindow` é um **no-op** (é a causa da
+soltura de teclado que não funcionava, [registrada
+abaixo](#e-a-soltura-não-funcionou--porque-nenhum-host-está-instalado)). Instalá-lo hoje acenderia
+junto o `nativeWindows()` — que devolve as janelas X11 ao `TilingManager` pelo `xpraAdapter`, DUPLICANDO
+o que o `pseudoAdapter` já entrega desde o 3a — e o `workarea()`, que devolve um **array em pixel de
+dispositivo** onde o shell espera `{x,y,w,h}` em pixel CSS. Com o `xpraAdapter` apagado e o `workarea`
+do pacote corrigido (ou abandonado, porque o shell já deriva o dele da viewport), instalar o host passa
+a ser seguro — e é ele que faz o ambiente inteiro voltar a poder dizer "este teclado é meu".
+
 ## 3c. 📋 Um vssh-app passa a receber (e a produzir) arquivo arrastado
 
 **Trava no 3b, e a razão não é a que parece.** O pedido veio do VSSHCode — arrastar um arquivo do
@@ -864,10 +875,76 @@ porque a afirmação é sobre **ordem** e uma varredura aprovaria as duas linhas
 Três refutações, e a do meio é a que justifica o custo de executar: a soltura **depois** do
 `_onFocus()` deixa a janela X11 sem teclado no próprio foco, e passa verde em qualquer regex.
 
+### E a soltura não funcionou — porque **nenhum host está instalado**
+
+Terceiro relato, e ele refuta o meu diagnóstico de duas horas antes: *"deu certo a captura, mas ainda
+não a descaptura."* A linha que eu tinha posto no `VsshWindow.focus()` é **inerte**, e a razão vale
+mais que o conserto:
+
+```js
+// vssh-client/js/host/vssh-host.js
+VsshHost.autoSelect = function () {
+  VsshHost.use(VsshHostStandalone);      // ← sempre, desde a Onda 2.7
+```
+
+`vsshHost` só encaminha para a implementação instalada. No `host-standalone`, `captureKeyboard` é um
+**no-op** e `can('keyboardGrab')` é **falso**. O `host-xpra.js` existe — está no manifesto do pacote,
+define `window.VsshHostXpra` — e **nenhum arquivo o consome**: o próprio comentário do `autoSelect`
+diz que "se ele definir `VsshHostXpra` depois do boot, é tarde".
+
+> Então as treze subclasses e a minha linha nova pedem o teclado de volta, e **nenhuma é ouvida**. A
+> tabela de "7 de 13" que eu escrevi acima está certa sobre quem pediu e errada sobre o efeito: **as
+> treze eram no-op.** Foi a captura, que o pacote faz direto no `client`, que funcionou — e é por isso
+> que ela funcionou e a soltura não.
+
+**Instalar o host resolveria os dois lados de uma vez, e é decisão do item 3b — não deste conserto.**
+O que vem junto, medido:
+
+| o que acende | e o que ele faz hoje |
+|---|---|
+| `keyboardGrab` | **o que se quer**: os treze `captureKeyboard(false)` passam a ser ouvidos |
+| `nativeApps` | "Abrir com" volta a oferecer aplicativo Linux em 6 sítios, lançando por `client.start_command`. Era o comportamento pré-2.7, e o mime vem do portal (`/api/apps/mime-cache`), não do X11 |
+| `workarea()` | **quebra**: devolve `[x,y,w,h]` — ARRAY, em pixel de DISPOSITIVO — onde o `TilingManager` espera `{x,y,w,h}` em pixel CSS. `wa.w` seria `undefined` |
+| `nativeWindows()` | **duplica**: devolve as janelas X11 ao `TilingManager` pelo `xpraAdapter`, e desde o 3a elas já estão em `VsshWindow._all`, pelo `pseudoAdapter` |
+
+As duas últimas são exatamente a dupla autoridade que o **3b** apaga. Ligá-las hoje seria trabalhar
+contra ele — então a ordem é: 3b primeiro, depois `host-xpra.js` conserta o `workarea` (ou o
+abandona, porque o shell já deriva o dele da viewport) e some com o `nativeWindows`, e só então
+`autoSelect` volta a ter alternativa.
+
+**Enquanto isso o pacote segura as duas pontas** (`0.7.6`), o que é honesto porque é ele quem alcança
+o `client`:
+
+| | |
+|---|---|
+| `_tomarTeclado()` | no foco — `_onFocus` e o ramo sem cromo do `updateFocus` |
+| `_soltarTeclado()` | no desfoco (`_onDefocus`) **e no minimizar**, que não passa por `_defocus()`: o `set_minimized` esconde a div sem tocar no foco do ambiente, e o teclado ficava com uma janela que ninguém vê |
+| o árbitro | `focused_wid`. O `set_focus` percorre `id_to_window` **em ordem de `wid`**, então trocar o foco entre duas janelas X11 podia soltar DEPOIS de tomar — defeito que só aparece com duas janelas abertas, e na ordem errada |
+
+A linha do `VsshWindow.focus()` **fica**, com o comentário corrigido: é o lado do shell da mesma
+regra, no lugar certo, para o dia em que o host for instalado. As duas pontas dizem a mesma coisa.
+
+### E desligar o motor deixava o Iniciar e o Launchpad cheios
+
+Mesmo relato, mesma forma: **o motor escreve no ambiente e não desfaz.** Quem enche as duas listas com
+os aplicativos X11 é o `Client.js`, no handshake — `window.startMenu.populate(this.xdg_menu)` —, e
+desligar o Motor X11 deixava a lista inteira na tela. Clicar num ícone dela chamaria o
+`iniciarComando` de um motor que já não existe.
+
+O de-init chama `populate({})`: o **mesmo caminho** da população, vazio. Os vssh-apps não saem, e é de
+propósito — o `_injectVsshApps()` que o `populate` chama no fim os remonta de `GET /api/apps`, que não
+tem nada a ver com X11.
+
+A **conferência nº 6** passou a cruzar isto do mesmo jeito que já cruzava a geometria: lê do
+`Client.js` quais superfícies do ambiente o motor popula e cobra cada uma do `desinicializar()`. Uma
+atualização do xpra-html5 que popule uma terceira fica vermelha aqui. Entre as seis refutações está o
+de-init **citando** os menus num comentário sem fazer nada — a armadilha que o `soCodigo` existe para
+pegar, e que já tinha pegado esta guarda uma vez.
+
 **Fica em aberto, e é do `vssh-sso`:** o `enable_clipboard_autofocus()` da mesma função perdida também
 não foi herdado por ninguém, e a `SettingsWindow` desliga a captura no `_onFocus()` **sem**
-`_onDefocus` que a devolva — hoje inócuo, porque a soltura passou a ser do `focus()`. Os dois valem
-uma varredura quando o 3b abrir o arquivo.
+`_onDefocus` que a devolva — hoje inócuo, porque nenhuma das duas pontas do shell é ouvida. Os dois
+valem uma varredura quando o 3b abrir o arquivo.
 
 ---
 
