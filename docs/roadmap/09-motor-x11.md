@@ -794,10 +794,51 @@ contrário; só um dos dois sítios chamando; a tomada **depois** da trava; e o 
 de devolver o teclado. A última é a que protege o ambiente — sem ela, desligar o X11 nas configurações
 deixaria um cliente morto engolindo tecla, porque `_keyb_process` não pergunta nada além do booleano.
 
-**Fica em aberto, e é do `vssh-sso`:** o `enable_clipboard_autofocus()` da mesma função também não foi
-herdado por ninguém, e a `SettingsWindow` desliga a captura no `_onFocus()` **sem** `_onDefocus` que a
-devolva. Nenhum dos dois é o defeito relatado — com a tomada por foco, o segundo deixou de alcançar as
-janelas X11 —, mas os dois são a mesma família e valem uma varredura quando o 3b abrir o arquivo.
+### A captura voltou; a soltura nunca foi regra
+
+Sessão seguinte, mesma pessoa: *"deu certo agora a captura, mas ainda não a descaptura."* E a conta
+diz por quê — das **treze** subclasses de `VsshWindow`, sete soltavam o teclado ao ganhar o foco e
+**seis não soltavam nada**:
+
+| solta (`captureKeyboard(false)` no `_onFocus`) | **não solta** |
+|---|---|
+| `ArchiveWindow`, `BrowserWindow`, `FileBrowserWindow`, `SettingsWindow`, `TerminalWindow`, `TextEditorWindow`, `VsshDialogs` | `BrowserFallbackWindow`, `DesktopPropertiesWindow`, `IframeHostWindow`, `LogWindow`, `PrintDialog`, `UrlViewerWindow`, **`VsshAppWindow`** |
+
+**As seis funcionavam por acidente**, e o acidente era o defeito de cima: `capture_keyboard` ficava
+falso quase sempre porque *nada* o ligava. Com o motor voltando a ligá-lo no foco, as seis passaram a
+não receber tecla — inclusive a `VsshAppWindow`, que é a janela de **todo vssh-app**.
+
+> Não é regressão do motor. É a **soltura nunca ter sido regra**: ela existia sete vezes, à mão, e
+> toda janela nova tinha de lembrar. Regra que se cumpre por lembrança tem taxa de acerto de 7/13 —
+> e essa é a medida, não uma estimativa.
+
+Então o padrão **inverte**, e numa linha só, no `VsshWindow.focus()`:
+
+```js
+vsshHost.captureKeyboard(false);   // focar SOLTA o teclado remoto…
+this._onFocus();                   // …e quem o quer o TOMA aqui (hoje: a janela X11, e mais ninguém)
+```
+
+Uma autoridade, ordenada por construção — sem timer e sem re-checagem. A alternativa que eu quase
+escrevi era soltar no `_onDefocus()` da janela X11, dentro do pacote, e ela tem uma **corrida**: o
+`set_focus` do cliente percorre `id_to_window` em ordem de `wid`, então trocar o foco entre duas
+janelas X11 poderia soltar depois de tomar, e o teclado ficaria com ninguém. Duas autoridades sobre o
+mesmo booleano é exatamente o que o comentário do `_tomarTeclado` avisa.
+
+**Isto é do `vssh-sso` e mesmo assim não encosta no 3b:** `focus()` é o único ponto por onde toda
+janela passa — nenhuma subclasse o sobrescreve, e isso virou asserção de teste —, e a linha não fala
+com `#screen` nem com `_proxy`. Os sete `captureKeyboard(false)` ficam redundantes e inofensivos;
+apagá-los é limpeza de outro dia, em sete arquivos.
+
+**Guarda:** `tests/unit/teclado-por-foco.test.js` **executa** o `focus()` sobre uma janela de mentira,
+porque a afirmação é sobre **ordem** e uma varredura aprovaria as duas linhas em qualquer uma delas.
+Três refutações, e a do meio é a que justifica o custo de executar: a soltura **depois** do
+`_onFocus()` deixa a janela X11 sem teclado no próprio foco, e passa verde em qualquer regex.
+
+**Fica em aberto, e é do `vssh-sso`:** o `enable_clipboard_autofocus()` da mesma função perdida também
+não foi herdado por ninguém, e a `SettingsWindow` desliga a captura no `_onFocus()` **sem**
+`_onDefocus` que a devolva — hoje inócuo, porque a soltura passou a ser do `focus()`. Os dois valem
+uma varredura quando o 3b abrir o arquivo.
 
 ---
 
