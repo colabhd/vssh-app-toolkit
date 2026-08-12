@@ -30,9 +30,17 @@ name: CI
 on:
   push:
     branches: [main]
-    paths: ['lib/**', 'scripts/**', 'templates/**', 'tests/**', 'package.json', '.github/workflows/ci.yml']
+    # `schema/**` entrou depois, e a falta era real: o schema é o PORTÃO DE PUBLICAÇÃO
+    # (`vssh-app-publish` valida contra ele) e `tests/` o exercita — mas mexer só no schema não
+    # disparava build nenhum. Um portão cuja mudança não é testada é um portão que se descobre
+    # quebrado na publicação de outra pessoa.
+    paths: ['lib/**', 'schema/**', 'scripts/**', 'templates/**', 'tests/**', 'package.json', '.github/workflows/ci.yml']
   pull_request:
-    paths: ['lib/**', 'scripts/**', 'templates/**', 'tests/**', 'package.json', '.github/workflows/ci.yml']
+    # `schema/**` entrou depois, e a falta era real: o schema é o PORTÃO DE PUBLICAÇÃO
+    # (`vssh-app-publish` valida contra ele) e `tests/` o exercita — mas mexer só no schema não
+    # disparava build nenhum. Um portão cuja mudança não é testada é um portão que se descobre
+    # quebrado na publicação de outra pessoa.
+    paths: ['lib/**', 'schema/**', 'scripts/**', 'templates/**', 'tests/**', 'package.json', '.github/workflows/ci.yml']
   workflow_dispatch:
 
 jobs:

@@ -1276,28 +1276,91 @@ ecossistema"*. Hoje um vssh-app **consome** o ambiente e quase não **contribui*
 **um** mecanismo completo (`contributes.settings`) e **uma** superfície com registro
 (`SettingsRegistry.register`, `SettingsRegistry.js:81-85`). Todo o resto é array literal no shell.
 
-## 4. 📋 O contrato de contribuição
+## 4. 🔶 O contrato de contribuição — o menu de contexto **feito**, e quatro linhas ainda abertas
 
 | Superfície | Hoje | Depois |
 |---|---|---|
-| menu de contexto de arquivo, pasta, área de trabalho | `ContextMenu.js:823-831` não tem `register`; itens em `FileContextMenu.js:49-148`, `Desktop.js:912,929,948`, `arquivos/lateral.js:115,318` | `contributes.contextMenu` no manifesto, com **precedência declarada** |
-| menu do ícone no Launchpad | três itens fixos (`ContextMenu.js:559-576`) | jump list vinda do manifesto — o que o Windows faz com o botão direito no ícone |
-| "Abrir com" | o app entra **sempre depois** dos embutidos, atrás de um separador, com ícone fixo `apps` (`abrir-com.js:143-146`); o OnlyOffice é sempre o primeiro (`:77-83`) | ordem declarada e ícone do próprio app; nenhum produto hardcoded na frente |
-| `opens.mimeTypes` | aceito, projetado e **nunca roteado** (`docs/api.md:700-702`) | roteado pelo mesmo portão |
-| `handles` | enum fechado de 5, e `vscode` é o único valor que nomeia **um produto** (`schema:142-146`) | categoria, não nome de produto |
-| `category` | sobrescrito por `'Apps Integrados'` (`Launchpad.js:73-75`) | volta a valer |
+| menu de contexto de arquivo, pasta, área de trabalho | `ContextMenu.js:823-831` não tem `register`; itens em `FileContextMenu.js:49-148`, `Desktop.js:912,929,948`, `arquivos/lateral.js:115,318` | ✅ `contributes.contextMenu` no manifesto, com **precedência declarada** |
+| menu do ícone no Launchpad | três itens fixos (`ContextMenu.js:559-576`) | 📋 jump list vinda do manifesto — o que o Windows faz com o botão direito no ícone |
+| "Abrir com" | o app entra **sempre depois** dos embutidos, atrás de um separador, com ícone fixo `apps` (`abrir-com.js:143-146`); o OnlyOffice é sempre o primeiro (`:77-83`) | 🔶 o ícone é o do próprio app — **feito**; a ordem contra os embutidos continua fixa |
+| `opens.mimeTypes` | aceito, projetado e **nunca roteado** (`docs/api.md:700-702`) | 📋 roteado pelo mesmo portão |
+| `handles` | enum fechado de 5, e `vscode` é o único valor que nomeia **um produto** (`schema:142-146`) | 📋 categoria, não nome de produto |
+| `category` | sobrescrito por `'Apps Integrados'` (`Launchpad.js:73-75`) | 📋 volta a valer |
 
 O molde é o `SettingsRegistry`, que já provou o formato. A regra é a da casa: **um portão, não N
 `if`s**, e precedência declarada — porque dois apps vão querer o mesmo item de menu, e "quem carregou
 primeiro" não é uma regra, é um acidente.
 
-**O VS Code é o primeiro cliente dos dois lados.** Ele contribui com o ambiente — o item "Abrir no VS
-Code" passa a vir do manifesto em vez dos três ramos hardcoded de `abrir-com.js:112-137` — e o
-ambiente contribui com ele, pela extensão do item 5.
+### ✅ 4a. O menu de contexto tem registro, e a contribuição é DADO — não script
 
-**Guarda:** `tests/unit/contribuicao-de-app.test.js` — um manifesto de mentira declara um item de
-menu, e ele aparece no menu de contexto do gerenciador **e** o shell não cita o app pelo nome em
-lugar nenhum. Refuta: voltar um dos itens para array literal.
+`contributes.settings` é um caminho de script. A primeira forma que escrevi para o menu copiava
+isso, e **estava errada**, por uma razão que só aparece quando se olha o MOMENTO de cada superfície:
+
+|  | quando roda | o que acontece se demorar ou falhar |
+|---|---|---|
+| `settings` | quando a pessoa **abre** Configurações | há uma janela para culpar; a seção não aparece, e o resto abre |
+| `contextMenu` | em **todo clique direito, em todo arquivo** | não há janela, não há espera aceitável, e um app que trava trava o gesto mais usado do ambiente |
+
+Então o vocabulário ficou **fechado**: o app declara `id`, `superficie`, `rotulo`, `ordem`, um
+`quando` opcional e um verbo. Quem monta o item, ordena e executa é o shell — **nenhuma linha do app
+roda na origem do shell para pôr um item de menu**, que é a diferença entre contribuir e ser
+confiado. E não custa fetch nenhum: os itens já viajam na projeção de `GET /api/apps`, que o shell
+já lia.
+
+**O verbo é UM, e isso é decisão e não começo.** `abrir` entrega o caminho clicado pelo
+`open-context`, que já era contrato publicado — não há segundo protocolo. Verbo diferente **recusa**
+o item: quem pediu outra coisa não quis "abrir", e atendê-lo com "abrir" é responder outra pergunta.
+
+**⚠ A jump list ficou de fora, e a falta é de VERBO, não de superfície.** `abrir` sem caminho é
+exatamente o item "Abrir" que os três itens fixos já têm. Uma jump list útil ("Novo arquivo", "Abrir
+recente") pede um segundo verbo com **rota** — e a regra de rota segura já existe em UM lugar
+(`VsshAppWindow._rotaSegura`, `:953-961`). Escrever uma segunda cópia dela no portal seria duas
+noções do mesmo fato; movê-la é mexer numa classe que o arraste acabou de tocar. Ela entra junto com
+o segundo verbo, e a linha da tabela acima continua 📋 por isso.
+
+**A `ordem` mede contra os itens do PRÓPRIO shell.** Sem isso `ordem: 50` só responderia "antes do
+outro app que também declarou". Para a régua existir, os embutidos do `FileContextMenu` deixaram de
+ser uma sequência de `items.push` e passaram a carregar posição, **da mesma tabela `ANCORAS`** que o
+manifesto usa. É o que permite a um app declarar `ordem: 15` e ficar entre "Abrir" e "Abrir Terminal
+Aqui" — em vez de sempre no fim, atrás de um separador, que é como o "Abrir com" tratava todo
+vssh-app. O desempate entre apps é o **id**, alfabético, e não a ordem de chegada: a mesma correção
+que o `SettingsRegistry.porFamilia` já teve de fazer.
+
+**⚠ E a medida achou um defeito que estava lá sem ninguém ver.** A tabela desta seção dizia que o
+vssh-app entrava no "Abrir com" *"com ícone fixo `apps`"*. **Está errado, e para pior:** `apps` não
+existe — nem no `_ICON_MAP` do `ContextMenu` nem na folha de sprites (60 símbolos, conferidos um a
+um). Ele caía no fallback **silencioso** `#ico-file`, então todo vssh-app aparecia ali com ícone de
+arquivo genérico, e nada acusava. É o mesmo defeito que o comentário do próprio `_ICON_MAP:26-28` já
+descrevia para a grade da área de trabalho — descrito de um lado, e nunca conferido do outro. O
+conserto não foi achar um sprite melhor: é o ícone do **próprio app**, que é o que distingue dois
+apps que abrem a mesma extensão.
+
+**⚠ Duas guardas ficaram vermelhas lendo o próprio comentário**, e é a mesma armadilha do
+`currentColor` do ícone: a que proíbe `icon: 'apps'` casou com a frase que explica por que ele saiu,
+e a do `focusFn` em `abrir-com.test.js` casou com a frase que explica por que o `FileContextMenu` não
+o passa. As duas passaram a usar `soCodigo`. Uma guarda que uma frase derruba mede prosa.
+
+**⚠ E a refutação derrubou uma terceira** — a que cobrava posição declarada nos embutidos. Ela
+cobrava **presença**, e `ordem: _ANCORAS.vscode` aparece em **três** lugares: tirar de um deixava a
+guarda verde porque os outros dois ainda casavam. É "consertei um dos dois" pela quarta vez nesta
+onda. A conta agora é exata por chave, mais a soma contra `aberturas.push(` — que é o que pega um
+item **novo** empurrado sem posição nenhuma.
+
+**O VSSHCode é o primeiro cliente**, com três itens (pasta, área de trabalho, e arquivo de código com
+filtro de extensão). Durante a transição ele aparece **ao lado** do "Abrir no VS Code" embutido, e
+isso é a verdade do estado: o embutido ainda aponta para `/proxy/vscode/`, que só deixa de ser
+endereço no item 3. Trocar um pelo outro antes de todo servidor ter o app é a dependência dura desta
+onda.
+
+**Guarda:** `tests/unit/contribuicao-de-menu.test.js`, **23 casos, refutação 11/11**. A suíte do
+`vssh-sso` vai de 1.362 a **1.450**. Shell **4.5.0**, schema ressincronizado
+(`vssh-app-toolkit@6f88805`).
+
+**⚠ O primeiro passe de refutação saiu verde em sete das onze, e não media nada:** os
+`--test-name-pattern` estavam **sem acento** e os nomes dos testes têm. Padrão que não casa roda zero
+teste e sai 0. O script passou a contar quantos testes o filtro alcançou, e recusa a rodada quando o
+filtro vem vazio — é a mesma lição do comando de medida da Onda 8, cuja guarda perguntava sobre
+escape e nunca sobre se aquilo era shell que roda.
 
 ## 5. 📋 A extensão VSSH, servida pelo próprio app
 
