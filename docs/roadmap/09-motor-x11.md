@@ -948,6 +948,57 @@ valem uma varredura quando o 3b abrir o arquivo.
 
 ---
 
+## Dois defeitos do carregador num log de duas linhas — e o 502, que é do portal
+
+`vsshapp-xpra` **0.7.7**. O console de quem desabilitou e reabilitou o Motor X11:
+
+```
+GET .../js/lib/detect-zoom.js  502     ← uma cadeia, já no MEIO do manifesto
+GET .../js/lib/rencode.js      502     ← OUTRA cadeia, no PRIMEIRO arquivo dele
+```
+
+Duas posições diferentes do mesmo manifesto ao mesmo tempo, e é o que denuncia os dois defeitos —
+nenhum deles é o 502.
+
+**1. `carregarTudo()` recarregava tudo a cada `conectar()`.** Com o manifesto em mãos ele chamava
+`carregar(0)`: baixava e **reavaliava** os 22 arquivos. O shell já promete o contrário, na linha em que
+religa um motor — *"religar é `conectar()`, sem baixar nada de novo"*. E reavaliar não é desperdício, é
+**errado**: um `<script>` clássico que declara `class XpraClient` avaliado duas vezes é
+`SyntaxError: Identifier 'XpraClient' has already been declared` — o arquivo não roda, **o `onload`
+dispara igual**, e a cadeia segue como se nada tivesse acontecido.
+
+**2. Duas cadeias em voo**, porque nada impedia que houvesse duas.
+
+| | |
+|---|---|
+| `cargaEmVoo` | uma carga por página. Quem chega depois recebe a **mesma** promessa, inclusive depois de ela resolver — é isso que torna reconectar barato de verdade. Falhou? volta a `null`, para que a próxima tentativa seja uma tentativa |
+| `carregados` | até onde se chegou. Uma carga interrompida no meio **retoma** dali, em vez de passar por cima do que já entrou |
+
+**O 502 é do proxy do portal, e não se conserta daqui.** Ele significa que o backend do app não estava
+atendendo quando o arquivo foi pedido — e o `_carregarMotorDoApp()` do shell já espera o
+`AppLauncher.ensureRunning()` antes de injetar o carregador, com um comentário dizendo que o proxy
+devolve **409** enquanto o processo não estiver confirmado de pé. Veio 502, não 409: ou o processo caiu
+entre o `ensureRunning` e o pedido seguinte, ou o `ensureRunning` resolveu com uma prontidão que já não
+valia. **A pergunta que decide é uma:** o `app.log` tem uma das seis linhas de saída
+(`xpra-saiu`, `xpra-adotado-sumiu`, `xpra-nao-lancou`, `escuta-falhou`, `ja-escutando`,
+`encerrando`)? Todas as seis são gravadas com `registrarSincrono`, que existe justamente para
+sobreviver ao `process.exit` — se nenhuma estiver lá, o processo não morreu e a prontidão é que estava
+velha, o que põe isto ao lado do item 6.
+
+**Guarda:** `tests/carregador-nao-recarrega.test.js` **executa** o carregador num ambiente de mentira
+(`currentScript`, `createElement`, `head.appendChild`, um `fetch` que recusa e um `XpraClient` que
+estoura de propósito), e o manifesto que ele usa é o de verdade — avalia o `arquivos.js` do pacote. As
+duas afirmações são sobre **contagem** e **ordem**; varredura de texto não alcança nenhuma das duas.
+
+> **E a refutação pegou um erro meu, que é a razão de ela existir.** Eu ia acrescentar um
+> `anunciar('erro')` na carga, com a justificativa de que uma falha deixava o motor preso em
+> `carregando` e o erro existia só no console. **Falso:** o `.catch` no fim de `conectar()` anuncia
+> `erro` desde sempre, e o comentário dele já citava *"rede caindo no meio dos 28 arquivos"*. Tirar o
+> meu `catch` deixava o teste **verde** — o que só é possível se alguém mais estivesse fazendo o
+> trabalho. O `catch` redundante saiu; o caso ficou, apontado para o mecanismo de verdade.
+
+---
+
 ## 7. 📋 O portal conta ao motor a DPI da tela de quem está abrindo
 
 > **Este item era "o tamanho E a DPI", e a metade do tamanho se dissolveu na `0.7.3`.** Uma linha do
