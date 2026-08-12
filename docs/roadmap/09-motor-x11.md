@@ -169,7 +169,7 @@ para que travar seja sempre um vermelho com nome, e não um arquivo lento.
 ponte que não avisa quando o xpra cai, a que não fecha o socket quando o navegador some, a que manda
 texto no lugar de binário, o subprotocolo recusado, e o upgrade aceito antes de achar o xpra.
 
-## 3. 📋 O xpra vira **apenas mais uma forma de adicionar janelas**
+## 3. 🔶 O xpra vira **apenas mais uma forma de adicionar janelas** — o 3b feito, o 3d aberto
 
 **A decisão de produto está tomada, e é ela que dá o desenho:** todo o gerenciamento de janelas já
 existe no ambiente, então a janela X11 não ganha cromo próprio nem marca de "janela do servidor" —
@@ -242,11 +242,54 @@ que existe HOJE para proteger a mecânica do proxy e tem de **inverter**: passar
 existe e que o `pointer-events` está no lugar. É a mesma inversão que a conferência do `jquery-ui`
 sofreu no 3a.
 
-**Guarda:** `tests/unit/arraste-entre-janelas.test.js` — arrastar um arquivo de uma janela do
-gerenciador para outra chega ao handler de drop **com uma janela X11 aberta na tela**. É o defeito
-que o comentário descreve, virado teste. Refuta: reintroduzir o canvas em tela cheia por cima.
-E uma segunda, que é a que prova a frase deste item: **nenhum arquivo do shell pergunta de que
-família a janela é** — os 31 pontos viram zero, e o `xpraAdapter` não existe mais.
+**Guarda:** ✅ `tests/browser/arraste-entre-janelas.test.js` — **7 casos, e num Chrome de verdade**,
+porque a pergunta é *hit-test*: dados dois elementos sobrepostos, quem recebe o evento. Nenhum DOM
+falso responde isso, e uma guarda de texto responderia outra coisa — que a linha está escrita, não
+que ela funciona. O CSS vem da **produção**, e não copiado: um literal aqui provaria que o teste tem
+`pointer-events: none` escrito, não que o ambiente tem.
+
+**E ela mede ALCANCE, não comportamento** — o handler é *chamado*? É a distinção que faltou no
+`open-context` da [Onda 9](08-editor-do-ambiente.md), onde três bancadas verdes mediam funções que o
+produto nunca alcançava. Um dos casos **inverte a linha e cobra que o defeito volte**: sem isso, os
+outros seis poderiam estar verdes por qualquer outro motivo.
+
+**Refutação 4/4 sobre a fonte real:** tirar o `none` derruba 4 casos; tirar o `> *` deixa a
+superfície nua do motor sem ponteiro; devolver `none` ao `#desktop-icons` cala o fundo da área de
+trabalho; devolver os símbolos derruba a guarda de unidade.
+
+### ✅ O que o 3b entregou, e os DOIS defeitos que só a medida mostrou
+
+**326 linhas entram, 560 saem**, em 18 arquivos. `npm test` vai a **1.484**, zero falhas.
+
+Além das duas máquinas de espelho, saiu tudo o que só existia para servi-las: o observador de escala
+do `index.html` (que já tinha perdido **metade** do assunto quando o pacote 0.7.x tirou o `transform`
+do `#screen`), o **registro de zonas de drop** do gerenciador — `_registerDropZone`,
+`_resolveDropZone`, `_onProxyDrop` — e os dois contratos que ele arrastava atrás de si (o gancho
+`registrarZona` que a janela entregava à barra lateral, e o `aoRegistrar` do `Lixeira.ligarSolta`).
+Cada zona já tinha os próprios handlers; o registro era a segunda cópia da mesma verdade.
+
+E as três ligações do **fundo** da área de trabalho — menu de contexto, laço, soltar-no-fundo —
+mudaram de dono. Elas moravam no `#screen` porque era o único elemento com hit-test ali; agora moram
+no `#desktop-icons`. **De brinde, o fundo da área de trabalho passa a funcionar num ambiente sem
+motor X11 nenhum**, o que antes dependia de o `#screen` existir.
+
+| # | O defeito que a medida achou, e não estava neste item |
+|---|---|
+| **1** | **`allTiled()` lia DOIS registries e devolvia a mesma janela duas vezes.** Um laço sobre `vsshHost.nativeWindows()` com o `xpraAdapter`, outro sobre `VsshWindow._all` com o `pseudoAdapter` — e desde o 3a a janela X11 está nos dois, sendo o **mesmo objeto** (`id_to_window[wid] === _all.get(id)`). Uma janela X11 encaixada era empurrada duas vezes, com adaptadores diferentes, para quem quer que lesse a lista |
+| **2** | **Dois caminhos para o mesmo gesto na mesma janela.** O botão do cromo chama `toggleMaximized()`; o menu de contexto da barra chamava `toggle_maximized()`. E o `?.` escondia o resto: numa janela do **shell**, que não tem os verbos do xpra, os três primeiros itens daquele menu não faziam **nada**, em silêncio |
+
+### ⚠ "Os 31 pontos viram zero" não cabia num repositório só — e isso virou o 3d
+
+A frase deste item dizia que **nenhum arquivo do shell pergunta de que família a janela é**. Os dois
+adaptadores viraram um (`adaptadorDeJanela`) e o `showForWindow` passou a falar o verbo do ambiente,
+que é o mesmo que o cromo fala. Mas a medida mostrou o limite: **o pacote ainda atende dois verbos só
+pelo nome do upstream.** `toggle_pinned()` roteia para `togglePinned()` e `toggle_maximized()` para
+`super.toggleMaximized()`, mas o contrário **não existe** — chamar o verbo do ambiente direto pula o
+que é do X11 (a metadata `pinned` que o upstream lê; o `_lerGeometriaDoDom()` + `apply_size_constraints()`).
+
+Ou seja: o botão de maximizar do cromo **já hoje** não conta o tamanho novo ao X11, e isso não é uma
+regressão do 3b — é o estado atual, que o 3b tornou visível ao unificar o caminho. Fechar de verdade
+exige mexer no `vsshapp-xpra` e publicar. Está no **item 3d**, abaixo.
 
 **E o 3b desbloqueia uma coisa que ele não sabia que estava bloqueando: o `host-xpra`.** Ninguém
 instala aquele host — `VsshHost.autoSelect()` escolhe o `standalone` sempre —, e por isso o
@@ -259,7 +302,44 @@ dispositivo** onde o shell espera `{x,y,w,h}` em pixel CSS. Com o `xpraAdapter` 
 do pacote corrigido (ou abandonado, porque o shell já deriva o dele da viewport), instalar o host passa
 a ser seguro — e é ele que faz o ambiente inteiro voltar a poder dizer "este teclado é meu".
 
+## 3d. 📋 O pacote passa a atender pelo verbo do ambiente
+
+**Item novo, e ele é o resto do 3b que não cabia no `vssh-sso`.** A ponte entre os dois dialetos de
+janela está feita pela metade, e só numa direção: `XpraWindow` roteia `toggleMinimized()` para o
+caminho do X11 (`unmap-window`, e sem isso o app se acha visível), mas `toggleMaximized()` e
+`togglePinned()` **não** são sobrescritos — quem os chama pula o que é do X11.
+
+| verbo do ambiente | o que existe hoje no pacote | o que falta |
+|---|---|---|
+| `toggleMinimized()` | ✅ sobrescrito; chama `toggle_minimized()` | — |
+| `toggleMaximized()` | ❌ só `toggle_maximized()`, que chama `super.toggleMaximized()` e depois `_lerGeometriaDoDom()` + `apply_size_constraints()` | inverter: o override é do verbo do ambiente |
+| `togglePinned()` | ❌ só `toggle_pinned()`, que chama `togglePinned()` e espelha `this.pinned` para a metadata | idem |
+
+**A consequência é medida, e é de hoje:** o botão de maximizar do cromo chama `toggleMaximized()` —
+o do ambiente —, então **maximizar uma janela X11 pelo botão nunca contou o tamanho novo ao X11**. O
+3b não criou isso; ele o tornou visível ao fazer o menu de contexto seguir o mesmo caminho do botão,
+em vez de os dois divergirem em silêncio.
+
+E há um segundo grupo, no `MenuCustom.js`: `isNativeWindowActive` e `activateNativeWindow` falam
+`window.client.focused_wid` e `client.set_focus` **direto** — o shell nomeando o motor, que é o que
+a [2.7](02b-motores.md) proíbe. O primeiro já tem par no `vsshHost` (`focusedNativeWid()`); o segundo
+não tem, e precisa de uma capacidade nova no host.
+
+**Custo:** mexe no `vsshapp-xpra` e exige publicar o pacote. **O que o derruba:** se a inversão dos
+dois verbos quebrar algum caminho do upstream que ainda os chame pelo nome antigo — a medida é
+`grep` no pacote antes de inverter.
+
+**Guarda:** com uma janela X11 aberta, maximizar pelo botão do cromo e pelo menu da barra produz o
+**mesmo** estado, e o servidor recebe a geometria nova nos dois. Refuta: tirar o override.
+
 ## 3c. 📋 Um vssh-app passa a receber (e a produzir) arquivo arrastado
+
+> **⚠ O 3b saiu, e a trava deste item saiu com ele.** O texto abaixo está como foi escrito, e o
+> parágrafo "por que travar no 3b" descreve uma máquina que **não existe mais**: `_dragRaised`,
+> `_armDragRaise`, o watchdog de 600 ms, os proxies e o próprio `_acceptsDragRaise` foram apagados.
+> O que ele previa aconteceu — o `drop` **chega**, e está medido em
+> `tests/browser/arraste-entre-janelas.test.js`, num Chrome de verdade. **Este item está liberado**,
+> e o que falta dele é só o contrato do manifesto, o `vssh.onArquivosSoltos` e o `dragstart`.
 
 **Trava no 3b, e a razão não é a que parece.** O pedido veio do VSSHCode — arrastar um arquivo do
 gerenciador para dentro do editor —, e a primeira leitura foi "o proxy de janelas atrapalha". A
@@ -1113,8 +1193,9 @@ desaparece com um servidor X que aceite redimensionar ao vivo — ou seja, com o
 | 4 | ✅ o jQuery sai do pacote (**33.980 linhas**) — e o carrossel Alt+Tab é apagado, não portado | `vsshapp-xpra` | **3a**, não 3 |
 | — | ✅ **o repositório do pacote fechou** — o que resta da onda é todo do `vssh-sso` | | 4 |
 | — | ✅ **e reabriu por um incidente**: 0.6.1, quatro defeitos, três deles decisões do item 2 | `vsshapp-xpra` | — |
-| 3b | 📋 o outro lado: os proxies (**dois donos**), o `xpraAdapter` e os **31 ramos por família** saem | `vssh-sso` | 3a |
-| 3c | 📋 um vssh-app recebe e produz arquivo arrastado — **um contrato**, e as três direções caem dele | toolkit + `vssh-sso` | **3b**, para não escrever contra a máquina que ele demole |
+| 3b | ✅ **feito** — os proxies (**dois donos**), o observador de escala, o registro de zonas de drop e o `xpraAdapter` saem; 326 linhas entram, **560 saem** | `vssh-sso` | 3a |
+| 3c | 📋 um vssh-app recebe e produz arquivo arrastado — **um contrato**, e as três direções caem dele | toolkit + `vssh-sso` | ✅ **destravado**: o 3b saiu e o `drop` já chega, medido num Chrome |
+| 3d | 📋 o pacote atende pelo **verbo do ambiente** — o resto do 3b, e ele não cabia no `vssh-sso` | `vsshapp-xpra` | 3b · exige publicar o pacote |
 | 4d | 📋 o ambiente ganha o Alt+Tab que o motor levou embora — sobre `VsshWindow._all` | `vssh-sso` | 3a |
 | 5 | 📋 **a orquestração de porta morre** — os onze lugares, o `nextLoopback` e o teto de **254** (era o `0d` da [Onda 9](08-editor-do-ambiente.md)) | `vssh-sso` | 2 |
 | 6 | ✅ **feito** — um start em voo por `<servidor, usuário, app>`; é trava e não cache, e o `restartApp` espera em vez de coalescer | `vssh-sso` | — |
@@ -1150,7 +1231,7 @@ estar instalado nos servidores deixa o motor sem endereço.
   servidor serviu por TCP na mesma corrida; sem isso, "o socket não respondeu" seria a montagem do
   teste. Toda medida nova aqui carrega o par.
 - **Cada guarda por refutação**, com linha de base verde antes e a fonte real mutada.
-- `npm test` do `vssh-sso` parte de **1.476** e não pode cair. **⚠ Este número dizia 1.362, e estava
+- `npm test` do `vssh-sso` parte de **1.484** e não pode cair. **⚠ Este número dizia 1.362, e estava
   velho de novo** — a suíte cresceu 109 casos entre a escrita e a execução do item 6, e um piso
   desatualizado não segura nada. É a **segunda** vez que o mesmo número envelhece nesta dupla de
   ondas; ele só vale relido no dia em que se fecha um item.
