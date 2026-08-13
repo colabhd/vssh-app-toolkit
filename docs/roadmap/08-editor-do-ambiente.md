@@ -2141,6 +2141,96 @@ a medida daquela configuração.
 - **Não migra para a Marketplace da Microsoft.** É decisão de licença, não de engenharia, e **nenhum
   teste guarda um ToS**.
 
+## As pendências do VSSHCode, depois que ele foi ao ar
+
+Escritas quando o editor já estava rodando de verdade, e separadas pelo que cada uma **é**: relato,
+medida ou hipótese. Nada aqui está consertado.
+
+### 🔴 A sessão não volta com o workspace — e a regressão é desta onda
+
+**Relatado por quem usa:** ao reabrir o ambiente, o editor volta sem a pasta que estava aberta.
+
+**Medido, e a causa é nossa:** `VsshAppWindow._getState()` persiste `appId`, geometria,
+minimizado/fixado e `tabs` — e `tabs` guarda **só `sessionName`**, que é o protocolo de aba do
+cabeçalho *rich*, o qual o VSSHCode nem usa (ele declara `window.cabecalho: "app"` e desenha as
+próprias). **A URL do iframe não é persistida em lugar nenhum**, então `_restaurarJanelaDeApp` faz
+`AppLauncher.open(appId)` e o editor volta na raiz, sem `?folder=`.
+
+**Quem fazia isso antes era o `VsCodeLauncher`**, que lia o `?folder=` do próprio iframe a cada
+`load` para saber qual workspace cada janela tinha aberto — e era isso que permitia restaurar depois
+de um reload. Ele saiu inteiro no item 3, fatia 2, e **a capacidade saiu junto sem que ninguém
+notasse**: a fatia foi medida por "nada aponta para o vazio", e isto não apontava para o vazio, só
+deixou de existir.
+
+**A direção do conserto NÃO é devolver um launcher por produto.** O que falta é genérico: um app
+precisa poder dizer ao ambiente *"este é o meu estado, guarde-o"* e recebê-lo de volta na
+restauração — o que o `tabs`/`sessionName` já faz **para um caso só**, o do cabeçalho rich. O
+desenho tem de responder: quem serializa (o app, num objeto opaco para o shell), qual o teto de
+tamanho, e o que acontece quando o app volta numa versão que não entende o próprio estado antigo.
+
+### 🟡 O webview mora na mesma origem, e isso foi uma escolha
+
+O `pre/index.html` do upstream exige que o hostname **seja** o hash da origem-pai, ou um subdomínio
+dele — é assim que ele isola webview, com `{{uuid}}.vscode-cdn.net`. Isso pede DNS curinga e
+certificado curinga, que este ambiente não tem, e por isso o patch `0011` abre uma exceção estreita
+para quando a origem do embedder é **exatamente a nossa**.
+
+**O que se perde:** conteúdo não confiável renderizado dentro de um webview deixa de estar isolado
+do ambiente. **O que não muda:** extensão hostil já roda como o usuário Linux, com terminal e
+filesystem — a isolação protege o conteúdo, não a extensão.
+
+**A saída é `*.webview.<domínio>` com certificado curinga (Let's Encrypt por DNS-01).** No dia em que
+existir, some o patch `0011` e o `webviewEndpoint` passa a apontar para lá — e mais nada muda,
+porque é dado.
+
+### 🟡 O 401 do service worker do webview, e a hipótese que foi junto
+
+`Could not register service worker … A bad HTTP response code (401)`. O 401 é o portal dizendo "sem
+sessão": a página do webview carrega (é navegação, leva cookie), o script do service worker não.
+
+O patch `0011` tira o `type: 'module'` do registro — **e isso está escrito lá como hipótese, não como
+diagnóstico**. O que está medido é só que aquele service worker não tem `import`/`export` nenhum,
+então o tipo não comprava nada. Se o 401 sobreviver, a causa é outra.
+
+⚠ E há um agravante estrutural: a rota estática do webview passa pelo proxy do portal, que resolve
+**qual backend** pela sessão. Uma isenção de autenticação ali não é só afrouxar um portão — sem
+sessão, o portal não sabe para qual processo de qual usuário encaminhar.
+
+### 🟡 O `Ctrl+click` ainda não abre no navegador do ambiente
+
+Relatado, e **ainda não medido depois** de o opener passar a registrar (app 0.1.39) e de os webviews
+serem consertados. Enquanto o console gritava `CANNOT USE these API proposals`, o opener não existia
+e o link caía no `window.open` padrão — o que explica o sintoma até ali. Refazer o teste é o próximo
+passo, e o dado que interessa é o que aparece **no momento do clique**.
+
+### 🟢 O ruído catalogado, que NÃO é defeito nosso
+
+Fica escrito para ninguém investigar de novo:
+
+| linha no console | o que é |
+|---|---|
+| `vsda.js` / `vsda_bg.wasm` 404 | `vsda` é proprietário e não existe no build OSS |
+| `[AgentHost:remote] … no upstream agent host endpoint` | não configuramos o bridge, de propósito |
+| `mermaid-markdown-features CANNOT use 'legacyToolReferenceFullNames'` | extensão embutida do upstream pedindo proposta que o OSS não liga; derruba o `renderMermaidDiagram` |
+| `SignatureVerificationInternal` | build OSS contra open-vsx não tem assinatura a verificar |
+| `/proxy/11257/stable-51bc3c0f…/seti.woff` | resíduo de **code-server** em aba velha ou service worker; o ramo que servia aquilo saiu na fatia 4 |
+
+### 🔧 E duas do ferramental, que morderam nesta sessão
+
+- **`build-local.sh` sai com código 0 numa falha de compilação.** O log termina em stack trace e o
+  chamador entende sucesso. O cabeçalho do próprio arquivo se gaba do `|| exit 1` no laço dos
+  patches; o passo do gulp não tem o equivalente.
+- **O guard do `deps` confia no hash do lock, não na árvore.** `[ "$lock" = "$atual" ] && test -d
+  node_modules` deu "npm ci dispensado" com o `node_modules` **podado** (936 pacotes,
+  `gulp-merge-json` ausente), e o build morreu. É a **terceira** ocorrência da família que o arquivo
+  já documenta duas vezes — *"a árvore do container é ESTADO, não cache"*. O guard pergunta pelo
+  lock, que é o que o `npm ci` **consome**, e não por um pacote sentinela, que é o que ele
+  **produz**. Destravado à mão com `rm /src/lock.sha`.
+- **`motor-nova-versao.yml` falha em 0s a cada push** do `vsshapp-vscode`, com *"This run likely
+  failed because of a workflow file issue"* — o arquivo declara só `workflow_dispatch` e mesmo assim
+  o GitHub abre uma corrida por `push`, que é a assinatura de YAML que não parseia. Vermelho em todo
+  push é o que ensina a ignorar vermelho.
+
 ## Próximos passos, registrados para não sumirem
 
 - **O OnlyOffice é o último inquilino do modelo especial, e é outro problema.** Ele proxia um
