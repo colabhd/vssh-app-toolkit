@@ -1233,9 +1233,14 @@ resto: os seletores `.part.titlebar .titlebar-right .window-controls-container` 
 arraste ancorado em `.titlebar-left` (`:153`) e o `MutationObserver` no `<title>` (`:175-182`) — os
 três deixam de existir porque a barra some por configuração e o título vem por API.
 
-## 3. 📋 `/proxy/vscode/` deixa de ser um endereço
+## 3. 📋 `/proxy/vscode/` deixa de ser um endereço — e o portal perde o "iniciar ambiente"
 
-A cirurgia da [2.7](02b-motores.md), no inquilino que sobrou. Somem:
+A cirurgia da [2.7](02b-motores.md), no inquilino que sobrou. **E ela não para no proxy:** o
+conceito de *iniciar o ambiente* — o botão, a máquina de estados, o par de cards — existe no portal
+porque havia um serviço a subir antes de a pessoa poder trabalhar, e esse serviço é o code-server.
+Isso é o **3b**, abaixo, e faz parte deste item e não de uma faxina depois.
+
+Somem:
 
 | O quê | Onde |
 |---|---|
@@ -1256,6 +1261,48 @@ web"*.
 
 **Trava:** o app instalado e verde em **todos** os servidores. Enquanto um não tiver,
 `/proxy/vscode/` é o único caminho até o editor, e apagá-lo cria um 502 sem causa.
+
+### 3b. 📋 O portal perde o conceito de "iniciar ambiente" — ele só existe por causa do code-server
+
+**Decidido:** tirar o proxy não basta. O botão **"Iniciar Ambiente Remoto"** da página do portal, e
+toda a máquina de estados por trás dele, existem porque havia um serviço a subir antes de a pessoa
+poder trabalhar — e esse serviço é o code-server. Com o editor virando vssh-app, **não há mais nada
+para iniciar**: um vssh-app sobe no clique do ícone, dentro do ambiente, como todos os outros.
+
+**A medida diz que o conceito já está vazio:**
+
+| O que se mede | Hoje |
+|---|---|
+| serviços que o botão inicia | **um** — `env = { web: {...} }` (`public/js/modules/environment.js:16-18`) |
+| o outro card, "vssh-desktop" | **já é um link**, e o comentário no `index.html` diz por quê: depois da 2.7 os dois cards abriam a mesma página, e não há processo a subir |
+| `POST /api/keys/xpra/start` | **não inicia mais nada** desde a 2.7, e o comentário dele (`keys.ts:420-422`) diz que continua respondendo *"porque quem a chama é o botão 'Iniciar Ambiente Remoto' … que ainda precisa do code-server"* |
+| o que a rota de start faz | só `startCodeServer(sshUser, serverId)` — nenhum provisionamento, nenhuma chave, nenhuma sessão (`keys.ts:233-262`) |
+| a máquina de estados | `environment.js` **269 linhas** + `web-server.js` **108**, com cinco estados por serviço e uma guarda de corrida por servidor |
+
+Ou seja: **uma máquina de dois serviços, com um inquilino, mantida de pé por um endpoint que não faz
+nada, para um serviço que esta onda está removendo.** O `xpra/start` no-op já está na tabela do item
+3 — o que este sub-item acrescenta é que ele não é o único resíduo: o botão que o chama também é.
+
+**O que fica no lugar, e é menos coisa:** a página do portal leva ao ambiente, e o ambiente é uma
+página — sem estado, sem "Iniciando…", sem par de cards. Iniciar, reiniciar e parar já têm lugar, e
+não é aqui: **Configurações → Serviços**, onde todo vssh-app aparece com o mesmo lifecycle desde a
+Onda 9. Ter dois lugares para a mesma operação é o que esta onda vem desfazendo em todo canto.
+
+**⚠ Três coisas que NÃO podem sair junto, e por isso são item e não faxina:**
+
+- **`POST /web-server/open-file`** é o IPC que abre um arquivo numa janela do editor já aberta, e
+  quem o chama é o `VsCodeLauncher` do shell (`_sendOpenFileIpc`). Ele morre com o launcher
+  embutido, no item 3 — mas o caminho equivalente tem de existir no app antes, senão "Abrir no
+  VSSHCode" a partir do gerenciador de arquivos deixa de reusar a janela.
+- **`sync-settings` e `detect-config`** (`keys.ts:358-408`) são a sincronia de configurações e
+  extensões do VS Code, com botão próprio na página. Não são do portal: são do editor. Ou viram
+  coisa do app, ou saem declaradamente — o que não vale é sumirem no meio de uma remoção.
+- **O "Abrir" síncrono ao clique** (`web-server.js:39-46`) existe para não levar bloqueio de popup.
+  Onde houver link novo, ele nasce link — não `window.open` depois de um `await`.
+
+**Guarda:** a página do portal não menciona serviço nenhum a iniciar, `GET /api/keys/web-server/*`
+responde 404, e abrir o ambiente **não faz POST nenhum** antes de mostrar o desktop — que é a
+afirmação inteira do item: entrar deixou de ser um procedimento.
 
 ### 3a. 📋 `changeOrigin: false` ganha dono, ou perde a justificativa
 
