@@ -1233,7 +1233,7 @@ resto: os seletores `.part.titlebar .titlebar-right .window-controls-container` 
 arraste ancorado em `.titlebar-left` (`:153`) e o `MutationObserver` no `<title>` (`:175-182`) — os
 três deixam de existir porque a barra some por configuração e o título vem por API.
 
-## 3. 📋 `/proxy/vscode/` deixa de ser um endereço — e o portal perde o "iniciar ambiente"
+## 3. ✅ `/proxy/vscode/` deixa de ser um endereço — e o portal perde o "iniciar ambiente"
 
 A cirurgia da [2.7](02b-motores.md), no inquilino que sobrou. **E ela não para no proxy:** o
 conceito de *iniciar o ambiente* — o botão, a máquina de estados, o par de cards — existe no portal
@@ -1254,10 +1254,12 @@ Somem:
 | a instalação incondicional e os três pins de versão | `provision-base.sh:364-371`, `vssh-provision.sh:99`, `provision-targets.json:23` |
 | o `config.yaml` com `auth: none` que o runtime contradiz com `auth: password` | `vssh-setup-user.sh:65-75` × `code-server.ts:93-106` |
 
-**Guarda:** `tests/unit/vscode-nao-e-mais-endereco.test.js` — `GET /x/proxy/vscode/` cai no 404 de
-"Serviço proxy inválido", e `code-server-session` não aparece em `src/`. Refuta: restaurar o ramo.
-Atualizar junto `tests/unit/erro-do-proxy.test.js:153,171-197`, que hoje garante o nome *"o editor
-web"*.
+**⚠ A guarda escrita aqui não foi escrita, e a recusa é a regra da casa.** O plano pedia um
+`vscode-nao-e-mais-endereco.test.js` que checasse o 404 e que *"`code-server-session` não aparece em
+`src/`"* — as duas metades são proibidas pelo `CLAUDE.md`: a segunda é asserção sobre o TEXTO do
+fonte, e a primeira é testar que algo removido de propósito continua removido. O que ficou foi o
+`erro-do-proxy.test.js` **atualizado** (ele perdeu os dois casos do code-server, sem ganhar um caso
+novo dizendo que o serviço sumiu).
 
 **Trava:** ~~o app instalado e verde em **todos** os servidores~~ — **satisfeita**: há **um**
 servidor, e o `vsshapp-vscode` já está instalado nele. O que a trava protegia continua valendo como
@@ -1270,9 +1272,9 @@ apagá-lo cria um 502 sem causa.
 |---|---|---|
 | **1** ✅ | o conceito de *iniciar ambiente* no portal (3b) | tudo: o editor sobe sozinho quando alguém abre a janela dele |
 | **2** ✅ | **o `VsCodeLauncher` embutido SAI, e sem recuo nenhum** — ver abaixo | o editor, pelo app |
-| **3** 📋 | os seis `/api/keys/web-server/*` e o `sync-settings`, depois que ninguém os chamar | o editor, pelo app |
-| **4** 📋 | o ramo `vscode` do proxy, o cookie, o handshake e `provisioning/code-server.ts` inteiro | o editor, pelo app |
-| **5** 📋 | o 3a (`changeOrigin`) e os pins de provisionamento | — |
+| **3** ✅ | os seis `/api/keys/web-server/*` e o `sync-settings`, depois que ninguém os chamar | o editor, pelo app |
+| **4** ✅ | o ramo `vscode` do proxy, o cookie, o handshake e `provisioning/code-server.ts` inteiro | o editor, pelo app |
+| **5** ✅ | o 3a (`changeOrigin`) e os pins de provisionamento | — |
 
 A ordem não é gosto: **cada fatia só remove o que a anterior deixou de usar**, então em nenhum
 momento existe um caminho sem dono. É a lição do socket contra porta aplicada a uma remoção.
@@ -1409,15 +1411,53 @@ Onda 9. Ter dois lugares para a mesma operação é o que esta onda vem desfazen
 responde 404, e abrir o ambiente **não faz POST nenhum** antes de mostrar o desktop — que é a
 afirmação inteira do item: entrar deixou de ser um procedimento.
 
-### 3a. 📋 `changeOrigin: false` ganha dono, ou perde a justificativa
+### ✅ 3, fatias 3, 4 e 5 — o code-server sai inteiro
+
+**Fatia 3 — as seis rotas `/api/keys/web-server/*`.** A fatia só remove o que as anteriores
+deixaram de usar, então a pergunta era quem ainda chama, e a resposta foi ninguém: `start`/`stop`/
+`status` perderam o chamador na fatia 1; `open-file` era chamada pelo `VsCodeLauncher`, que saiu na
+fatia 2; `detect-config` e `sync-settings` serviam o "Sincronizar VS Code" do portal.
+
+**⚠ E essa última é um achado, não uma remoção planejada: a modal do "Sincronizar VS Code" estava
+INALCANÇÁVEL desde a fatia 2.** O botão que a abria saiu junto com as abas da modal do servidor —
+eu o removi sem notar —, e desde então o único ouvinte era um `?.` sobre um id que não existia.
+
+**Fatia 4 — `/proxy/vscode/` deixa de ser um endereço. 962 linhas fora, 28 dentro.** Saem o ramo
+`vscode` do proxy HTTP e do handshake WS (com a porta aritmética `10000 + uid`), a injeção do cookie
+`code-server-session` nos dois caminhos, o handshake `curl -X POST /login` com o cache Redis de 24 h,
+`provisioning/code-server.ts` inteiro (781 linhas) e as duas rotas de admin com o painel do portal
+que as chamava. O `servico.ts` perde o ramo que dava nome ao erro — e o serviço que motivou aquele
+módulo era justamente este.
+
+**Fatia 5 — o provisionamento.** A instalação do code-server era **incondicional**: todo servidor
+provisionado baixava um `.deb` do GitHub, houvesse alguém para usá-lo ou não. Saem os três pinos de
+versão, o download, e o `config.yaml` por usuário — que já era uma **contradição declarada**
+(`auth: none` no arquivo, `auth: password` no runtime).
+
+**⚠ E a junção pegou a ponta solta**, que é exatamente o que ela existe para fazer: o
+`install-builder.test.js` reprovou porque o construtor do instalador continuava emitindo
+`--code-server-version` contra um catálogo que já não a declarava.
+
+### 3a. ✅ `changeOrigin: false` ganhou dono
 
 `proxy.ts:59-64` diz *"DEVE SER FALSE: Host header precisa bater com o Origin do code-server"* e
 *"xfwd: true — X-Forwarded-* vitais para o code-server"*, e é **global**. Depois do item 3 esses
 comentários nomeiam um serviço que não existe mais. Ou a razão é outra e passa a estar escrita
 medida, ou é carga de culto e sai.
 
-**Guarda:** virar cada um e ver o que quebra (Xpra, OnlyOffice, um app com WebSocket) — o resultado
-vira o comentário e o teste.
+**Ganhou dono, e está medido.** Com o próprio `http-proxy-3`, duas frentes locais contra um alvo
+que devolve o que recebeu: com `false` o `Host` que chega ao alvo é **o do cliente**; com `true` ele
+vira o do alvo, `127.0.0.1:<porta alocada>`. Quem depende disso hoje é o **app**: o motor do
+VSSHCode monta o `remoteAuthority` a partir do `Host`/`x-forwarded-*`, e é esse endereço que o
+navegador usa para abrir o WebSocket do extension host — com `true` ele viraria um loopback do
+servidor, que o navegador de quem usa não alcança. É a mesma família da falha já medida no item 2.
+
+**O que NÃO foi medido, e está escrito no próprio comentário do código:** virar o flag contra o
+servidor real para ver o OnlyOffice e o motor X11 caírem. O que há é sobre o mecanismo e sobre um
+consumidor conhecido.
+
+**Guarda: nenhuma.** Não há caminho novo a executar — há um comentário que passou a dizer a verdade,
+e comentário não se testa.
 
 ---
 
