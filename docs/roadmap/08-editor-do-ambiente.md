@@ -1259,8 +1259,43 @@ Somem:
 Atualizar junto `tests/unit/erro-do-proxy.test.js:153,171-197`, que hoje garante o nome *"o editor
 web"*.
 
-**Trava:** o app instalado e verde em **todos** os servidores. Enquanto um não tiver,
-`/proxy/vscode/` é o único caminho até o editor, e apagá-lo cria um 502 sem causa.
+**Trava:** ~~o app instalado e verde em **todos** os servidores~~ — **satisfeita**: há **um**
+servidor, e o `vsshapp-vscode` já está instalado nele. O que a trava protegia continua valendo como
+ORDEM, não como espera: enquanto `/proxy/vscode/` for o único caminho até o editor de alguém,
+apagá-lo cria um 502 sem causa.
+
+**E a remoção vai em FATIAS**, cada uma inteira em si e reversível sozinha:
+
+| | O que sai | O que ainda funciona depois |
+|---|---|---|
+| **1** ✅ | o conceito de *iniciar ambiente* no portal (3b) | tudo: o editor sobe sozinho quando alguém abre a janela dele |
+| **2** 📋 | o `VsCodeLauncher` embutido passa a abrir o APP quando ele está instalado, com recuo para `/proxy/vscode/` quando não está | os dois caminhos, e o recuo é o que permite fatiar |
+| **3** 📋 | os seis `/api/keys/web-server/*` e o `sync-settings`, depois que ninguém os chamar | o editor, pelo app |
+| **4** 📋 | o ramo `vscode` do proxy, o cookie, o handshake e `provisioning/code-server.ts` inteiro | o editor, pelo app |
+| **5** 📋 | o 3a (`changeOrigin`) e os pins de provisionamento | — |
+
+A ordem não é gosto: **cada fatia só remove o que a anterior deixou de usar**, então em nenhum
+momento existe um caminho sem dono. É a lição do socket contra porta aplicada a uma remoção.
+
+### ✅ 3b, fatia 1 — o portal não inicia mais nada
+
+Feito. O card virou o que ele sempre foi: um endereço. **269 linhas de `environment.js` viraram
+38**, o `web-server.js` inteiro (108) saiu por ficar sem importador, e os ids do estado
+ocioso/ativo saíram do HTML com as regras mortas do CSS junto.
+
+**⚠ E três rotas mortas foram junto, por um motivo que só aparece medindo.** `POST /xpra/start`,
+`POST /xpra/stop` e `GET /xpra/status` viraram no-ops na 2.7 e ficaram respondendo com um comentário
+que dizia *"quem a chama é o botão 'Iniciar Ambiente Remoto'"*. **A medida desmentiu o comentário:
+aquele botão não as chamava mais** — ele subia só o code-server. Eram 143 linhas de pé por um
+chamador que já não existia.
+
+**⚠ E eu quase levei junto o que não devia:** `GET /xpra/env` e `POST /xpra/env` estavam DENTRO
+daquele bloco e são vivas — quem as chama é o painel do próprio motor, de dentro do desktop.
+Voltaram inteiras. Quem acusou foi o aviso de import não usado do eslint, e não eu: **apagar por
+BLOCO não é apagar por rota**, e o bloco tinha um inquilino legítimo no meio.
+
+**Guarda:** `entrar-nao-e-procedimento.test.js`, **5 casos** — abrir a tela do ambiente **não faz
+requisição nenhuma**, e o que ela faz é apontar o link para o servidor escolhido.
 
 ### 3b. 📋 O portal perde o conceito de "iniciar ambiente" — ele só existe por causa do code-server
 
