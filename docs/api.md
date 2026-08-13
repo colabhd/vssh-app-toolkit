@@ -41,6 +41,7 @@ no-op. Você desenvolve fora do VSSH sem `if` nenhum.
 | Receber arquivo **arrastado** para dentro do app | `vssh.onArquivosSoltos()` |
 | Arrastar um arquivo **para fora** do app | `vssh.arrastarArquivos()` no `dragstart` |
 | Abas no cabeçalho da janela | `vssh.tabs.*` (exige `richChrome`) |
+| Voltar no lugar certo quando a sessão é restaurada | `vssh.lembrarRota()` |
 | Tocar som obedecendo ao volume do ambiente | **nada** — já é automático |
 | Ler o volume que o ambiente aplica | `vssh.audio.gain()` / `.muted()` / `.onChange()` |
 | Falar com outro app, ou com o shell | `new BroadcastChannel(…)` — mesma origem, sem ponte nossa |
@@ -954,6 +955,42 @@ vssh.tabs.on((msg) => {
 
 ---
 
+## Voltar no lugar certo
+
+O ambiente restaura as janelas abertas quando a pessoa volta. Sem você dizer nada, a sua volta na
+**raiz** do app — o que para um editor significa voltar sem a pasta que estava aberta.
+
+Uma linha resolve, e ela é uma rota:
+
+```js
+// Reporte onde você está sempre que navegar. O ambiente guarda e devolve na URL da janela.
+addEventListener('popstate', () => vssh.lembrarRota(location.search + location.hash));
+```
+
+**Não há código de restauração do seu lado.** A janela volta em
+`…/proxy/app/<id>/<rota>`, o seu app boota naquele endereço, e para ele é indistinguível de alguém
+ter aberto o link. `lembrarRota('')` limpa — é o que dizer quando a pessoa fecha o documento.
+
+A rota é um caminho **dentro** do app: sem esquema, sem `/` inicial, sem `..`, teto de 512
+caracteres. O ambiente recusa o resto em silêncio, pela mesma razão que `vssh.window.abrir` recusa:
+uma janela com a sua barra de título servindo outra coisa é material de tela de login falsa.
+
+O ambiente guarda com atraso e não repete o que não mudou, então chamar a cada navegação não custa
+rede.
+
+> ⚠ **Rota é ponteiro, não armazém.** O que não couber num endereço — conteúdo não salvo, índice,
+> cache — vai para o backend do seu app ou para o filesystem do usuário. Ver *"OPFS é cache, nunca
+> a verdade"*, mais acima: estado que fica só no navegador é dívida contra a promessa de trocar de
+> máquina sem perder nada.
+>
+> E é por isso que este contrato é uma **string** e não um objeto de estado. O desenho que ele
+> substituiu pedia um blob opaco que o ambiente guardaria e devolveria — o que trazia junto duas
+> perguntas sem resposta boa: qual o teto, e o que fazer quando o app volta numa versão que não
+> entende o próprio estado antigo. A rota dissolve as duas: o teto já existe, e um app não tem como
+> não entender a própria URL.
+
+---
+
 ## Onde estou rodando
 
 ```js
@@ -1097,6 +1134,7 @@ Ser honesto aqui vale mais que a lista de cima, porque é o que decide se o seu 
 | Abrir uma janela com **conteúdo de fora** (URL arbitrária, `new BrowserWindow` de outra origem) | `vssh.window.abrir(rota)` abre outra janela **do seu app**, num caminho relativo. Ver a nota abaixo |
 | `child_process`, binário nativo, FTS server-side | **Backend do seu app** — é para isso que ele existe |
 | `ipcRenderer.invoke('<comando seu>')` | Idem: vira uma rota HTTP no seu backend |
+| Guardar um **objeto de estado** no ambiente para a restauração | `vssh.lembrarRota()` guarda uma rota, e só. O resto vai para o backend do seu app ou para o filesystem do usuário — ver "Voltar no lugar certo" |
 
 A última linha é a fronteira real de um port de Electron/Tauri: o shim cobre a **superfície padrão**
 do framework, não o que aquele app inventou. Como medir isso antes de começar está em
@@ -1160,6 +1198,7 @@ window.parent.postMessage({ vsshApp: true, type, requestId?, ...payload }, locat
 | `open-file` / `open-folder` | não | `path` |
 | `open-with` | sim | `path` |
 | `tabs` | não | `tabs[]`, `activeTabId` |
+| `rota` | não | `rota` — onde a janela deve voltar; `''` limpa. O shell valida e descarta o que não for caminho dentro do app |
 | `tray` | sim | `op`: `set`\|`remove`, `item` (só dados: `icon`, `tooltip`, `badge`, `menu`) |
 | `audio-state` | sim | `hasAudio`, `playing` — "tenho som"; é o que põe o app no mixer |
 

@@ -455,6 +455,15 @@ interface Vssh {
    */
   setTitle(title: string): void;
 
+  /**
+   * "Se eu voltar, volte assim." A rota que o ambiente guarda e devolve na URL da janela quando a
+   * sessão é restaurada — sem pedir código de restauração nenhum do seu lado.
+   *
+   * Só um caminho DENTRO do app (sem esquema, sem `/` inicial, sem `..`), com teto de 512. Vazio
+   * limpa. É ponteiro, não armazém: o que não couber num endereço vai para o backend do seu app.
+   */
+  lembrarRota(rota: string): void;
+
   window: VsshJanela;
 
   /**
