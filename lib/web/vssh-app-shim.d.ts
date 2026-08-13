@@ -439,6 +439,13 @@ interface Vssh {
   openFolder(path: string): void;
   /** Deixa o usuário escolher COM QUE abrir. Devolve o rótulo escolhido, ou `null`. */
   openWith(path: string): Promise<string | null>;
+  /**
+   * Abre um link no navegador DO AMBIENTE, e não numa aba do navegador hospedeiro.
+   *
+   * Aquele navegador resolve a rede a partir do servidor Linux, então `http://localhost:3000` aqui
+   * é o loopback **do servidor**. Só `http`/`https`; o ambiente recusa o resto.
+   */
+  openUrl(url: string): Promise<null>;
 
   fs: VsshFs;
 

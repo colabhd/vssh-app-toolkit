@@ -36,6 +36,7 @@ no-op. Você desenvolve fora do VSSH sem `if` nenhum.
 | Saber que um arquivo mudou por fora | `vssh.fs.watch()` |
 | Abrir um arquivo no visualizador certo | `vssh.openFile()` |
 | Deixar o usuário escolher com que abrir | `vssh.openWith()` |
+| Abrir um LINK no navegador do ambiente | `vssh.openUrl()` |
 | Receber um arquivo que abriram com o meu app | `vssh.onOpenContext()` |
 | Receber arquivo **arrastado** para dentro do app | `vssh.onArquivosSoltos()` |
 | Arrastar um arquivo **para fora** do app | `vssh.arrastarArquivos()` no `dragstart` |
@@ -787,6 +788,25 @@ const escolhido = await vssh.openWith('/home/user/nota.md');   // usuário escol
 
 Você manda o caminho absoluto e mais nada — **o app nunca precisa saber o `serverId` nem montar
 URL de API.**
+
+### Abrir um link no navegador do ambiente
+
+```js
+await vssh.openUrl('https://exemplo.org/docs');
+await vssh.openUrl('http://localhost:3000');   // o loopback DO SERVIDOR
+```
+
+Um `<a target="_blank">` ou um `window.open` do seu app abre uma aba do navegador **hospedeiro** —
+fora do ambiente, onde nada do VSSH existe. `vssh.openUrl` abre no navegador do VSSH.
+
+**E o ganho maior é de alcance, não de enquadramento.** O navegador do ambiente resolve a rede **a
+partir do servidor Linux**, então `http://localhost:3000` ali é o loopback **do servidor** — o
+servidor de desenvolvimento de quem está usando. Numa aba de fora, o mesmo endereço apontaria para a
+máquina de quem lê, que é outra máquina. É por isso que um app não precisa (e não deve) construir
+encaminhamento de porta próprio: o caminho já existe.
+
+Só `http` e `https`. O ambiente recusa o resto com motivo — um `javascript:` seria script executado
+no ambiente sob o nome de "abrir um link", e arquivo tem porta própria (`vssh.openFile`).
 
 ### Ser um dos alvos de "Abrir com"
 

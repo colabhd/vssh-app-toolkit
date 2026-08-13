@@ -1,6 +1,6 @@
 {
   "name": "vssh-app-toolkit",
-  "version": "4.9.0",
+  "version": "4.10.0",
   "//version": "Major 4 porque o ramo TCP SAIU do escutar(): a lib so binda socket unix. A v3 aceitava VSSH_APP_PORT como alternativa para um app novo sobreviver num servidor velho — funcionava, avisava num run.log que ninguem le, e deixava a porta exposta enquanto isso. Quem protege essa compatibilidade agora e o requires.vssh do manifesto, conferido pelo portal antes de iniciar o app: um portao onde o erro e barato, e nao um fallback em runtime. Major 3 foi o contrato: o endereco de um app deixou de ser necessariamente uma porta. Major 2 foram breaking changes reais das libs desde a v1. Ver MIGRATION.md.",
   "private": true,
   "//private": "Vale para o registry público, e só: `npm i github:colabhd/vssh-app-toolkit#v4` instala normalmente. É assim que um app consome as libs desde a v4 — antes havia um script de cópia (`vssh-app-lib-sync`) e um marcador de procedência escritos à mão, e eles produziram o defeito que os aposentou: o default de ref ficou preso na v3, dois apps sincronizaram libs 3.0.0 contra um toolkit 4.0.0 e a conta só apareceu no CI. Ver MIGRATION.md.",
