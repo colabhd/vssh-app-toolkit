@@ -1282,7 +1282,7 @@ ecossistema"*. Hoje um vssh-app **consome** o ambiente e quase não **contribui*
 |---|---|---|
 | menu de contexto de arquivo, pasta, área de trabalho | `ContextMenu.js:823-831` não tem `register`; itens em `FileContextMenu.js:49-148`, `Desktop.js:912,929,948`, `arquivos/lateral.js:115,318` | ✅ `contributes.contextMenu` no manifesto, com **precedência declarada** |
 | menu do ícone no Launchpad | três itens fixos (`ContextMenu.js:559-576`) | ✅ jump list vinda do manifesto — o que o Windows faz com o botão direito no ícone |
-| "Abrir com" | o app entra **sempre depois** dos embutidos, atrás de um separador, com ícone fixo `apps` (`abrir-com.js:143-146`); o OnlyOffice é sempre o primeiro (`:77-83`) | 🔶 o ícone é o do próprio app — **feito**; a ordem contra os embutidos continua fixa |
+| "Abrir com" | o app entra **sempre depois** dos embutidos, atrás de um separador, com ícone fixo `apps` (`abrir-com.js:143-146`); o OnlyOffice é sempre o primeiro (`:77-83`) | ✅ ícone do próprio app, sem o separador que o punha em segunda classe, e o padrão DO USUÁRIO no topo |
 | `opens.mimeTypes` | aceito, projetado e **nunca roteado** (`docs/api.md:700-702`) | ✅ roteado pelo mesmo portão — e sem taxonomia nova |
 | `handles` | enum fechado de 5, e `vscode` é o único valor que nomeia **um produto** (`schema:142-146`) | ✅ `ide`: papel, não nome de produto |
 | `category` | sobrescrito por `'Apps Integrados'` (`Launchpad.js:73-75`) | ✅ vale, e a seção fixa acabou |
@@ -1483,8 +1483,32 @@ item novo no meio herdaria o separador do vizinho.
 superfície, a rota obrigatória de um lado e proibida do outro) e a saída (uma rota não vira URL).
 Refutado: tirar a checagem do verbo derruba exatamente um caso. Shell **4.13.0**, toolkit **4.8.0**.
 
-**O que continua aberto neste item:** a **ordem do "Abrir com"** contra os embutidos, que continua
-fixa — o app entra sempre depois, atrás de um separador. É a última linha 🔶 da tabela acima.
+### ✅ 4f. A ordem do "Abrir com" — e a régua que NÃO se declara
+
+Um vssh-app entrava sempre depois de todos os embutidos, **atrás de um separador**. Era a frase de
+"Apps Integrados" dita com um traço: os nossos de um lado, os outros do outro. E não é o que a lista
+é — quem abre um arquivo dentro do ambiente é uma classe só. O separador saiu; o que restou (antes
+dos apps do sistema) é de verdade, porque programa X11 exige motor e abre fora do navegador.
+
+**E quem vai ao topo é o padrão do USUÁRIO, não quem declarar melhor.** Este submenu ignorava a
+escolha explícita: quem elegeu um app para `.md` em Configurações → Tipos de arquivo via o
+duplo-clique obedecer e o "Abrir com" listar aquele app no fim, como se fosse a última opção. Ele
+sobe, e sobe marcado.
+
+**Não há campo de ordem aqui, e isso é decisão.** No menu de contexto o `ordem` do manifesto
+funciona porque mede contra os itens do shell. Numa lista de "quem abre isto" ele viraria corrida:
+todo app declararia `0` para ficar em primeiro no "Abrir com" de todo mundo, e a régua deixaria de
+medir alguma coisa. A única precedência que não é palpite nosso nem disputa entre apps é a de quem
+usa — e ela já estava gravada e já era lida pelo `FileOpener` no duplo-clique. Só faltava aqui.
+
+**⚠ E o "Copiar link de coedição" saiu do segundo lugar — não por ordem, por CLASSE.** Ele vinha
+logo abaixo do editor do Office, portanto acima de todo app que sabe abrir o arquivo; e copiar um
+link **não abre nada**. Não é uma alternativa ao editor, é outra ação, que por acaso mora no mesmo
+produto. Foi para o fim, atrás do próprio separador. (O "sempre primeiro" do editor do Office
+continua, e continua registrado como assunto da onda dele.)
+
+**Guarda:** `abrir-com-ordem.test.js`, **9 casos**. Refutado: tirar a promoção do padrão derruba
+quatro. Shell **4.14.0**.
 
 ## 5. ✅ A extensão VSSH, servida pelo próprio app — **feita**, e ela tem DUAS metades
 

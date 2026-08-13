@@ -799,6 +799,14 @@ Declare no `vssh-app.json`:
 O app passa a aparecer no "Abrir com" do gerenciador de arquivos para esses tipos, e recebe o
 arquivo por `open-context`:
 
+**Onde ele aparece na lista, e por que não há como declarar isso.** O app entra entre os
+candidatos, sem separador — ⚠ *ele entrava sempre depois de todos os embutidos, atrás de uma
+linha, e essa linha dizia "os nossos e os outros"*. Quem vai ao **topo**, marcado, é o app que o
+USUÁRIO elegeu para aquele tipo em Configurações → Tipos de arquivo. Não há campo de ordem aqui de
+propósito: no menu de contexto o `ordem` mede contra os itens do shell, mas numa lista de "quem
+abre isto" ele viraria corrida — todo app declararia 0 para ficar em primeiro no "Abrir com" de
+todo mundo. A única precedência que não é palpite nosso nem disputa entre apps é a de quem usa.
+
 > ⚠ **Isto dizia que "hoje o casamento é por extensão" e que `mimeTypes` era aceito mas nunca
 > roteado. Não é mais verdade: os dois roteiam.** Quem abre a partir do gerenciador de arquivos
 > casa por MIME também, porque a listagem já traz o `mime` de cada item — o ambiente não inventou
