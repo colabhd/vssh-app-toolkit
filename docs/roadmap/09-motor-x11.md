@@ -486,7 +486,7 @@ o gesto**, e neste caso o gesto morava do outro lado da fronteira.
 > dispara o `publish.yml`, que publica no `vssh-repo` — e **publicar não tem rota de retirada**.
 > Fica esperando decisão.
 
-## 3e. 📋 O pacote registra o próprio host — e é isso que devolve o teclado ao ambiente
+## 3e. ✅ O pacote registra o próprio host — e é isso que devolve o teclado ao ambiente
 
 **Item novo, e ele é a metade do 3d que não cabia numa inversão de verbo.** O `MenuCustom.js` ainda
 diz `window.client` em três lugares, e a regra escrita no topo do `vssh-host.js` é clara: *"NENHUM
@@ -536,6 +536,46 @@ Então o trabalho é em três passos, e **o primeiro é o caro**, com dois obst�
 **Custo:** mexe no `vsshapp-xpra` e no `vssh-sso`, e exige publicar o pacote. **Guarda:** com uma
 janela X11 e uma do shell abertas, clicar no botão da nativa na barra a traz de volta — e o teste
 tem de ficar vermelho com o `focused_wid` não zerado, que é a linha inteira.
+
+### ✅ Feito — e **os dois obstáculos do passo caro não existiam mais**
+
+`vsshapp-xpra` **0.9.0**, shell **4.12.0**.
+
+⚠ **A seção acima diz que o primeiro passo é o caro, por causa de `nativeWindows()` e
+`workarea()`. Fui conferir antes de contorná-los, e a varredura nos dois repositórios achou ZERO
+consumidores** — as únicas ocorrências das duas são comentários descrevendo o estado antigo. A
+duplicata do `TilingManager` morreu no 3b (ele lê só `VsshWindow._all`), e a área útil ele deriva da
+viewport dele, que ainda desconta a barra de tarefas — coisa que o `workarea()` nunca fez. **O
+bloqueio foi escrito antes do 3a/3b e não foi reconferido depois.**
+
+Então eles não foram contornados: **saíram**, junto com o `VsshHost.viewportWorkarea` que só o
+`workarea()` chamava. Superfície morta não é inofensiva — era ela que fazia instalar o host do
+pacote parecer arriscado.
+
+O resto do item saiu como estava desenhado, com uma decisão a mais:
+
+- **A instalação é um passo de `ligarSubsistemas`, e não o fim do `host-xpra.js`.** O que o host
+  promete (`nativeApps`, `keyboardGrab`) só é verdade com um cliente vivo; instalá-lo no
+  carregamento do arquivo faria o ambiente anunciar capacidade antes de haver com quem falar. E o
+  `desinicializar()` devolve o host neutro — mesma doutrina do `--dpr` e do menu: o que o motor
+  escreve no ambiente, o motor desfaz.
+- **O `MenuCustom.js` saiu da lista de isentos** do `vssh-host.js`. Ele estava lá junto com o
+  `Client.js` e o `Window.js`, e não devia: aqueles são upstream e moram no pacote; este é nosso.
+  O que o prendia ao `window.client` eram três linhas **sem verbo para chamar** — a isenção
+  descrevia uma falta nossa, não uma licença.
+
+**Guarda:** `tests/host-do-motor.test.js` no pacote, **8 casos**. O dublê do cliente **registra o
+`focused_wid` como estava na hora do `set_focus`**, que é a única forma de perguntar "zerou ANTES?"
+em vez de "zerou?". Refutado: tirar a linha do zerar derruba exatamente um caso.
+
+⚠ **E a primeira refutação saiu verde sem valer nada:** o `replace` do roteiro não casou porque o
+arquivo está em CRLF. **Mutação que não aplica sai verde igual a código correto** — o roteiro passou
+a conferir que mutou antes de rodar. Terceira aparição desta armadilha no projeto.
+
+⚠ **A ordem de entrega era dura, e por pouco não foi dita:** o shell 4.12.0 troca o `window.client`
+do MenuCustom pelos dois verbos, e com o pacote 0.8.0 instalado eles não existem do outro lado —
+clicar no botão de uma janela X11 na barra não faria nada. Cada metade correta sozinha, o par
+mentindo: é a lição do socket contra porta, e ela vale para todo item que atravessa os dois repos.
 
 ## ✅ O que o pacote devia: as DUAS versões foram publicadas
 
@@ -1337,7 +1377,7 @@ duas afirmações são sobre **contagem** e **ordem**; varredura de texto não a
 
 ---
 
-## 7. 📋 O portal conta ao motor a DPI da tela de quem está abrindo
+## 7. ✅ O portal conta ao motor a DPI da tela de quem está abrindo
 
 > **Este item era "o tamanho E a DPI", e a metade do tamanho se dissolveu na `0.7.3`.** Uma linha do
 > log, três segundos antes de qualquer cliente existir, mudou o diagnóstico:
@@ -1437,6 +1477,39 @@ desaparece com um servidor X que aceite redimensionar ao vivo — ou seja, com o
 **Guarda:** com o portal mandando os três, o log do xpra da sessão **não** contém `DPI Issue` nem
 `tried to set resolution`. São as duas linhas que ele imprime quando recusa, então a ausência delas
 é a afirmação — e refutar é fixar `VSSH_X11_WIDTH` num valor diferente do da janela.
+
+### ✅ Feito — shell **4.11.0**
+
+A conversão mora num módulo folha (`utils/tela-do-cliente.ts`) para poder ser executada por uma
+guarda, como o `fim-de-vida.ts` da Onda 9: `css × dpr` para a tela, `96 × dpr` para a DPI. **O
+`dpr` é limitado a 2**, e o teto não é medo de número grande — cada ponto multiplica a ÁREA do
+framebuffer, e num 4K a 200% já são 7680×4320. Acima disso deixa de comprar nitidez e passa a
+comprar RAM do servidor.
+
+Três decisões que valem mais que o código:
+
+- **A tela não entra na chave de coalescência do start.** O display X é da SESSÃO, não da aba, então
+  o segundo start em voo não tem uma segunda tela para pedir. É a limitação que este item já
+  registrava, e não uma introduzida agora.
+- **Vai em TODO start, e não só no do motor.** Quem decide o que fazer com o número é o portal, que
+  já tem a tabela de quem recebe o quê (`_PREFERENCIAS_DO_PORTAL`); um `if (appId === 'xpra')` no
+  lançador genérico seria conhecimento do motor morando no shell — a linha que a 2.7 tirou.
+- **O "Reiniciar" da seção Serviços leva a tela junto**, pelo mesmo motivo pelo qual ele já levava o
+  `dbUser`: o `env` é reescrito a cada start, e sem ela o botão desfaria, calado, o que o start
+  tinha acertado.
+
+Valor reprovado é **descartado, não corrigido** — a regra do layout de teclado, ao lado. E meia
+medida não vale: sem os dois lados não há proporção, e o `Xvfb` aceita **um** `-dpi` para os dois
+eixos.
+
+**Guarda:** `tela-do-motor.test.js`, **10 casos**, mais **2** em `app-env-portal.test.js` — a
+composição das duas fontes (a preferência do banco e a tela do navegador) no arquivo único que o
+motor lê. Refutado: tirar o teto do `dpr` derruba exatamente o caso do teto.
+
+⚠ **Duas bancadas precisaram de conserto, e nenhum é do produto.** Uma não declarava `window`, que o
+navegador sempre tem. A outra — que **extrai** o `_envDoPortal` do fonte em vez de recopiá-lo —
+passou a receber `envDeTela` **injetado**: reescrever a segunda fonte lá dentro seria exatamente a
+cópia que aquele arquivo existe para não ter.
 
 ---
 
@@ -1618,11 +1691,11 @@ medida executando.
 | 3b | ✅ **feito** — os proxies (**dois donos**), o observador de escala, o registro de zonas de drop e o `xpraAdapter` saem; 326 linhas entram, **560 saem**. ⚠ Deixou **duas regressões de CSS apontando para a casa antiga** (o laço invisível e o ícone que não arrasta), as duas invisíveis a teste de texto | `vssh-sso` | 3a |
 | 3c | ✅ **feito** — um contrato, e as três direções caem dele. A medida derrubou METADE do item: os caminhos já viajavam no `dataTransfer`, e a direção de ENTRADA não passa pelo shell (mesma origem) — o que faltava era a SAÍDA | toolkit + `vssh-sso` | 3b |
 | 3d | ✅ **no disco, NÃO publicado** (0.8.0) — os dois verbos invertidos, e a **terceira regressão do 3b** consertada: seis pontos deste repositório chamavam adaptadores que o 3b apagou | `vsshapp-xpra` | 3b · **empurrar o repo PUBLICA** |
-| 3e | 📋 o pacote **registra o próprio host** — `focarJanelaNativa` e `pausarPonteiro`; é o que tira os últimos três `window.client` do shell e devolve o teclado ao ambiente | `vsshapp-xpra` + `vssh-sso` | 3d · **exige publicar** |
+| 3e | ✅ o pacote **registra o próprio host** — `focarJanelaNativa` e `pausarPonteiro`; é o que tira os últimos três `window.client` do shell e devolve o teclado ao ambiente | `vsshapp-xpra` + `vssh-sso` | 3d · **feito** (0.9.0 + shell 4.12.0) |
 | 4d | ✅ **feito** — o Alt+Tab **e o lado a lado** passam a ser do ambiente, sobre `VsshWindow._all`. ⚠ Achou a **terceira regressão do 3b**: o Super+setas do pacote chama dois adaptadores apagados e devolve `false` calado | `vssh-sso` | 3a |
 | 5 | ✅ **feito** — a orquestração de porta morre, e com ela o **teto de 254 servidores**. `transport: "tcp"` saiu do produto: a justificativa escrita (*"o xpra, cujo WebSocket só aceita HOST:PORT"*) deixou de valer quando o item 2 fechou | `vssh-sso` | 2 |
 | 6 | ✅ **feito** — um start em voo por `<servidor, usuário, app>`; é trava e não cache, e o `restartApp` espera em vez de coalescer | `vssh-sso` | — |
-| 7 | 📋 o portal conta ao motor a **DPI** da tela — a metade do TAMANHO se dissolveu na 0.7.3 (o teto do Xvfb era 1920x1080) | `vssh-sso` | — |
+| 7 | ✅ o portal conta ao motor a **DPI** da tela — a metade do TAMANHO se dissolveu na 0.7.3 (o teto do Xvfb era 1920x1080) | `vssh-sso` | **feito** (shell 4.11.0) |
 | 8 | ✅ **feito** — as pastas nascem junto da checagem do usuário; ⚠ e a **primeira versão não rodava em produção** (`JSON.stringify` no lugar de aspas de shell), com a guarda aprovando | `vssh-sso` | — (achado ao conferir o 3b) |
 | 8a | ✅ **feito** — a barra lateral PERGUNTA (`GET /api/user-dirs`) em vez de adivinhar; sem o XDG instalado ela SONDA, e a diferença é um `[ -d ]` | `vssh-sso` | 8 |
 | 9 | ✅ **feito** — um app desinstalado com janela salva pedia start a cada acesso, para sempre; a restauração pergunta ANTES e apaga o lock, e o registro passou a saber dizer **"não sei"** | `vssh-sso` | — (achado num log de produção) |
