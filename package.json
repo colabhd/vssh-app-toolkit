@@ -19,6 +19,7 @@
     "./fs": "./lib/node/vssh-app-fs/index.js",
     "./tray": "./lib/node/vssh-tray.js",
     "./notify": "./lib/node/vssh-notify.js",
+    "./live": "./lib/node/vssh-live.js",
     "./web": "./lib/node/web-assets.js",
     "./web/*": "./lib/web/*",
     "./package.json": "./package.json"

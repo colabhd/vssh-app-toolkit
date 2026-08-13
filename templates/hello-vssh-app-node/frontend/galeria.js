@@ -240,13 +240,86 @@ function montarGaleria() {
       ? 'dentro do desktop VSSH — diálogos e avisos são os do shell'
       : 'fora do desktop — o shim degrada para alert/confirm do navegador');
 
+    // O aviso efêmero: some em segundos e NÃO entra no histórico. A `chave` faz o segundo
+    // clique reescrever o primeiro em vez de empilhar um aviso novo.
+    $('toast').addEventListener('click', () => {
+      vssh.toast('Copiado', { chave: 'exemplo' });
+      escrever('bridge', 'toast: aparece e some. Olhe o sino — não há nada lá.');
+    });
+
+    // O FATO: fica no sino até ser lido, com o id deste app como dono.
     $('notify').addEventListener('click', () => {
       vssh.notify('Round-trip concluído', { title: 'Hello World', level: 'success' });
+      escrever('bridge', 'notify: abra o sino — está lá, e continua lá amanhã.');
+    });
+
+    // `prioridade: 'alta'` = não some sozinho, porque pede resposta. A ação é DADO (id +
+    // rótulo); a resposta volta como `notify-action`, tratada mais abaixo.
+    $('notify-acao').addEventListener('click', () => {
+      vssh.notify('Não consegui falar com o servidor de índices.', {
+        title: 'Hello World', level: 'error', prioridade: 'alta',
+        chave: 'indice:falhou',
+        actions: [{ id: 'retry', label: 'Tentar de novo' }],
+      });
+      escrever('bridge', 'notify de prioridade alta: não some sozinho, e pode ser respondido depois.');
     });
 
     $('confirm').addEventListener('click', async () => {
       const ok = await vssh.dialog.confirm('Isto veio do desktop, não do navegador. Confirma?');
       escrever('bridge', 'confirm devolveu: ' + ok);
+    });
+
+    // ── O que está acontecendo agora ────────────────────────────────────────────
+    //
+    // O ciclo inteiro num só lugar: `set` a cada passo (a mesma chave reescreve no lugar), e
+    // `clear` no fim. Com `registrar`, o fim vira UMA notificação; sem, a atividade só some —
+    // que é o certo para uma condição que deixou de valer e não é um fato a guardar.
+
+    let _liveTimer = null;
+
+    const pararLive = (registrar) => {
+      clearInterval(_liveTimer);
+      _liveTimer = null;
+      vssh.live.clear('exemplo', registrar ? { registrar } : undefined);
+    };
+
+    $('live-ir').addEventListener('click', () => {
+      if (_liveTimer) return;
+      const total = 10;
+      let feito = 0;
+      const passo = () => {
+        feito++;
+        vssh.live.set('exemplo', {
+          titulo: 'Processando',
+          texto: `item ${feito}`,
+          formato: 'progresso',
+          progresso: { feito, total },
+        });
+        escrever('live', `${feito} de ${total} — olhe a bandeja e o painel do sino`);
+        if (feito >= total) {
+          pararLive({ titulo: 'Processamento concluído', texto: `${total} itens`, level: 'success' });
+          escrever('live', 'acabou: a atividade sumiu, e deixou UMA notificação no sino');
+        }
+      };
+      passo();
+      _liveTimer = setInterval(passo, 700);
+    });
+
+    $('live-parar').addEventListener('click', () => {
+      pararLive(null);
+      escrever('live', 'desisti: a atividade sumiu SEM deixar rastro nenhum');
+    });
+
+    // O MESMO ciclo, do outro lado: quem escreve é o backend, por arquivo, e funciona com esta
+    // janela fechada — que é o caso que um `kind:"service"` vive.
+    $('live-backend').addEventListener('click', async () => {
+      const r = await fetch('api/tarefa-longa', { method: 'POST' }).then(x => x.json());
+      escrever('live', `o backend começou ${r.total} passos — feche esta janela e olhe a bandeja`);
+    });
+
+    $('avisar-backend').addEventListener('click', async () => {
+      const r = await fetch('api/avisar', { method: 'POST' }).then(x => x.json());
+      escrever('live', `notificado com key “${r.key}” — clicar de novo hoje NÃO gera outra`);
     });
 
     // ── Bandeja ────────────────────────────────────────────────────────────────

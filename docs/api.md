@@ -25,7 +25,9 @@ no-op. Você desenvolve fora do VSSH sem `if` nenhum.
 |---|---|
 | Trocar o título da janela | `document.title = '…'` (automático) |
 | Minimizar / maximizar / fechar | `vssh.window.*` |
-| Mostrar um aviso não-bloqueante | `vssh.notify()` |
+| Avisar algo que a pessoa vai querer reencontrar | `vssh.notify()` |
+| Uma frase que se lê e se esquece | `vssh.toast()` |
+| Mostrar o que o app está fazendo AGORA | `vssh.live.set()` / `.clear()` |
 | Perguntar algo ao usuário | `vssh.dialog.*` |
 | Menu de contexto do desktop | `vssh.contextMenu()` |
 | Ícone na bandeja do sistema | `vssh.tray.set()` |
@@ -84,17 +86,89 @@ janela que se redimensiona sozinha briga com quem acabou de arrastá-la.
 
 ## Falar com o usuário
 
+### Três superfícies, três tempos de vida — e escolher errado custa caro
+
+|  | o que é | vive | deixa rastro? |
+|---|---|---|---|
+| `vssh.notify()` | um **fato** que aconteceu | até ser lido | sim, no histórico do sino |
+| `vssh.toast()` | uma frase que se lê e se esquece | segundos | **não** |
+| `vssh.live` | uma **condição** que é verdade agora | enquanto vale | **não** |
+
+A regra que decide:
+
+> **Um aviso é para o que não deixa rastro na tela.** Se a pessoa vê o resultado acontecer — o
+> item aparecendo na lista, o campo mudando —, não mande nada. Se ela vai precisar reencontrar
+> o que aconteceu (um caminho, um id, um erro), é `notify`. Se ainda não terminou, é `live`.
+
+Isto não é preciosismo: o desktop já gravou TODO aviso no histórico, e o resultado foi um sino
+cheio de "arquivo salvo" que ninguém mais lia — até o badge deixar de querer dizer alguma coisa.
+O custo de escolher errado não cai no seu app; cai na atenção de quem usa o ambiente inteiro.
+
 ### Notificação (não bloqueia)
 
 ```js
-vssh.notify('Índice reconstruído', { title: 'Busca', level: 'success', timeout: 4000 });
+vssh.notify('Índice reconstruído', { title: 'Busca', level: 'success' });
 ```
 
-`level`: `info` (padrão), `success`, `warning`, `error`.
+`level`: `info` (padrão), `success`, `warning`, `error` — é o TOM, a cor da barrinha.
 
-O aviso aparece como toast **e** fica no centro de notificações, com o seu `id` de app como
-dono. Se o usuário estiver em "não perturbe", o toast não aparece — a entrada fica lá mesmo
-assim, esperando ser lida. Silenciar as duas coisas seria perder informação.
+`prioridade` é outra coisa: quanto isso interrompe.
+
+| `prioridade` | badge | aviso na tela | notificação do SO |
+|---|---|---|---|
+| `'baixa'` | sim | não | não |
+| `'normal'` *(padrão)* | sim | 4 s | só com a aba oculta |
+| `'alta'` | sim | não some sozinho | só com a aba oculta |
+
+Não há nível acima de `'alta'` para um app: bloquear a tela de quem está trabalhando é poder do
+ambiente. Para uma pergunta que precisa de resposta, use `vssh.dialog.confirm()` — que é uma
+pergunta que a pessoa escolheu abrir.
+
+`chave` é a identidade semântica: uma notificação com a mesma chave **substitui** a anterior no
+lugar. É o que faz "3 de 5 baixados" ser uma linha, e não cinco.
+
+```js
+vssh.notify(`${feitos} de ${total} baixados`, { chave: 'downloads', prioridade: 'baixa' });
+```
+
+A notificação fica no centro com o seu `id` de app como dono. Se o usuário estiver em "não
+perturbe" — ou tiver silenciado o SEU app, pelo botão direito numa notificação dele —, a tela
+não é interrompida; a entrada fica lá mesmo assim, esperando ser lida.
+
+### Aviso efêmero
+
+```js
+vssh.toast('Copiado');
+vssh.toast('Enviando 3 de 5…', { chave: 'envio' });   // a mesma chave reescreve no lugar
+```
+
+NÃO entra no histórico. Use para o que se lê e se esquece: "copiado", "salvo". Se a pessoa vai
+querer reencontrar o que você disse, não é isto.
+
+### O que o app está fazendo agora
+
+```js
+vssh.live.set('sync', {
+  titulo: 'Sincronizando',
+  texto: arquivoAtual,
+  formato: 'progresso',
+  progresso: { feito, total },        // ou { indeterminado: true }
+  acoes: [{ id: 'pausar', label: 'Pausar' }],
+});
+
+// terminou, e o fim não interessa a ninguém:
+vssh.live.clear('sync');
+
+// terminou, e o desfecho vale um registro:
+vssh.live.clear('sync', { registrar: { titulo: 'Pronto', texto: `${total} arquivos` } });
+```
+
+Ela aparece como ícone com porcentagem na bandeja e como linha com barra no painel do sino, e
+**some quando você encerra** — sem deixar rastro, a menos que você peça `registrar`. As ações
+voltam como `live-action` na mesma ponte que as de notificação (ver adiante).
+
+Uma atividade que sobrevive ao trabalho que ela descreve é pior que nenhuma: ela mente sobre o
+estado do ambiente. Encerre sempre — e, sem janela, veja o `at` e o TTL adiante.
 
 Com a aba oculta e a permissão concedida, o aviso também sai como **notificação do sistema
 operacional** — alcance a mais, não mecanismo: nunca conte com ela. O usuário concede no botão
@@ -164,6 +238,32 @@ Sem janela **e** sem `onAction.path`, o shell diz ao usuário que não há como 
 de engolir o clique.
 
 ### Notificar sem janela aberta (backend, `kind:"service"`)
+
+### Atividade sem janela aberta (backend)
+
+```js
+const { setLive, clearLive, keepLiveAlive, clearLiveOnExit } = require('vssh-app-toolkit/live');
+
+keepLiveAlive();      // renova o carimbo de tempo sozinho
+clearLiveOnExit();    // e limpa num Ctrl+C
+
+setLive('sync', { titulo: 'Sincronizando', formato: 'progresso', progresso: { feito, total } });
+// …
+clearLive('sync', { registrar: { titulo: 'Sincronização concluída', texto: `${total} arquivos` } });
+```
+
+Escreve `~/.vssh-notifications/live/<chave>.json`; o portal lê no mesmo tick da bandeja.
+
+⚠ **O carimbo de tempo não é opcional.** Um arquivo chamado `live` sobrevive a um `kill -9`, e
+sem prazo de validade o primeiro processo que morrer no meio prega "Sincronizando 3 de 12" no
+painel do usuário para sempre. O portal descarta o que passa de ~60 s sem renovar; `setLive`
+carimba a cada chamada, e `keepLiveAlive()` renova para você quando a atividade fica parada
+esperando rede.
+
+O portal lê no máximo 32 arquivos de `live/` por usuário. Se o seu app precisa de mais que isso
+ao mesmo tempo, o que ele quer provavelmente é UMA atividade com um contador.
+
+### Notificar sem janela aberta
 
 `vssh.notify` é do frontend: precisa de uma janela viva para atravessar a ponte de
 `postMessage`. Um daemon que termina um backup às 3h **não tem janela** — e é exatamente ele

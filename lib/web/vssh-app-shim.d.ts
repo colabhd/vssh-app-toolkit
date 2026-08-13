@@ -17,11 +17,73 @@
 /** Severidade de uma notificação. `info` é o padrão. */
 type VsshNivel = 'info' | 'success' | 'warning' | 'error';
 
+/**
+ * Quanto uma notificação interrompe. `level` é TOM (a cor); isto é IMPORTÂNCIA.
+ *
+ *   'baixa'   badge e histórico. Não aparece na tela.
+ *   'normal'  + aviso de 4 s.                                       ← o padrão
+ *   'alta'    + aviso que não some sozinho (pede resposta).
+ *
+ * Não há `'critica'` aqui de propósito: ela abre um diálogo bloqueante, e o desktop a rebaixa
+ * para `'alta'` quando vem de um app. Bloquear a tela de quem está trabalhando é poder do
+ * ambiente, não de quem escreve um app — para uma pergunta que precisa de resposta, use
+ * `vssh.dialog.confirm()`, que é uma pergunta que a pessoa escolheu abrir.
+ */
+type VsshPrioridade = 'baixa' | 'normal' | 'alta';
+
+/** Ação de uma notificação: DADO, nunca função. A resposta volta por `notify-action`. */
+interface VsshAcaoDeNotificacao {
+  id: string;
+  label: string;
+}
+
 interface VsshOpcoesDeNotificacao {
   title?: string;
   level?: VsshNivel;
-  /** Milissegundos até sumir sozinha. */
+  prioridade?: VsshPrioridade;
+  /**
+   * Identidade SEMÂNTICA: uma notificação nova com a mesma chave SUBSTITUI a anterior no lugar,
+   * em vez de empilhar. É o que faz "3 de 5 baixados" ser uma linha, e não cinco.
+   */
+  chave?: string;
+  /** Até três. A quarta viraria menu, e menu numa notificação ninguém abre. */
+  actions?: VsshAcaoDeNotificacao[];
+  /** Não suma sozinha — o `requireInteraction` da Notification API. Equivale a `'alta'`. */
+  persistent?: boolean;
+}
+
+interface VsshOpcoesDeAviso {
+  title?: string;
+  level?: VsshNivel;
+  /** Milissegundos até sumir sozinho. `0` = fica até alguem dispensar. */
   timeout?: number;
+  /** Mesma chave reescreve o aviso na tela em vez de abrir um segundo. */
+  chave?: string;
+}
+
+/** O que o app está fazendo agora. Some quando acaba; nada disto vai para o histórico. */
+interface VsshAtividade {
+  titulo?: string;
+  texto?: string;
+  level?: VsshNivel;
+  /** `'simples'` ou `'progresso'`. Com `progresso`, o desktop desenha a barra. */
+  formato?: 'simples' | 'progresso';
+  progresso?: { feito: number; total: number } | { indeterminado: true };
+  acoes?: VsshAcaoDeNotificacao[];
+  /**
+   * Epoch ms, RENOVADO enquanto a atividade vive.
+   *
+   * Só importa no caminho por ARQUIVO (`lib/node/vssh-live.js`): um arquivo chamado `live`
+   * sobrevive a um `kill -9`, e sem prazo de validade ele passa a mentir que algo está
+   * acontecendo. Pela janela, quem dá o prazo é a própria janela estar aberta.
+   */
+  at?: number;
+}
+
+interface VsshControleDeAtividade {
+  set(chave: string, item: VsshAtividade): void;
+  /** Encerra. Sem `registrar`, não deixa rastro — e é esse o padrão. */
+  clear(chave: string, opts?: { registrar?: { titulo?: string; texto?: string; level?: VsshNivel } }): void;
 }
 
 /**
@@ -351,7 +413,13 @@ interface Vssh {
   readonly libVersion: string;
 
   capabilities(): Promise<VsshCapabilities>;
+
+  /** Um FATO que aconteceu. Fica no histórico do sino até ser lido. */
   notify(message: string, opts?: VsshOpcoesDeNotificacao): void;
+  /** Uma frase que se lê e se esquece. Some em segundos, SEM deixar rastro. */
+  toast(message: string, opts?: VsshOpcoesDeAviso): void;
+  /** Uma CONDIÇÃO que é verdade agora. Some quando deixa de ser. */
+  live: VsshControleDeAtividade;
 
   dialog: VsshDialogo;
 

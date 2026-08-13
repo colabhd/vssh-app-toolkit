@@ -23,6 +23,13 @@ const { createAppLog } = require('vssh-app-toolkit/log');
 const { openSseStream } = require('vssh-app-toolkit/sse');
 const { escutar } = require('vssh-app-toolkit/listen');
 const { WEB_DIR, SHIMS } = require('vssh-app-toolkit/web');
+// As duas vozes de um app SEM janela. Elas dizem coisas diferentes, e trocar uma pela outra é o
+// erro que enche o sino de quem usa o ambiente:
+//
+//   notify()  um FATO que aconteceu, e que a pessoa vai querer reencontrar. Fica no histórico.
+//   live      uma CONDIÇÃO que é verdade AGORA. Some quando deixa de ser, sem deixar rastro.
+const { notify } = require('vssh-app-toolkit/notify');
+const { setLive, clearLive, keepLiveAlive, clearLiveOnExit } = require('vssh-app-toolkit/live');
 
 // Onde este backend escuta é decisão do lifecycle, não deste arquivo: socket unix em
 // $VSSH_APP_SOCKET (o padrão desde a Onda 9) ou TCP em $VSSH_APP_PORT. Quem lê as duas variáveis,
@@ -454,6 +461,60 @@ const server = http.createServer(async (req, res) => {
       log('token-rejected', { path: url.pathname });
       res.writeHead(403, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'token ausente ou inválido' }));
+      return;
+    }
+
+    // ── A tarefa longa, e o ciclo completo de uma atividade ────────────────────
+    //
+    // O que este endpoint demonstra é o que um `kind:"service"` faz o dia inteiro: trabalho que
+    // demora, com o usuário podendo estar olhando para outra coisa. Três decisões dentro dele:
+    //
+    //  1. **`setLive` a cada passo, com a MESMA chave.** Ela reescreve no lugar — vinte relatos
+    //     de progresso não viram vinte linhas no painel de quem está trabalhando;
+    //  2. **`keepLiveAlive()` uma vez.** O portal descarta a atividade que passa ~60 s sem
+    //     renovar o carimbo de tempo, porque um arquivo chamado `live` sobrevive a um `kill -9` —
+    //     e uma barra parada em 30% para sempre é pior que barra nenhuma;
+    //  3. **`clearLive` com `registrar` no fim.** A atividade some e deixa UMA notificação. Se o
+    //     desfecho não interessasse (uma indisponibilidade que se resolveu), seria `clearLive`
+    //     sem argumento nenhum, e não sobraria rastro — que é o certo nesse caso.
+    if (url.pathname === '/api/tarefa-longa' && req.method === 'POST') {
+      const total = 8;
+      let feito = 0;
+      const passo = () => {
+        feito++;
+        setLive('exemplo-backend', {
+          titulo: 'Tarefa do backend',
+          texto: `passo ${feito}`,
+          formato: 'progresso',
+          progresso: { feito, total },
+        });
+        if (feito >= total) {
+          clearInterval(t);
+          clearLive('exemplo-backend', {
+            registrar: { titulo: 'Tarefa concluída', texto: `${total} passos`, level: 'success' },
+          });
+        }
+      };
+      passo();
+      const t = setInterval(passo, 800);
+      // `unref`: um temporizador de demonstração não pode ser o motivo de o processo não encerrar.
+      t.unref?.();
+
+      res.writeHead(202, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ iniciada: true, total }));
+      return;
+    }
+
+    // Uma notificação de backend com `key` estável. O portal lê uma JANELA do fim do journal, não
+    // um delta — então é a `key` que impede o mesmo aviso de chegar a cada tick. Chamar isto dez
+    // vezes no mesmo dia rende UMA notificação; no dia seguinte, outra.
+    if (url.pathname === '/api/avisar' && req.method === 'POST') {
+      const hoje = new Date().toISOString().slice(0, 10);
+      notify('O disco do servidor está acima de 90%.', {
+        title: 'Hello World', level: 'warning', key: `disco-cheio-${hoje}`,
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ notificada: true, key: `disco-cheio-${hoje}` }));
       return;
     }
 

@@ -162,17 +162,43 @@
       <pre id="estado">— (assine o SSE acima para receber as mudanças da outra janela)</pre>
     </section>
 
-    <section>
-      <h2>Diálogo e aviso</h2>
+    <section class="larga">
+      <h2>Avisar, notificar, ou mostrar o que está acontecendo</h2>
       <p class="porque">
-        <code>vssh</code> vem do <code>vssh-app-shim.js</code>, injetado pelo <code>static-spa</code>
-        — não há <code>&lt;script&gt;</code> para ele neste arquivo. Nada disto passa pelo Xpra.
+        Três superfícies com três tempos de vida, e escolher errado custa a atenção de quem usa o
+        ambiente — não a sua. Clique os dois primeiros lado a lado e olhe o sino: <strong>só um
+        deles deixa rastro.</strong>
+      </p>
+      <p class="porque">
+        <code>toast</code> é a frase que se lê e se esquece (&ldquo;copiado&rdquo;, &ldquo;salvo&rdquo;).
+        <code>notify</code> é um <em>fato</em> que a pessoa vai querer reencontrar — um caminho,
+        um id, um erro. <code>live</code> é uma <em>condição</em> que ainda é verdade, e some
+        quando deixa de ser. A regra: <strong>um aviso é para o que não deixa rastro na tela.</strong>
       </p>
       <div class="acoes">
-        <button id="notify">vssh.notify</button>
+        <button id="toast">vssh.toast — some sem deixar nada</button>
+        <button id="notify">vssh.notify — fica no sino</button>
+        <button id="notify-acao">notify com ação e prioridade alta</button>
         <button id="confirm">vssh.dialog.confirm</button>
       </div>
       <pre id="bridge">—</pre>
+    </section>
+
+    <section class="larga">
+      <h2>O que o app está fazendo agora</h2>
+      <p class="porque">
+        Uma tarefa longa de mentira, para ver o ciclo completo: a atividade aparece com barra na
+        bandeja e no painel do sino, anda, e <strong>some</strong> ao terminar — deixando UMA
+        notificação no lugar. A mesma chave reescreve no lugar, então relatar progresso vinte
+        vezes não empilha vinte linhas.
+      </p>
+      <div class="acoes">
+        <button id="live-ir">começar (10 passos)</button>
+        <button id="live-parar">desistir (some sem registrar)</button>
+        <button id="live-backend">a mesma coisa, pelo BACKEND (sem janela)</button>
+        <button id="avisar-backend">notify do backend, com key estável</button>
+      </div>
+      <pre id="live">—</pre>
     </section>
 
     <section>
