@@ -1269,7 +1269,7 @@ apagá-lo cria um 502 sem causa.
 | | O que sai | O que ainda funciona depois |
 |---|---|---|
 | **1** ✅ | o conceito de *iniciar ambiente* no portal (3b) | tudo: o editor sobe sozinho quando alguém abre a janela dele |
-| **2** 📋 | o `VsCodeLauncher` embutido passa a abrir o APP quando ele está instalado, com recuo para `/proxy/vscode/` quando não está | os dois caminhos, e o recuo é o que permite fatiar |
+| **2** ✅ | **o `VsCodeLauncher` embutido SAI, e sem recuo nenhum** — ver abaixo | o editor, pelo app |
 | **3** 📋 | os seis `/api/keys/web-server/*` e o `sync-settings`, depois que ninguém os chamar | o editor, pelo app |
 | **4** 📋 | o ramo `vscode` do proxy, o cookie, o handshake e `provisioning/code-server.ts` inteiro | o editor, pelo app |
 | **5** 📋 | o 3a (`changeOrigin`) e os pins de provisionamento | — |
@@ -1296,6 +1296,76 @@ BLOCO não é apagar por rota**, e o bloco tinha um inquilino legítimo no meio.
 
 **Guarda:** `entrar-nao-e-procedimento.test.js`, **5 casos** — abrir a tela do ambiente **não faz
 requisição nenhuma**, e o que ela faz é apontar o link para o servidor escolhido.
+
+### ✅ 3b, fatia 2 — a listagem de servidores vira a porta
+
+Feito (portal **4.15.0**). A modal existia porque entrar era um **procedimento**; sem serviço a
+iniciar, o que há entre a lista e o ambiente é **um clique**, e o lugar dele é a linha do servidor.
+**O alvo são os BOTÕES, e não a linha** — há duas ações aqui, e uma linha inteira clicável com um
+botão dentro faz o clique de quem mira o secundário cair no primário.
+
+A linha passa a mostrar **capacidade**, e por enquanto é uma só: GPU. A regra mora num módulo folha
+(`utils/capacidade-do-servidor.ts`) e recusa duas coisas de propósito — placa **virtual** não vira
+etiqueta (toda VM tem uma), e **"não conferido" não vira "não tem"**. Os quatro fatos (online,
+conta, usuário Linux, capacidade) vêm da **mesma conexão SSH** (`sondarServidor`): uma rota por
+fato seria uma conexão por fato, por servidor, a cada carga.
+
+**O endereço só aparece quando leva alguém a algum lugar.** A porta saiu (é 22 em todo servidor) e o
+host some quando é faixa privada, CGNAT, link-local ou loopback — de fora, aquilo não é endereço de
+nada. É função pura sobre a string, no cliente; o cadastro e a conexão não mudam.
+
+**⚠ E a fatia foi ao ar com o CSS partido ao meio.** A inserção do bloco novo caiu **dentro** de um
+seletor (`.server-item-card--offline:hover .server-card-icon {`) e o quebrou: o que sobrou foi um
+seletor sem chaves, que o CSS lê **até o próximo `{`** e funde com a regra seguinte. `display: flex`
+da linha do nome passou a valer **só com o servidor offline e sob o mouse**; no estado normal ele
+vinha `block`, e o ponto, o nome e a etiqueta empilhavam. Nada acusa — a classe está no HTML, está
+no CSS, e o navegador não reclama. **E havia um segundo erro no mesmo lugar:** a listagem continuou
+sendo grade de 320px, largura em que nada daquilo cabe lado a lado.
+
+O conserto veio com a bancada que a pergunta pedia — cascata se mede executando: `linha-do-servidor.
+test.js`, **7 casos** num Chrome de verdade, com o módulo e o CSS reais, **refutação 4/6** contra o
+CSS publicado (os outros dois não discriminam, e isso está escrito no cabeçalho do arquivo).
+
+**⚠ E ela achou um defeito que não era do card:** `[data-theme="tuff"] a` (atributo + tipo, 0,1,1)
+ganhava de `.btn-primary` (0,1,0) em todo `<a class="btn">` — botão com o fundo na cor de destaque e
+o **texto também**, em vez do `--ds-on-accent` que existe para o texto não sumir. E pior, com o
+valor **fixo** do tema: quem trocasse a cor de destaque continuava com o azul padrão. As duas regras
+saíram; o `a { color: var(--amber) }` do `style.css` já dizia o mesmo, pela variável certa e com
+especificidade que **perde** para `.btn`.
+
+### ✅ 3, fatia 2 — o `VsCodeLauncher` embutido sai inteiro
+
+**⚠ A frase acima dizia "com recuo para `/proxy/vscode/` quando não está instalado", e o recuo não
+entrou: eu decidi tirar o embutido de uma vez.** O recuo protegia contra "o app não está em algum
+servidor" — e a trava deste item já registra que **há um servidor, e o `vsshapp-vscode` está
+instalado nele**. Um caminho de recuo para uma situação que não existe é código que ninguém executa
+e que a fatia 4 teria de apagar de novo.
+
+Saíram **496 linhas** — `VsCodeLauncher.js` (237) e `VsCodeViewerWindow.js` (259) — mais os oito
+pontos onde o shell conhecia o produto pelo nome: os dois `onOpenVscode` do `Desktop`, o do
+`FileBrowserWindow` com o `_doOpenVscode`, os três blocos do `abrir-com.js`, a entrada fixa "VS
+Code" do `StartMenu`, os `filterApps`/`intercept` de `Launchpad`/`StartMenu`/`TaskbarPins`, e o
+`case 'VsCodeViewerWindow'` do `WindowStateManager`.
+
+**E a medida é o que autoriza a remoção, não o desejo dela.** O `vsshapp-vscode` declara
+`contributes.contextMenu` para as três superfícies (`pasta`, `area-de-trabalho`, `arquivo`) com
+`ordem: 30` — e **`ANCORAS.vscode` é 30**, a mesma vaga que o item embutido ocupava. O item não
+mudou de lugar no menu: mudou de dono.
+
+**Duas coisas ficam ditas porque a medida as mostrou:**
+
+- **O editor sai do "Abrir com".** O app não declara `opens`, então ele não entra no submenu — mas
+  entra no menu do arquivo direto, por `contributes.contextMenu`, que é um clique a menos. Se
+  alguém quiser o editor dentro do "Abrir com" também, o lugar de consertar é o manifesto do app.
+- **`_SEM_RAIZ_REMOTA` não alcança item contribuído.** Numa pasta de rede, o portão do
+  `FileBrowserWindow` tirava o "Abrir no VS Code" porque ele vinha em `opts`; o item do app vem por
+  `ContribuicaoDeMenu`, que não passa por `_soLeitura`. **O buraco não é desta remoção** — ele
+  nasceu quando um app passou a poder pôr item no menu (item 4) —, mas foi ela que o tornou visível.
+
+**Guarda:** nenhuma nova. O que a remoção pede é que nada tenha ficado apontando para o vazio, e
+disso quem responde é o lint (`--max-warnings 0`) mais a suíte inteira, que ficou em 1.324 verdes.
+Uma guarda que afirmasse "o `VsCodeLauncher` continua removido" é exatamente o teste que a regra
+desta casa proíbe.
 
 ### 3b. 📋 O portal perde o conceito de "iniciar ambiente" — ele só existe por causa do code-server
 
