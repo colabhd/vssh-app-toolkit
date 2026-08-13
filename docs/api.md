@@ -799,16 +799,22 @@ Declare no `vssh-app.json`:
 O app passa a aparecer no "Abrir com" do gerenciador de arquivos para esses tipos, e recebe o
 arquivo por `open-context`:
 
-> **Hoje o casamento é por extensão.** `mimeTypes` é aceito no manifest e projetado por
-> `GET /api/apps`, mas o menu "Abrir com" roteia por `extensions` — declare a extensão, sempre.
-> Preencher `mimeTypes` não faz mal e prepara o casamento com o `mimeinfo.cache` nativo.
+> ⚠ **Isto dizia que "hoje o casamento é por extensão" e que `mimeTypes` era aceito mas nunca
+> roteado. Não é mais verdade: os dois roteiam.** Quem abre a partir do gerenciador de arquivos
+> casa por MIME também, porque a listagem já traz o `mime` de cada item — o ambiente não inventou
+> uma tabela extensão→MIME, que seria uma segunda verdade sobre o mesmo fato. Quem chama com um
+> caminho só (o `vssh.openWith` de dentro de outro app) continua casando por extensão, que é a
+> verdade daquela situação. Declare os dois quando fizer sentido; declarar só `mimeTypes` já basta
+> para aparecer no "Abrir com" do gerenciador.
 
 ```js
-vssh.onOpenContext(({ path }) => { if (path) abrir(path); });
+vssh.onOpenContext(({ path, tipo, rota }) => { if (path) abrir(path); });
 ```
 
 `open-context` também chega com o diretório de origem quando o app é aberto por "Abrir Terminal
-Aqui" e afins. Apps que não tratam simplesmente ignoram.
+Aqui" e afins. `tipo` (`'arquivo'` | `'pasta'`) acompanha o `path` quando o ambiente sabe qual dos
+dois é; `rota` chega quando alguém usa a **jump list** do ícone com a janela já aberta. Apps que não
+tratam simplesmente ignoram.
 
 ### Ter item PRÓPRIO no menu de contexto do ambiente
 
@@ -821,7 +827,9 @@ verbo que o app quer, na posição que ele pede — é `contributes.contextMenu`
     "contextMenu": [
       { "id": "abrir-pasta", "superficie": "pasta", "rotulo": "Abrir no VSSHCode", "ordem": 30 },
       { "id": "abrir-arq",   "superficie": "arquivo", "rotulo": "Abrir no VSSHCode", "ordem": 30,
-        "quando": { "extensoes": ["ts", "js", "py"] } }
+        "quando": { "extensoes": ["ts", "js", "py"] } },
+      { "id": "novo",        "superficie": "icone-do-app", "rotulo": "Novo arquivo",
+        "rota": "novo", "ordem": 12 }
     ]
   }
 }
@@ -836,17 +844,22 @@ nenhum código do app roda na origem do shell para pôr um item de menu.
 
 | Campo | O que decide |
 |---|---|
-| `superficie` | `arquivo`, `pasta` ou `area-de-trabalho`. Não há jump list (clique direito no ícone do app), e é falta de **verbo**, não de superfície: `abrir` sem caminho é o "Abrir" que já está lá |
+| `superficie` | `arquivo`, `pasta`, `area-de-trabalho` ou `icone-do-app` — este último é a **jump list**, o clique direito no ícone (⚠ esta linha dizia que ela não existia "por falta de verbo, não de superfície", e estava certa até o verbo aparecer). Uma superfície só para o Launchpad e o Menu Iniciar: separá-los faria todo app declarar o mesmo item duas vezes |
 | `rotulo` | Até 48 caracteres — é a largura do painel, não uma regra de segurança |
 | `ordem` | A **posição contra os itens do próprio shell**, e é o que permite ao app ficar antes de um embutido em vez de sempre no fim, atrás de um separador |
 | `quando.extensoes` | Só vale em `superficie: "arquivo"`; declarar noutra **recusa o item**, em vez de aceitá-lo e nunca mostrá-lo |
-| `acao` | Um verbo só: `abrir`. Um verbo diferente recusa o item |
+| `acao` | O verbo **da superfície**: `abrir` nas três de caminho, `abrirRota` no ícone. Omitir aceita o da superfície; declarar o outro recusa o item |
+| `rota` | Obrigatória no `icone-do-app` e proibida fora dele. É um lugar DENTRO do app — não uma URL: esquema, caminho absoluto e `..` são recusados |
 
 A régua de `ordem`, publicada — o default de quem não declara é **100**, depois de todos:
 
 | 10 | 15 | 20 | 25 | 30 | 40 | 60 | 70 | 80 |
 |---|---|---|---|---|---|---|---|---|
 | Abrir · Nova Pasta | Novo Arquivo | Abrir Terminal Aqui | Editor de Texto · Abrir em Arquivos | VS Code | Fixar na barra lateral | Abrir com | Baixar | Imprimir |
+
+No menu do ícone a régua é a mesma, e os fixos dele são **Abrir 10**, **Copiar Comando 200** e
+**Criar atalho na Área de Trabalho 210** — então uma tarefa sem `ordem` (100) cai logo abaixo de
+"Abrir", que é onde ela pertence.
 
 O ícone é **o do próprio app** — não há id de sprite a declarar. Item inválido é omitido em
 silêncio, e os irmãos válidos continuam: um item torto não pode impedir o menu de abrir.

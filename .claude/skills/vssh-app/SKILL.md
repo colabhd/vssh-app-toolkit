@@ -828,8 +828,16 @@ que o iframe carrega (ou imediatamente, se a janela já estava aberta):
 
 ```js
 // Do chrome (pai) pro app (iframe):
-{ vsshApp: true, type: 'open-context', path? }
+{ vsshApp: true, type: 'open-context', path?, tipo?, rota? }
 ```
+
+`tipo` é `'arquivo'` ou `'pasta'` e acompanha o `path` quando o ambiente sabe qual dos dois é —
+"abrir" significa coisas diferentes nos dois casos, e quem montou o menu sabe em que superfície o
+clique caiu.
+
+`rota` é um lugar DENTRO do seu app, e chega quando alguém clica num item da **jump list** (seção
+abaixo) com a janela **já aberta**: nesse caminho não há URL nova para montar, então quem navega é
+o app. É acréscimo compatível — quem não conhece o campo continua lendo só `path`, como sempre.
 
 Cabe ao seu app decidir o que fazer com isso — não há um formato universal além de `path`, já que
 o significado depende inteiramente do que seu app faz. terminal-latch (`terminal-latch/
@@ -839,7 +847,41 @@ só com o nome, sem espaço pra injetar um cwd antes do shell interativo começa
 o usuário vê o `cd` sendo "digitado"). Apps que não tratam `open-context` simplesmente ignoram a
 mensagem — nenhum erro.
 
-Com o shim, isso é `vssh.onOpenContext(({ path }) => { ... })`.
+Com o shim, isso é `vssh.onOpenContext(({ path, tipo, rota }) => { ... })`.
+
+### A jump list do ícone (opt-in, via `contributes.contextMenu`)
+
+O botão direito no ícone do seu app — no Launchpad e no Menu Iniciar — mostra as tarefas que ELE
+declarou, como o botão direito num ícone da barra do Windows. É a superfície `icone-do-app`, e o
+verbo dela é `abrirRota`:
+
+```jsonc
+"contributes": {
+  "contextMenu": [
+    { "id": "novo",     "superficie": "icone-do-app", "rotulo": "Novo arquivo",
+      "rota": "novo",             "ordem": 12 },
+    { "id": "recentes", "superficie": "icone-do-app", "rotulo": "Abrir recente",
+      "rota": "docs?filtro=recentes" }
+  ]
+}
+```
+
+Três coisas que se aprende errado na primeira vez:
+
+- **A `rota` não é URL.** É o pedaço que vem depois do endereço que o portal já resolveu para o seu
+  app. Esquema (`https:`, `javascript:`), caminho absoluto e `..` são recusados pelo ambiente — a
+  janela leva o título e o ícone do seu app, e servir outra coisa ali seria uma tela falsa com a sua
+  cara.
+- **Com o app fechado, a rota entra na URL; com ele aberto, chega pelo `open-context`.** Quem sabe
+  se ir a `/novo` é trocar de tela, abrir um painel ou criar um documento é o app — o ambiente não
+  navega por você. Sem tratar `open-context`, o item funciona só na primeira abertura.
+- **A lista é ESTÁTICA, e isso é decisão.** "Abrir recente" abre a sua tela de recentes; o ambiente
+  não pergunta ao seu backend quais são os arquivos recentes. O menu abre num clique direito, é
+  síncrono, e o seu app pode estar desligado — subir um backend para desenhar um menu não é opção.
+
+A `ordem` é a mesma régua do menu de arquivo (os fixos deste menu são "Abrir" em 10, "Copiar
+Comando" em 200 e "Criar atalho" em 210), então um item sem `ordem` cai logo abaixo de "Abrir",
+que é onde uma tarefa do app pertence.
 
 ## Abrir tipos de arquivo (opt-in, via `"opens"` no manifest)
 

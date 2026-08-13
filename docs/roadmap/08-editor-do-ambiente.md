@@ -1276,12 +1276,12 @@ ecossistema"*. Hoje um vssh-app **consome** o ambiente e quase não **contribui*
 **um** mecanismo completo (`contributes.settings`) e **uma** superfície com registro
 (`SettingsRegistry.register`, `SettingsRegistry.js:81-85`). Todo o resto é array literal no shell.
 
-## 4. 🔶 O contrato de contribuição — três das quatro linhas **feitas**, e a jump list ainda aberta
+## 4. ✅ O contrato de contribuição — as quatro linhas **feitas**
 
 | Superfície | Hoje | Depois |
 |---|---|---|
 | menu de contexto de arquivo, pasta, área de trabalho | `ContextMenu.js:823-831` não tem `register`; itens em `FileContextMenu.js:49-148`, `Desktop.js:912,929,948`, `arquivos/lateral.js:115,318` | ✅ `contributes.contextMenu` no manifesto, com **precedência declarada** |
-| menu do ícone no Launchpad | três itens fixos (`ContextMenu.js:559-576`) | 📋 jump list vinda do manifesto — o que o Windows faz com o botão direito no ícone |
+| menu do ícone no Launchpad | três itens fixos (`ContextMenu.js:559-576`) | ✅ jump list vinda do manifesto — o que o Windows faz com o botão direito no ícone |
 | "Abrir com" | o app entra **sempre depois** dos embutidos, atrás de um separador, com ícone fixo `apps` (`abrir-com.js:143-146`); o OnlyOffice é sempre o primeiro (`:77-83`) | 🔶 o ícone é o do próprio app — **feito**; a ordem contra os embutidos continua fixa |
 | `opens.mimeTypes` | aceito, projetado e **nunca roteado** (`docs/api.md:700-702`) | ✅ roteado pelo mesmo portão — e sem taxonomia nova |
 | `handles` | enum fechado de 5, e `vscode` é o único valor que nomeia **um produto** (`schema:142-146`) | ✅ `ide`: papel, não nome de produto |
@@ -1446,9 +1446,45 @@ papel, e passa a ser "Ambiente de desenvolvimento".
 **Guarda:** `handles-por-papel.test.js`, **11 casos** — os dois lados da troca, a entrada (o
 manifesto) e a preferência já gravada. Shell **4.10.0**, schema do toolkit ressincronizado.
 
-**O que continua aberto neste item:** a **jump list** do ícone no Launchpad, pelo motivo já escrito
-em 4a — falta um segundo verbo com **rota**, e a regra de rota segura mora hoje dentro do
-`VsshAppWindow`; e a **ordem do "Abrir com"** contra os embutidos, que continua fixa.
+### ✅ 4e. A jump list do ícone — e o verbo que faltava
+
+O menu do ícone eram três itens fixos, e era a única superfície do contrato sem registro. **O que
+faltava não era a superfície: era o verbo** — `abrir` sem caminho é o "Abrir" que aquele menu já
+tem, e foi por isso que esta linha ficou aberta quando o 4a fechou o menu de contexto.
+
+O verbo é **`abrirRota`**, e ele abre o app num lugar dele. **Os dois verbos não se misturam entre
+superfícies, de propósito:** `abrirRota` só existe no ícone e o ícone só aceita `abrirRota`. Um
+`abrir` no ícone duplicaria o item fixo; um `abrirRota` num arquivo teria de decidir o que fazer com
+o caminho clicado, e um item que ignora o clique que o abriu não é um item daquele menu.
+
+**A rota é validada no CLIENTE, e isso é medida, não gosto.** A regra já existia lá, porque o
+`vssh.window.abrir` de dentro de um app já a exigia — e aquele caminho **não passa pelo portal**,
+então a validação do cliente não pode sair. Escrevê-la também em TS seria a segunda noção do mesmo
+fato. O portal transporta com teto e sem caractere de controle, como já faz com o rótulo. Ela saiu
+de dentro do `VsshAppWindow` (nunca foi da janela: nunca tocou em `this`) para `js/rota-de-app.js`.
+
+**⚠ E a medida achou um defeito que estava no caminho: com a janela já aberta, a rota era descartada
+em silêncio.** Ela só existia no ramo que MONTA a janela, concatenada na URL — então um "Novo
+arquivo" clicado com o app aberto apenas focava a janela e não ia a lugar nenhum. O pedido some, e a
+única pista é nada acontecer. Agora ela vai pelo `open-context`, que é o canal publicado para "abra
+assim": quem navega é o app, porque só ele sabe se ir a `/novo` é trocar de tela, abrir um painel ou
+criar um documento.
+
+**A lista é ESTÁTICA, e isso é decisão.** "Abrir recente" abre a tela de recentes do app; o ambiente
+não pergunta ao backend quais são os arquivos. O menu abre num clique direito, é síncrono, e o app
+pode estar **desligado** — subir um backend para desenhar um menu não é opção.
+
+Os itens entram logo abaixo de "Abrir" porque a `ordem` mede contra os itens do próprio shell, na
+mesma tabela `ANCORAS` do menu de arquivo. Os fixos deste menu ganharam posição, e **o separador
+passou a nascer da mudança de grupo** em vez de ser empurrado à mão entre dois `push` — senão um
+item novo no meio herdaria o separador do vizinho.
+
+**Guarda:** `jump-list-do-icone.test.js`, **17 casos** — as duas metades: a entrada (o verbo da
+superfície, a rota obrigatória de um lado e proibida do outro) e a saída (uma rota não vira URL).
+Refutado: tirar a checagem do verbo derruba exatamente um caso. Shell **4.13.0**, toolkit **4.8.0**.
+
+**O que continua aberto neste item:** a **ordem do "Abrir com"** contra os embutidos, que continua
+fixa — o app entra sempre depois, atrás de um separador. É a última linha 🔶 da tabela acima.
 
 ## 5. ✅ A extensão VSSH, servida pelo próprio app — **feita**, e ela tem DUAS metades
 

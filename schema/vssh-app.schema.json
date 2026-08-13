@@ -104,9 +104,10 @@
                 "enum": [
                   "arquivo",
                   "pasta",
-                  "area-de-trabalho"
+                  "area-de-trabalho",
+                  "icone-do-app"
                 ],
-                "description": "Onde o item aparece. Não há superfície de jump list (clique direito no ícone do app) nesta versão, e é por falta de VERBO, não de superfície: `abrir` sem caminho é o item 'Abrir' que já existe ali. Ela entra junto com o segundo verbo."
+                "description": "Onde o item aparece. `icone-do-app` é a JUMP LIST: o clique direito no ícone do app, no Launchpad e no Menu Iniciar — uma superfície só para os dois lugares, senão todo app teria de declarar o mesmo item duas vezes. Ela exige `rota` e recusa `quando`; as três de caminho exigem o contrário. ⚠ Esta descrição dizia que a jump list não existia \"por falta de VERBO, não de superfície\" — estava certa até o verbo aparecer, e ele é o `abrirRota`."
               },
               "rotulo": {
                 "type": "string",
@@ -140,10 +141,16 @@
               "acao": {
                 "type": "string",
                 "enum": [
-                  "abrir"
+                  "abrir",
+                  "abrirRota"
                 ],
-                "default": "abrir",
-                "description": "O verbo. Há um só, e isso é decisão e não começo: `abrir` abre este app com o caminho clicado, entregue pelo `open-context` que já é contrato publicado (SKILL.md, 'Contexto de abertura'). Um verbo DIFERENTE recusa o item — um app que pediu outra coisa não quis 'abrir', e atendê-lo com 'abrir' seria responder outra pergunta."
+                "description": "O verbo, e ele é o da SUPERFÍCIE — não uma escolha livre. `abrir` (nas três superfícies de caminho) abre este app com o caminho clicado, pelo `open-context` que já é contrato publicado. `abrirRota` (só no `icone-do-app`) abre o app num lugar DELE, declarado em `rota`. Omitir o campo é aceitar o verbo da superfície; declarar o OUTRO recusa o item, porque um app que pediu outra coisa não quis esta — um `abrir` no ícone seria o item \"Abrir\" que aquele menu já tem, fixo, e um `abrirRota` num arquivo teria de decidir o que fazer com o caminho clicado."
+              },
+              "rota": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "description": "O lugar DENTRO do app, colado depois da URL que o portal já resolveu para ele — `novo`, `docs/recentes?x=1`. Obrigatório com `superficie: \"icone-do-app\"`, e proibido nas outras. NÃO é URL: esquema (`https:`, `javascript:`), caminho absoluto e `..` são recusados pelo ambiente, com a mesma regra do `vssh.window.abrir` — sem ela uma rota viraria uma janela do shell servindo outra coisa, com o título e o ícone deste app. Com o app já aberto a rota chega pelo `open-context` (campo `rota`), porque quem sabe navegar é o app."
               }
             }
           }
