@@ -116,7 +116,7 @@ fácil; o que decide a viabilidade é **o que aquele renderer toca além do DOM*
 |---|---|---|
 | `dialog.showOpenDialog` / `showSaveDialog` | **a** | Picker do desktop, com grupos de filtro |
 | `dialog.showMessageBox` / `showErrorBox` | **a** | `VsshDialogs` |
-| `shell.openExternal` | **a** | Nova aba |
+| `shell.openExternal` | **a** | Navegador do ambiente (`vssh.openUrl`) |
 | `shell.openPath` / `showItemInFolder` | **a** | `FileOpener` / gerenciador de arquivos |
 | `Notification` / `new Notification()` | **a** | `Toast` |
 | `clipboard.readText` / `writeText` | **a** | `navigator.clipboard` |

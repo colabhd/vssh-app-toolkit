@@ -797,8 +797,21 @@ await vssh.openUrl('https://exemplo.org/docs');
 await vssh.openUrl('http://localhost:3000');   // o loopback DO SERVIDOR
 ```
 
-Um `<a target="_blank">` ou um `window.open` do seu app abre uma aba do navegador **hospedeiro** —
-fora do ambiente, onde nada do VSSH existe. `vssh.openUrl` abre no navegador do VSSH.
+**E o shim já desvia sozinho o que você não escreveu.** Um `<a target="_blank">`, um `window.open`
+no fundo de uma biblioteca, um ctrl+click ou um clique do meio da pessoa em cima de um link comum:
+tudo isso abriria uma aba do navegador **hospedeiro**, fora do ambiente. Dentro do desktop, o shim
+pega esses casos e manda para o navegador do VSSH — sem o app pedir nada.
+
+Chamar `vssh.openUrl` continua valendo, e é o que se deve fazer quando o código é seu: é explícito,
+é `await`ável, e não depende de o gesto ter uma das formas que o desvio automático reconhece.
+
+Três coisas que o desvio **não** pega, cada uma de propósito:
+
+| o quê | por quê |
+|---|---|
+| `window.open('about:blank')` e `window.open('')` | é como se abre uma janela para escrever dentro; quem chama usa o objeto que voltou |
+| `window.open('/outra-rota')` | rota relativa é assunto do app — para abrir outra janela **dele**, use `vssh.window.abrir()` |
+| clique que o seu código já tratou (`preventDefault`) | o handler do app roda primeiro; se ele reivindicou o gesto, o shim sai de cena |
 
 **E o ganho maior é de alcance, não de enquadramento.** O navegador do ambiente resolve a rede **a
 partir do servidor Linux**, então `http://localhost:3000` ali é o loopback **do servidor** — o

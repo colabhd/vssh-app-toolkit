@@ -2280,21 +2280,74 @@ então o tipo não comprava nada. Se o 401 sobreviver, a causa é outra.
 **qual backend** pela sessão. Uma isenção de autenticação ali não é só afrouxar um portão — sem
 sessão, o portal não sabe para qual processo de qual usuário encaminhar.
 
-### 🟡 O `Ctrl+click` ainda não abre no navegador do ambiente
+### 🟢 O `Ctrl+click` — medido, e eram duas causas
 
-Relatado, e **ainda não medido depois** de o opener passar a registrar (app 0.1.39) e de os webviews
-serem consertados. Enquanto o console gritava `CANNOT USE these API proposals`, o opener não existia
-e o link caía no `window.open` padrão — o que explica o sintoma até ali. Refazer o teste é o próximo
-passo, e o dado que interessa é o que aparece **no momento do clique**.
+Refeito o teste, o sintoma era mais forte que o relatado: **nenhum** link abria no navegador do
+ambiente. Nem ctrl+click, nem a ação gráfica, nem nada. E "nenhum" foi o que apontou a causa, porque
+descarta a hipótese de caminho específico.
+
+**Causa 1, e ela é uma linha de dado: a extensão nunca ativava.** `mainThreadUriOpeners.ts`, dentro
+de `getOpeners`, faz `await this.extensionService.activateByEvent('onOpenExternalUri:' + esquema)`
+antes de listar qualquer opener — e `$registerUriOpener`, no mesmo arquivo, não valida nada contra o
+manifesto, então **esse é o único gatilho**. O nosso manifesto tinha `"activationEvents": []`.
+
+O que tornava isso invisível é que os três comandos geram `onCommand:` implícitos: a extensão
+ativava, sim, **depois** de alguém usar um item de menu VSSH. Quem testasse na sequência via tudo
+funcionar; sessão nova, não. Dois comportamentos para o mesmo código, e o aviso que a extensão já
+tinha (`extensao.js`) não cobria este caso — ele só dispara com a proposta desligada.
+
+Sem ativação, `getOpeners` devolve lista vazia → `ExternalUriOpenerService.openExternal` responde
+`false` → `_doOpenExternal` cai no `_defaultExternalOpener`, que é o `window.open` do `window.ts`.
+
+**Causa 2, e é ela que justifica a rede no toolkit:** `_doOpenExternal` (`openerService.ts`) só
+consulta opener contribuído dentro de `if (options?.allowContributedOpeners)`. Quem não passa a
+opção vai direto ao `window.open`, com opener registrado ou não — e `auxiliaryWindowService.ts`
+("mover editor para nova janela") chama `mainWindow.open` na mão, sem serviço substituível.
+
+⚠ **E o gancho que cobria isso existia, e foi apagado.** Era o `_injectNewWindowHook` do
+`VsCodeViewerWindow.js`, que o `vssh-sso` removeu inteiro no `458a94d` — apesar de o item 2b deste
+documento dizer, por escrito, que ele ficava. Por isso ele voltou no **shim do toolkit** (4.12.0) e
+não no shell: lá ele viaja no tarball do app, e refactor do shell não o alcança.
+
+A rede pega `window.open` de URL `http(s)` absoluta, ctrl/cmd+clique, clique do meio e
+`target="_blank"`. E deixa passar, medido, o que o editor precisa: `window.open('about:blank')` e
+`''` são como o `auxiliaryWindowService` abre a janela flutuante, e ele **escreve no documento que
+voltou** — sequestrar aquilo trocaria um defeito por outro maior. O ouvinte de clique é de BOLHA e
+ignora evento já `preventDefault`ado, para não roubar gesto de app nenhum.
+
+### 🔴 A assinatura de extensão não era ruído — ela reprovava TODA instalação
+
+Estava na tabela abaixo como "build OSS contra open-vsx não tem assinatura a verificar", e a leitura
+parava aí. O que ela **faz** não foi medido na época: `downloadExtension`
+(`extensionManagement/node/extensionManagementService.ts`) termina em
+`if (!verificationStatus) throw new ExtensionManagementError(…)`. Não é um aviso — é um `throw`, e
+nenhuma extensão instala nem atualiza. No console isso sai logo depois de
+`Auto updating outdated extensions. anthropic.claude-code`.
+
+E `verificationStatus` nunca é verdadeiro aqui, por duas razões que se somam: a Open VSX não publica
+o arquivo de assinatura da Microsoft, e um build OSS não leva o verificador que o conferiria.
+
+A alavanca é do próprio upstream, no mesmo método — `extensions.verifySignature`, lido pelo
+`configurationService` do **processo servidor**. Então ela entra como semente do
+`settings-de-maquina.js`, ao lado do `supportNodeGlobalNavigator`, e custa um restart do backend.
+
+⚠ Isto **não afrouxa** uma verificação que funcionava: a alternativa real nunca foi "conferir a
+assinatura", foi "reprovar todo download". Trocar a galeria por uma que assine é a outra saída, e é
+decisão de outro tamanho — mudaria quais extensões existem para quem usa o editor.
 
 ### 🟢 O ruído catalogado, que NÃO é defeito nosso
 
-Fica escrito para ninguém investigar de novo:
+Fica escrito para ninguém investigar de novo.
+
+⚠ **E uma linha saiu desta tabela por ter sido classificada errado**: a
+`SignatureVerificationInternal` estava aqui como ruído de build OSS, e era um `throw` que reprovava
+toda instalação de extensão (ver acima). A lição fica na tabela e não no item: **catalogar um erro
+como esperado é uma afirmação sobre o EFEITO dele, e o efeito é a parte que precisa ser medida.**
+"Faz sentido não ter assinatura aqui" respondia à outra pergunta.
 
 | linha no console | o que é |
 |---|---|
 | `vsda.js` / `vsda_bg.wasm` 404 | `vsda` é proprietário e não existe no build OSS. **Fica**: os dois lados já tratam a ausência — sem validador, o handshake é aceito (`abstractSignService.ts:28-42`, `remoteExtensionHostAgentServer.ts:344-345`), e o único conserto seria mais um patch para manter |
-| `SignatureVerificationInternal` | build OSS contra open-vsx não tem assinatura a verificar |
 | `/proxy/11257/stable-51bc3c0f…/seti.woff` | resíduo de **code-server** em aba velha ou service worker; o ramo que servia aquilo saiu na fatia 4 |
 | `beacon.min.js` da `static.cloudflareinsights.com` bloqueado pela CSP | **não é do VS Code** — zero ocorrências na árvore. A Cloudflare injeta na borda, em toda resposta HTML da zona. Desligar é no painel dela, não em código nosso |
 | `IndexedDB … is closed`, `Long running operations during shutdown are unsupported in the web` | ruído do upstream ao NAVEGAR — e abrir pasta é navegação de verdade, com `unload` e tudo |
