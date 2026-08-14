@@ -2315,6 +2315,28 @@ A rede pega `window.open` de URL `http(s)` absoluta, ctrl/cmd+clique, clique do 
 voltou** — sequestrar aquilo trocaria um defeito por outro maior. O ouvinte de clique é de BOLHA e
 ignora evento já `preventDefault`ado, para não roubar gesto de app nenhum.
 
+#### ✅ Confirmado no ambiente — e a pilha SEPARA as duas metades
+
+Isto vale escrito porque dá um diagnóstico de graça em qualquer relato futuro: `_doOpenExternal` tem
+**dois** pontos de chamada, e o número da linha no bundle diz por qual deles o link passou.
+
+| pilha observada | quem abriu | o que é na fonte |
+|---|---|---|
+| `_doOpenExternal :403275` → `openExternal :274038` → `openExternalUri :274146` → ext host → `openExternalUri @ extensao.js:199` | o **opener** | o `for (const opener of this._externalOpeners)` |
+| `_doOpenExternal :403284` → `openExternal :350460` → `windowOpenNoOpener :16989` → `window.open @ vssh-app-shim.js:1228` | o **padrão** | o `return this._defaultExternalOpener…` |
+
+Link clicado numa prévia de markdown sai pela primeira: a extensão ativa, registra, e recebe — sem
+nenhum quadro do shim na pilha, porque a rede nem chega a ser acionada.
+
+⚠ **E `vscode.env.openExternal` vindo de OUTRA extensão saiu pela segunda.** Foi o login do Claude
+Code, e a URL era `claude.ai/oauth/authorize?…redirect_uri=http://localhost:45197/callback`. Aquele
+chamador não passa `allowContributedOpeners`, então nenhum opener contribuído é consultado — e sem a
+rede o link teria virado aba de fora, onde o callback aponta para a máquina de quem lê em vez do
+servidor que está escutando. **É a prova de que as duas metades eram necessárias**, e não uma
+redundância confortável.
+
+As duas convergem no mesmo lugar: `ponte.openUrl` → `open-url` → `BrowserWindow.openInTab`.
+
 ### 🔴 A assinatura de extensão não era ruído — ela reprovava TODA instalação
 
 Estava na tabela abaixo como "build OSS contra open-vsx não tem assinatura a verificar", e a leitura
@@ -2350,7 +2372,9 @@ como esperado é uma afirmação sobre o EFEITO dele, e o efeito é a parte que 
 | `vsda.js` / `vsda_bg.wasm` 404 | `vsda` é proprietário e não existe no build OSS. **Fica**: os dois lados já tratam a ausência — sem validador, o handshake é aceito (`abstractSignService.ts:28-42`, `remoteExtensionHostAgentServer.ts:344-345`), e o único conserto seria mais um patch para manter |
 | `/proxy/11257/stable-51bc3c0f…/seti.woff` | resíduo de **code-server** em aba velha ou service worker; o ramo que servia aquilo saiu na fatia 4 |
 | `beacon.min.js` da `static.cloudflareinsights.com` bloqueado pela CSP | **não é do VS Code** — zero ocorrências na árvore. A Cloudflare injeta na borda, em toda resposta HTML da zona. Desligar é no painel dela, não em código nosso |
-| `IndexedDB … is closed`, `Long running operations during shutdown are unsupported in the web` | ruído do upstream ao NAVEGAR — e abrir pasta é navegação de verdade, com `unload` e tudo |
+| `IndexedDB … is closed`, `Long running operations during shutdown are unsupported in the web` (`join.disconnectRemote`, `join.chatEditingSession`, `join.chatSessionStore`), `Attempted to report in-progress status for unknown chat session type 'local'` | ruído do upstream ao NAVEGAR — e abrir pasta é navegação de verdade, com `unload` e tudo. As quatro saem da mesma cadeia de `dispose` do shutdown |
+| `[Violation] Avoid using document.write()` no `pre/index.html`; `requestAnimationFrame`/`Forced reflow` ao clicar | bootstrap de webview do upstream e medidas de desempenho do navegador — nenhum dos dois é código nosso |
+| Dentro do navegador do ambiente: `detected quirky document structure parsing`, e falha de `cdn.usefathom.com` / `beacon` de terceiro | é o site aberto, não o ambiente. O rewriter do scramjet avisa sobre o HTML alheio, e script de analytics de terceiro cai no bloqueador de quem lê |
 
 **Duas saíram desta tabela porque deixaram de ser ruído**, e as duas custaram só dado:
 
