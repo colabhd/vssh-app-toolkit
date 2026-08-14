@@ -2357,6 +2357,47 @@ A alavanca é do próprio upstream, no mesmo método — `extensions.verifySigna
 assinatura", foi "reprovar todo download". Trocar a galeria por uma que assine é a outra saída, e é
 decisão de outro tamanho — mudaria quais extensões existem para quem usa o editor.
 
+### 🔴 A API proposta zerada — a terceira coisa que o `product.json` fechado carregava
+
+Mesma família da assinatura, e achada no mesmo lugar: o log de uma extensão. O `ms-python` não
+degradava, ele **morria no meio do `activate()`**:
+
+```
+ERR Extension 'ms-python.python' CANNOT use API proposal: testObserver.
+    Its package.json#enabledApiProposals-property declares:  but NOT testObserver.
+ERR Failure during activation.
+```
+
+Aquele `declares: ` vazio é o diagnóstico inteiro, porque o manifesto do `ms-python` declara **nove**
+proposals. Medido em `extensionsProposedApi.ts`, a ordem é: (1) valida a lista do manifesto; (2) se a
+extensão está no `product.json`, a lista do produto **substitui** a dela; (3) se o ambiente autoriza,
+a dela é honrada como está; (4) senão — *"extension cannot use proposed API in this context and its
+declaration is nulled"*. Extensão de galeria caía sempre no (4).
+
+E quem preenchia o (2) para as extensões da Microsoft é o `product.json` **fechado** deles. O aberto
+não tem a chave — o mesmo fato que já estava escrito no caso do mermaid, e que agora se vê que tem
+alcance muito maior: **toda** extensão de galeria que use API proposta chega quebrada aqui.
+
+**A decisão foi a lista ABERTA** — `enabledExtensionProposedApi: []`, que a doc do upstream define
+como *"enables proposed APIs for all extensions"* —, e o motivo é o mesmo já escrito no
+`security.workspace.trust.enabled`: **aqui não há o que proteger.** O editor roda como o usuário
+Linux dono da sessão, com terminal a um clique e o filesystem dele por trás. Uma extensão mal
+intencionada não precisa de API proposta; ela tem `child_process`. O portão custava a instalação de
+toda extensão futura e não comprava isolamento nenhum.
+
+O caminho estreito existia e perdeu por manutenção, não por gosto: espelhar as nove proposals do
+`ms-python` no `product.json` obrigaria a ressincronizá-las a cada atualização dele — e pelo passo
+(2) uma divergência **substitui** a lista da extensão, deixando-a sem o que falta. Com a autorização
+aberta, a lista continua sendo dela, que é quem sabe.
+
+É dado: entra pela `<meta>`, sem rebuild do motor. `web.api.ts` declara o campo como opção pública do
+embedder, *"the equivalent of the `--enable-proposed-api` command line flag"*.
+
+⚠ **A guarda prende a FORMA, e não o valor**, porque o modo de falha é uma troca de significado:
+neste campo `[]` é *todas* e a ausência é *nenhuma*. Uma chave que não sobrevivesse ao
+`JSON.stringify` inverteria a decisão sem nada acusar, e o sintoma reapareceria no `activate()` de
+cada extensão, longe daqui.
+
 ### 🟢 O ruído catalogado, que NÃO é defeito nosso
 
 Fica escrito para ninguém investigar de novo.
