@@ -2314,9 +2314,28 @@ Fica escrito para ninguém investigar de novo:
 
 ### 🔧 E duas do ferramental, que morderam nesta sessão
 
-- **`build-local.sh` sai com código 0 numa falha de compilação.** O log termina em stack trace e o
-  chamador entende sucesso. O cabeçalho do próprio arquivo se gaba do `|| exit 1` no laço dos
-  patches; o passo do gulp não tem o equivalente.
+- ~~**`build-local.sh` sai com código 0 numa falha de compilação.**~~ ✅ **Resolvido — e a dívida não
+  existia: era minha.** Medido: `docker exec` devolve o código do comando, e o `set -euo pipefail`
+  da linha 19 aborta. **O script sempre propagou.** Quem engolia era o meu jeito de chamá-lo —
+  `build-local.sh compilar 2>&1 | tail -30`, e o código de saída de um cano é o do ÚLTIMO comando,
+  que era o `tail`:
+
+  ```
+  docker exec ... bash -lc 'exit 3'            → 3
+  docker exec ... bash -lc 'exit 3' | tail -5  → 0
+  ```
+
+  ⚠ **Terceira vez do mesmo erro**, e as três em contextos diferentes: `npm test | grep && git
+  commit` (que commitou com dois testes vermelhos), este `| tail -30`, e o `| tee` que eu ia
+  acrescentar agora sem `pipefail` — que teria trocado a detecção de falha por conveniência de log.
+  A regra que sai disto: **cano com efeito colateral no fim (`tee`, `tail`, `grep`) exige `pipefail`
+  declarado**, e `bash -lc` não o herda.
+
+  O que o passo ganhou de verdade é o log em arquivo: `deps` e `compilar` escrevem em
+  `/src/build.log` **dentro do container**, então acompanhar não depende de como quem chama encanou
+  a saída — `docker exec vssh-motor-build tail -f /src/build.log`, sempre. O buraco que isso fecha
+  é concreto: um build de oito minutos em segundo plano, com o `tail` segurando o fluxo inteiro até
+  o fim, não tinha uma linha para olhar.
 - **O guard do `deps` olha a raiz e o build precisa do `build/`.** `[ "$lock" = "$atual" ] && test -d
   /src/vscode/node_modules` deu "npm ci dispensado" e o build morreu em
   `Cannot find package 'gulp-merge-json' imported from /src/vscode/build/lib/gulp/facade.ts`.
