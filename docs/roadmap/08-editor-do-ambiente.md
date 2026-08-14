@@ -2146,7 +2146,11 @@ a medida daquela configuração.
 Escritas quando o editor já estava rodando de verdade, e separadas pelo que cada uma **é**: relato,
 medida ou hipótese. Nada aqui está consertado.
 
-### 🔴 A sessão não volta com o workspace — e a regressão é desta onda
+### ✅ A sessão não volta com o workspace — e a regressão é desta onda
+
+**Fechada** no toolkit 4.11.0 + shell 4.19.0 + app. O relato e a medida ficam escritos porque o
+desenho que eles pediam **não foi o que se construiu**, e a diferença é o que interessa a quem ler
+isto depois.
 
 **Relatado por quem usa:** ao reabrir o ambiente, o editor volta sem a pasta que estava aberta.
 
@@ -2164,9 +2168,89 @@ deixou de existir.
 
 **A direção do conserto NÃO é devolver um launcher por produto.** O que falta é genérico: um app
 precisa poder dizer ao ambiente *"este é o meu estado, guarde-o"* e recebê-lo de volta na
-restauração — o que o `tabs`/`sessionName` já faz **para um caso só**, o do cabeçalho rich. O
-desenho tem de responder: quem serializa (o app, num objeto opaco para o shell), qual o teto de
-tamanho, e o que acontece quando o app volta numa versão que não entende o próprio estado antigo.
+restauração — o que o `tabs`/`sessionName` já faz **para um caso só**, o do cabeçalho rich.
+
+⚠ **E o resto desta frase, como estava escrito, era a forma errada.** Ela dizia que o desenho teria
+de responder *"quem serializa (o app, num objeto opaco para o shell), qual o teto de tamanho, e o
+que acontece quando o app volta numa versão que não entende o próprio estado antigo"* — três
+perguntas que **pressupõem um blob**, e é o pressuposto que não se sustentou.
+
+**O estado de restauração de um app é uma ROTA.** `vssh.lembrarRota('?folder=/home/…')`, e as três
+perguntas caem:
+
+| A pergunta que a frase fazia | O que a rota responde |
+|---|---|
+| Qual o teto de tamanho? | Já existe: 512, em `RotaDeApp.segura` (`rota-de-app.js:39`), com validação junto — sem esquema, sem caminho absoluto, sem `..` |
+| Quem serializa? | Ninguém. A rota vai concatenada na URL da janela restaurada, e `AppLauncher.open` já sabia fazer isso (`AppLauncher.js:324`) — **o app não escreve código de restauração nenhum** |
+| E quando o app não entende o próprio estado antigo? | **Dissolve.** A rota é a URL do router dele; rota desconhecida é um caso que ele já trata, porque é o mesmo que alguém colar um link velho |
+
+E um blob opaco versionado seria a segunda noção do mesmo fato: [`api.md`](../api.md) já diz que
+*"todo estado guardado no navegador é dívida"* contra a promessa de trocar de máquina sem perder
+nada. **Rota é ponteiro, não armazém** — o que não couber num endereço vai para o backend do app ou
+para o filesystem do usuário, e isso entrou na tabela do "o que não existe" em vez de ficar
+implícito.
+
+O que o VSSHCode precisou disso: **zero linhas do motor**. O workbench já navega ao abrir pasta (a
+URL vira `…/vscode/?folder=/home/…`), então a rota já estava escrita em `location`; faltava dizê-la,
+e são cinco linhas injetadas pelo `pagina.js` junto do shim.
+
+**Guarda:** `vssh-sso/tests/unit/rota-de-restauracao.test.js`, 9 casos, com os três pedaços rodando
+de verdade — `_rotaDoApp` e `_getState` com o corpo lido do arquivo, e `WindowStateManager` +
+`AppLauncher` de produção. Refutação: voltando `_restaurarJanelaDeApp` para `{ novaJanela: true }`,
+**1 dos 9 fica vermelho**, e a mensagem é o defeito relatado por extenso —
+`actual: '/srv1/proxy/app/vscode/'` contra `expected: '…/?folder=/home/ana/satellite-series'`.
+
+### ✅ As extensões de terceiros morriam ao carregar — e o conserto não era patch
+
+**Medido no console, três vezes na mesma carga:**
+
+```
+ERR navigator is now a global in nodejs … PendingMigrationError
+    at get (out/vs/workbench/api/node/extensionHostProcess.js:117700:33)
+    at …/anthropic.claude-code-2.1.231-linux-x64/extension.js:13:9615
+```
+
+O Node expõe `navigator` como global desde a v21, e o ext host decidiu proteger as extensões dessa
+surpresa da forma mais barulhenta possível: instala um getter que devolve `undefined` e reporta
+(`extensionHostProcess.ts:140-149`). A extensão lê `navigator` no carregamento do módulo, recebe
+`undefined`, e morre. O painel não abre e **nada na tela diz por quê**.
+
+⚠ **Eu esperava patch, e a medida derrubou isso** — vale escrito porque a conclusão errada teria
+custado um rebuild. Há chave publicada (`extensions.supportNodeGlobalNavigator`,
+`extensions.contribution.ts:363-367`), e quem a lê é o `ConfigurationService` **do servidor**, sobre
+o arquivo de **máquina** (`serverServices.ts:152`, `serverEnvironmentService.ts:259`). Ou seja: ela
+**não** entra pelo `configurationDefaults` da nossa `<meta>`, porque aquele leitor não vê página
+nenhuma. Entra num arquivo em disco — e é isso que o `backend/settings-de-maquina.js` faz, **antes
+do `spawn`**, porque o valor é consultado ao lançar o ext host.
+
+Ele **semeia**, e não escreve: chave ausente entra; chave já presente fica como está, mesmo sendo o
+oposto; e arquivo que não parseia **não é tocado**. `settings.json` do VS Code aceita comentário, e
+reescrever um arquivo do usuário que não se sabe ler é pior que o defeito que se veio consertar.
+
+**Guarda:** `tests/settings-de-maquina.test.js`, 8 casos sobre disco de verdade — porque o que
+precisa ser verdade é o arquivo **existir depois**, e, no caso que mais importa, continuar byte a
+byte igual.
+
+### ✅ Ícone que não desenha dentro de webview — e é o upstream discordando de si
+
+```
+Loading the font 'data:font/ttf;base64,AAEAAAALAIAAAwAw…' violates the following Content Security
+Policy directive: "font-src 'self' https://*.vscode-cdn.net"
+```
+
+É o codicon. E o par que não fecha vem de **duas extensões do upstream**: quem *embute* a fonte
+(loader `dataurl` do esbuild) declara `font-src data:`; quem a serve como *arquivo* declara o
+`cspSource`. O script de prévia do mermaid, com a fonte embutida, é injetado no webview do markdown,
+que declara o `cspSource`.
+
+O conserto é um hunk no `pre/index.html` — **o único ponto que alcança a CSP de qualquer hóspede**,
+e já é onde ela é reescrita. Por extensão seria um hunk por webview, mais um novo a cada extensão de
+terceiro com o mesmo par, que é o caso provável e não o improvável.
+
+**Guarda:** `tests/csp-do-hospede.test.js`, 8 casos que **leem a função das linhas acrescentadas pelo
+patch e a executam** — inclusive os dois que separam uma regex certa de uma que casa demais
+(`x-font-src` e `img-src` intactos) e o que cobra que ela é **chamada**: uma função perfeita que
+ninguém invoca passaria em todos os outros.
 
 ### 🟡 O webview mora na mesma origem, e isso foi uma escolha
 
@@ -2209,23 +2293,46 @@ Fica escrito para ninguém investigar de novo:
 
 | linha no console | o que é |
 |---|---|
-| `vsda.js` / `vsda_bg.wasm` 404 | `vsda` é proprietário e não existe no build OSS |
-| `[AgentHost:remote] … no upstream agent host endpoint` | não configuramos o bridge, de propósito |
-| `mermaid-markdown-features CANNOT use 'legacyToolReferenceFullNames'` | extensão embutida do upstream pedindo proposta que o OSS não liga; derruba o `renderMermaidDiagram` |
+| `vsda.js` / `vsda_bg.wasm` 404 | `vsda` é proprietário e não existe no build OSS. **Fica**: os dois lados já tratam a ausência — sem validador, o handshake é aceito (`abstractSignService.ts:28-42`, `remoteExtensionHostAgentServer.ts:344-345`), e o único conserto seria mais um patch para manter |
 | `SignatureVerificationInternal` | build OSS contra open-vsx não tem assinatura a verificar |
 | `/proxy/11257/stable-51bc3c0f…/seti.woff` | resíduo de **code-server** em aba velha ou service worker; o ramo que servia aquilo saiu na fatia 4 |
+| `beacon.min.js` da `static.cloudflareinsights.com` bloqueado pela CSP | **não é do VS Code** — zero ocorrências na árvore. A Cloudflare injeta na borda, em toda resposta HTML da zona. Desligar é no painel dela, não em código nosso |
+| `IndexedDB … is closed`, `Long running operations during shutdown are unsupported in the web` | ruído do upstream ao NAVEGAR — e abrir pasta é navegação de verdade, com `unload` e tudo |
+
+**Duas saíram desta tabela porque deixaram de ser ruído**, e as duas custaram só dado:
+
+- `[AgentHost:remote] … no upstream agent host endpoint` → `chat.agentHost.enabled: false` no
+  `configurationDefaults`. O *agent host* é recurso novo do 1.132 alcançado por
+  `--agent-host-bridge-port`, que não passamos; o cliente tentava a cada carga porque, na web com
+  `remoteAuthority`, o gate dele dá `true` (`webAgentHostEnablementService.ts:19`). Mesma classe do
+  `update.mode: 'none'` — não prometer serviço que não existe.
+- `mermaid-markdown-features CANNOT use 'legacyToolReferenceFullNames'` →
+  `productConfiguration.extensionEnabledApiProposals`. ⚠ **E não era dano nosso:** o `product.json`
+  do OSS 1.132.0 não tem esse bloco (conferido na fonte e no artefato), então **um build OSS puro
+  erra igual** — é o `product.json` fechado da Microsoft que o carrega. `chatOutputRenderer` vai
+  junto obrigatoriamente, porque `extensionsProposedApi.ts:100` **substitui** a lista do manifesto.
 
 ### 🔧 E duas do ferramental, que morderam nesta sessão
 
 - **`build-local.sh` sai com código 0 numa falha de compilação.** O log termina em stack trace e o
   chamador entende sucesso. O cabeçalho do próprio arquivo se gaba do `|| exit 1` no laço dos
   patches; o passo do gulp não tem o equivalente.
-- **O guard do `deps` confia no hash do lock, não na árvore.** `[ "$lock" = "$atual" ] && test -d
-  node_modules` deu "npm ci dispensado" com o `node_modules` **podado** (936 pacotes,
-  `gulp-merge-json` ausente), e o build morreu. É a **terceira** ocorrência da família que o arquivo
-  já documenta duas vezes — *"a árvore do container é ESTADO, não cache"*. O guard pergunta pelo
-  lock, que é o que o `npm ci` **consome**, e não por um pacote sentinela, que é o que ele
-  **produz**. Destravado à mão com `rm /src/lock.sha`.
+- **O guard do `deps` olha a raiz e o build precisa do `build/`.** `[ "$lock" = "$atual" ] && test -d
+  /src/vscode/node_modules` deu "npm ci dispensado" e o build morreu em
+  `Cannot find package 'gulp-merge-json' imported from /src/vscode/build/lib/gulp/facade.ts`.
+
+  ⚠ **A primeira explicação escrita aqui estava errada, e a segunda ocorrência a desmentiu.** Eu
+  registrei isto como *"a árvore estava podada (936 pacotes)"* — coisa de árvore azarada. Não é:
+  **é determinístico e acontece toda vez que se roda `fonte`**. O VS Code tem um segundo
+  `node_modules`, o de `build/`, com 340 pacotes e `package.json` próprio; ele mora **dentro** de
+  `/src/vscode`, que o `fonte` apaga inteiro — e o `fonte` guarda e devolve só o da **raiz**. O
+  guard então vê raiz + lock casando e pula o `npm ci`, que é o único passo que reconstrói o
+  `build/` (pelo `postinstall`).
+
+  Continua sendo a família que o arquivo já documenta — *"a árvore do container é ESTADO, não
+  cache"* —, e o guard continua perguntando pelo que o `npm ci` **consome** (o lock) em vez do que
+  ele **produz**. Um sentinela em `build/node_modules` fecharia os dois casos. Destravado à mão com
+  `rm /src/lock.sha`.
 - **`motor-nova-versao.yml` falha em 0s a cada push** do `vsshapp-vscode`, com *"This run likely
   failed because of a workflow file issue"* — o arquivo declara só `workflow_dispatch` e mesmo assim
   o GitHub abre uma corrida por `push`, que é a assinatura de YAML que não parseia. Vermelho em todo
