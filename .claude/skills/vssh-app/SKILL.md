@@ -351,6 +351,16 @@ respostas JSON).
 
 ## Não reimplemente: as bibliotecas do toolkit
 
+> **⚠ E isso vale para o CSS também.** Existe uma biblioteca de UI com a estética do ambiente —
+> paleta, tipografia, 19 componentes, 87 ícones, gaveta de navegação e as peças de mídia. Um app que
+> escreve o próprio botão e a própria paleta não está economizando: está recriando 2800 linhas que
+> moram noutro repositório, e o resultado é uma janela que denuncia ser uma página web. Ver
+> [`docs/ui.md`](../../../docs/ui.md).
+>
+> **O que a biblioteca NÃO tem, e você não deve desenhar:** diálogo, menu de contexto, aviso,
+> bandeja e seletor de arquivo. Essas superfícies são do desktop (`vssh.dialog`, `vssh.contextMenu`,
+> `vssh.toast`, `vssh.pickFile`) — e um modal desenhado dentro do app fica **preso no iframe**.
+
 Quatro problemas aparecem em todo app, e todo mundo erra do mesmo jeito na primeira vez. Já estão
 resolvidos em `lib/`, **nos dois runtimes**, e elas se instalam (antes eram copiadas por um script
 próprio, `vssh-app-lib-sync`, que morreu por ter deixado dois apps com libs de outra major sem
@@ -365,7 +375,7 @@ pip install "https://github.com/colabhd/vssh-app-toolkit/archive/refs/tags/v4.ta
 const { createAppLog } = require('vssh-app-toolkit/log');
 const { createStaticSpa } = require('vssh-app-toolkit/spa');
 const { escutar } = require('vssh-app-toolkit/listen');
-const { WEB_DIR, SHIMS } = require('vssh-app-toolkit/web');   // as libs de NAVEGADOR
+const { WEB_DIR, SHIMS, ESTILOS, SCRIPTS } = require('vssh-app-toolkit/web');   // libs de NAVEGADOR
 ```
 
 ```python

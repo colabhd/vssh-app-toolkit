@@ -48,6 +48,33 @@ abaixo, o que costuma ser pedido:
 portado — está pronto para ser **redesenhado**. É o mesmo formato do critério 3.2 em
 [`roadmap/criterios.md`](roadmap/criterios.md), e pela mesma razão.
 
+### 3. Ele vai *parecer* uma janela do ambiente? — decide o custo de **pertencer**
+
+> **⚠ Esta pergunta faltava nesta página, e a omissão tinha nome.** O critério 3.3
+> ([`roadmap/criterios.md`](roadmap/criterios.md#33--está-belo)) é condição de pronto — *"a promessa
+> é que o usuário esqueça que está num navegador"* — e ele registra, com todas as letras, que
+> **nenhum vssh-app passava por ele**, porque *"vssh-app não é item de onda: é pacote publicado por
+> fora, e a única página que quem porta lê inteira é `porting.md`"*. Ou seja: o critério que existe
+> para o usuário esquecer que está num navegador não alcançava exatamente as janelas que mais
+> parecem uma página web dentro de uma. Esta seção é a correção.
+
+| O que se quer | Custo | Onde está |
+|---|---|---|
+| Paleta, tipografia, scrollbar e foco do ambiente | **baixo** — um `<link>` | [`ui.md`](ui.md) |
+| Botão, campo, select, switch, lista, abas, estado vazio… | zero — já pronto | `.tuff-*`, ver [`ui.md`](ui.md#os-componentes) |
+| Ícones do ambiente | zero — já pronto | `<use href="#ico-…">`, 87 símbolos |
+| Acompanhar a cor de destaque do usuário | zero com a biblioteca; baixo sem ela | `vssh.aparencia` |
+| Player, grade de miniaturas, zoom/arraste | baixo | as peças de mídia, opt-in |
+| Diálogo, menu, aviso, seletor | **zero, e não desenhe** | `vssh.dialog`, `vssh.contextMenu`, `vssh.toast`, `vssh.pickFile` |
+
+**Um app que já tem identidade visual própria não precisa adotar nada disso** — o `recoll` tem tema
+claro e continua claro. Mas mesmo ele ganha em ler `vssh.aparencia`: é o que faz a janela acompanhar
+a cor que a pessoa escolheu, e é a diferença entre um app que mora no ambiente e um que está
+hospedado nele.
+
+> A adoção é **sempre explícita**, no backend do seu app. Atualizar o toolkit nunca reestiliza um app
+> que não pediu.
+
 ---
 
 ## App dual-target (Electron + web)

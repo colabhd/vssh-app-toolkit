@@ -23,6 +23,8 @@ no-op. Você desenvolve fora do VSSH sem `if` nenhum.
 
 | Quero… | Use |
 |---|---|
+| Que meu app **se pareça** com o ambiente | a [biblioteca de UI](ui.md) — um `<link>` |
+| Acompanhar a cor de destaque do usuário | `vssh.aparencia.tokens()` / `.onChange()` |
 | Trocar o título da janela | `document.title = '…'` (automático) |
 | Minimizar / maximizar / fechar | `vssh.window.*` |
 | Avisar algo que a pessoa vai querer reencontrar | `vssh.notify()` |
@@ -1001,6 +1003,41 @@ rede.
 > perguntas sem resposta boa: qual o teto, e o que fazer quando o app volta numa versão que não
 > entende o próprio estado antigo. A rota dissolve as duas: o teto já existe, e um app não tem como
 > não entender a própria URL.
+
+---
+
+## Aparência
+
+**A cor de destaque que o usuário escolheu não atravessa sozinha.** Ela mora no `<html>` do *shell*,
+e o seu app é outro documento — quem não pergunta fica com a cor de fábrica enquanto o ambiente
+inteiro está noutra, e a janela dele é a única fora do tom.
+
+```js
+const t = vssh.aparencia.tokens();
+// { '--ds-accent': '#0e639c', '--ds-accent-h': …, '--ds-accent-bg': …, '--ds-sel': … }  ou null
+
+if (t) for (const [nome, valor] of Object.entries(t)) {
+  document.documentElement.style.setProperty(nome, valor);
+}
+
+const cancelar = vssh.aparencia.onChange((t) => { /* a pessoa trocou a cor */ });
+```
+
+**São quatro, e não um.** O shell calcula `--ds-accent-h` com uma conta própria; derivá-la aqui
+traria essa fórmula para dentro do seu app, onde ela envelheceria sem ninguém notar. Copie as
+quatro — não há aritmética a fazer.
+
+**`null` quer dizer "não há a quem perguntar"** — aba solta, ou app servido de outra origem —, e a
+leitura certa é **não sobrescrever nada**. Não é o mesmo que "a cor é a padrão": o padrão já está no
+CSS que você carregou, e devolvê-lo aqui faria dele uma segunda cópia.
+
+`onChange` só dispara quando o **valor** muda. O shell reescreve o `style` do `<html>` dele por
+outros motivos (papel de parede, posição da barra), e acordar o app a cada um deles seria trabalho
+no meio de um quadro para repintar a mesma cor.
+
+> **Se você usa a [biblioteca de UI](ui.md), não precisa de nada disto:** ela já lê e aplica. Esta
+> superfície existe para o app que tem identidade visual própria e ainda assim quer acompanhar a cor
+> do ambiente — foi o caso real que a produziu.
 
 ---
 

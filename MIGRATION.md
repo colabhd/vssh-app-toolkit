@@ -381,3 +381,51 @@ Ver [`docs/roadmap/03-toolkit.md`](docs/roadmap/03-toolkit.md).
 
 Depois de sincronizar, revise o diff e rode o app contra os quatro primeiros itens desta página.
 `.vssh-lib-version` (em cada destino) registra de onde veio a cópia.
+
+---
+
+## Adotar a biblioteca de UI
+
+Novidade da 4.14. Um app já publicado não muda de aparência sozinho: a adoção é sempre explícita, no
+backend dele. Ver [`docs/ui.md`](docs/ui.md) para o caminho completo; aqui, os dois casos.
+
+### Se o app não tem identidade visual própria
+
+Acrescente as duas listas ao SPA e apague o CSS de cores e tipografia que você escreveu à mão. Foi o
+que os dois templates fizeram: o `<style>` inline deles caiu de 45 para 30 linhas, e o que sobrou é o
+que nenhuma biblioteca podia adivinhar — o arranjo da página e as peças que só existem nela.
+
+```js
+const { WEB_DIR, SHIMS, ESTILOS, SCRIPTS } = require('vssh-app-toolkit/web');
+createStaticSpa({
+  mounts: { '/_vssh/': WEB_DIR },
+  injectStyles: ESTILOS.map((f) => `_vssh/${f}`),
+  injectScripts: [...SHIMS, ...SCRIPTS].map((s) => `_vssh/${s}`),
+});
+```
+
+O seu CSS continua vencendo o da biblioteca sem `!important` — ela inteira mora em `@layer vssh`, e
+regra fora de camada ganha de regra em camada.
+
+### Se o app TEM identidade visual própria
+
+Não adote a paleta. Adote só a ponte da cor de destaque:
+
+```js
+const t = vssh.aparencia.tokens();
+if (t) for (const [k, v] of Object.entries(t)) {
+  document.documentElement.style.setProperty(k, v);
+}
+vssh.aparencia.onChange(/* … */);
+```
+
+> **⚠ E se você já tem uma ponte escrita à mão, apague-a — não empilhe.** O caso concreto é o
+> `vsshapp-recoll`: ele reimplementou `parentRoot()`, a validação de hex e o `MutationObserver`, e
+> **uma das três pernas dele já está morta** — o comentário afirma que *"o portal também emite
+> `{type:'vssh-theme'}` nos iframes"*, e um `grep` no `vssh-sso` inteiro devolve zero para isso, além
+> de o caminho citado (`custom_xprahtml5/`) não existir mais. Nada acusou, porque a perna que
+> sobreviveu continua funcionando.
+>
+> É o argumento inteiro de a ponte ter um dono nomeado no toolkit: ela é conferida por teste dos dois
+> lados do iframe — `tests/tuff-fidelidade.test.js` aqui, `tests/unit/tokens-de-app.test.js` no
+> shell.

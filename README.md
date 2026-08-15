@@ -129,6 +129,14 @@ existir porque o backend é Python.
 | `lib/web/fsa-polyfill.js` | File System Access API (`showDirectoryPicker()` e cia.) sobre o `/api/fs/*` do portal — um web app que já usa FSA roda **sem fork**. Requer o shim carregado antes. ⚠ Tem limites estruturais conhecidos: veja [`docs/roadmap/03-toolkit.md`](docs/roadmap/03-toolkit.md#t1--lazyfile-é-um-blob-vazio) antes de depender dele. |
 | `lib/web/electron-shim.js` | Superfície padrão do Electron (`dialog`, `shell`, `clipboard`, `Notification`, controles de janela) mapeada para o shim. Para portar um app Electron sem reescrever as chamadas. |
 | `lib/web/tauri-shim.js` | Idem para a superfície padrão do Tauri (`fs`, `dialog`, `shell`, `notification`, `path`). |
+| `lib/web/tuff/` | **A biblioteca de UI** — a estética do ambiente, do lado do app: paleta, tipografia, 19 componentes, 87 ícones, gaveta de navegação e as peças de mídia. Um app que a adota se parece com o ambiente em vez de parecer uma página web dentro de uma janela. Ver [`docs/ui.md`](docs/ui.md). |
+
+> **Por que uma biblioteca de UI, e não só documentação.** O critério 3.3 do ecossistema
+> ([`docs/roadmap/criterios.md`](docs/roadmap/criterios.md#33--está-belo)) é condição de pronto — *"a
+> promessa é que o usuário esqueça que está num navegador"* — e ele **passou a alcançar todo
+> vssh-app**. Mas cobrar sem entregar vocabulário é pedir que cada autor redescubra 2800 linhas de
+> CSS que já existem noutro repositório: um app já pagou esse custo à mão, em 259 linhas, e a ponte
+> que ele escreveu junto **apodreceu em silêncio** — ela escuta uma mensagem que o shell removeu.
 
 ### Ligando ao seu app
 

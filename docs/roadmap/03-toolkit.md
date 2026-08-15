@@ -741,3 +741,66 @@ em 2 minutos", o Node era "qualquer coisa que vá crescer". Fazia sentido enquan
 eram JavaScript — e foi o que produziu o congelamento: escolher o Python significava abrir mão de
 log, de SSE, de token e da ponte, e um template que ninguém usa para valer é um template que
 ninguém atualiza. A divisão agora é por LINGUAGEM, e mais nada.
+
+---
+
+## A estética do ambiente atravessa o iframe
+
+> **Estado:** entregue · 4.14.0
+
+O ecossistema tinha um design system maduro — **Tuff**, declarado em
+`vssh-sso/vssh-client/css/design-tokens.css` — e ele não alcançava os vssh-apps. Um app roda num
+`<iframe>` same-origin onde o shell **não injeta nada**: nem folha, nem token, nem fonte. O toolkit
+tinha zero CSS.
+
+O custo estava medido em três lugares antes de qualquer linha ser escrita:
+
+1. **O critério 3.3 cobrava o que não dava para cumprir.** [`criterios.md`](criterios.md#33--está-belo)
+   registra que *"nenhum vssh-app passava por ele"*, porque vssh-app não é item de onda. O critério
+   que existe para o usuário esquecer que está num navegador não alcançava justamente as janelas que
+   mais parecem uma página web dentro de uma.
+2. **Um app já tinha pago à mão.** `vsshapp-recoll` recriou a paleta em 259 linhas.
+3. **E essa cópia já tinha apodrecido.** A ponte de JS dele escuta `{type:'vssh-theme'}` e cita
+   `custom_xprahtml5/js/SettingsWindow.js` — `grep` no `vssh-sso` inteiro devolve **zero** para os
+   dois. Uma das três pernas está morta há tempo indeterminado, sem nada acusar.
+
+### As decisões, e o que as decidiu
+
+| | |
+|---|---|
+| **Cópia medida, não referência** | Os tokens são copiados para `lib/web/tuff/tuff-tokens.css`, e `tests/tuff-fidelidade.test.js` resolve os `var()` dos dois lados e compara o valor FINAL contra o shell quando o checkout irmão está ao lado. Sem ele seria a forma exata do MIME `application/x-vssh-files`. |
+| **`@layer vssh`** | A folha injetada entra DEPOIS do CSS do app, então sem camada a biblioteca ganharia todo empate de especificidade e viraria camisa de força. Não tem representação textual verificável — há caso em Chrome real. |
+| **Superfícies delegadas ficam delegadas** | Diálogo, menu, aviso, bandeja e seletor continuam do shell. Um modal desenhado no app fica **preso no iframe**. Guarda executável recusa as marcas dessas peças. |
+| **A fonte viaja no pacote** | `Instrument Sans` não atravessa o iframe. 41 KB, e sem ela toda janela fica estrangeira ao lado das outras. |
+| **`vssh.aparencia` reporta, não escreve** | O shim continua sem criar nó nem injetar CSS; quem pinta é a biblioteca. É o que permite ao `recoll` puxar só a cor sem herdar paleta. |
+| **Quatro tokens, não um** | `_applyAccentColor` escreve `--ds-accent`, `--ds-accent-h`, `--ds-accent-bg` e `--ds-sel`. Derivar os três a partir do primeiro traria a fórmula de clareamento do shell para dentro do toolkit. |
+
+### O que só apareceu executando
+
+O repositório já sabia que *"cascata se mede executando"*. Quatro defeitos confirmaram:
+
+- **A scrollbar de 6px não valia.** As duas sintaxes não somam: declarar `scrollbar-width` faz o
+  Chrome **ignorar** `::-webkit-scrollbar-*` por completo. Media 10px com as duas regras escritas e
+  corretas. Conserto: a padrão passou para dentro de `@supports not selector(::-webkit-scrollbar)`.
+- **A faixa bufferizada da linha do tempo era invisível** — trilho `#3c3c3c` e buffer `#3e3e42`, dois
+  níveis de diferença. As camadas estavam lá, com as larguras certas, lendo os tokens certos: o
+  defeito era a RELAÇÃO entre as cores, e relação entre cores só existe pintada.
+- **Faltava o botão de ícone**, e isso só se vê num player montado.
+- **A gaveta sem altura** crescia com o conteúdo e levava a lateral para fora da tela.
+
+### Duas coisas que NÃO foram normalizadas no chute
+
+- **A deriva de espessura do sprite do shell.** São três traços (45 ícones a 1.5, sete a 1.3, sete a
+  1.4) e um sólido. Parte é legítima — ícone denso se afina de propósito para o peso óptico bater —,
+  parte parece deriva. Copiado verbatim, com a distribuição registrada num teste: se ela mudar lá,
+  alguém olha de novo em vez de copiar no automático.
+- **A duplicata que quase entrou.** Foram acrescentados `chevron-left` e `chevron-right` — e as duas
+  já existiam, com o nome `arrow-left`/`arrow-right` e o mesmo desenho. É a armadilha que o
+  `criterios.md` nomeia: *"procurar o vocabulário existente não é procurar pelo nome que se espera."*
+
+### O que voltou para o `vssh-sso`
+
+`--ds-on-accent` entrou em `vssh-client/css/design-tokens.css` (estava escrito `#fff` à mão em cinco
+lugares), e `tests/unit/tokens-de-app.test.js` passou a guardar do lado do shell os quatro nomes que
+os apps leem de fora — porque **renomear `--ds-accent` não quebra nada naquele repositório**: quebra
+a janela de todo app instalado, e o sintoma que chega não aponta para lá.

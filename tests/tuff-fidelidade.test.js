@@ -109,12 +109,11 @@ function resolvidos(css) {
 
 /** Tokens que a biblioteca tem e o shell não. Cada um é trabalho pendente NO SHELL. */
 const ADIANTE_DO_SHELL = {
-  // `#0e639c` é azul médio: preto dá ~3,3:1 sobre ele (reprova AA) e branco dá 5,2:1. Sem o token,
-  // quem escreve um botão primário escolhe a cor do texto no olho — e o defeito só aparece para
-  // quem troca o destaque. Existe no arquivo do PORTAL (`public/css/design-tokens.css`) e falta no
-  // do shell; o defeito que ele corrige já está registrado em `08-editor-do-ambiente.md:1331`.
-  '--ds-on-accent': 'existe no arquivo do portal e falta no do shell — sem ele o texto sobre o '
-    + 'destaque é escolhido no olho, e preto reprova AA no destaque padrão',
+  // ⚠ `--ds-on-accent` ESTAVA aqui, e saiu porque a dívida foi paga: o shell passou a declará-lo, e
+  // os cinco `color: #fff` que ele escrevia à mão sobre a cor de destaque viraram
+  // `var(--ds-on-accent)`. Quem mandou apagar a entrada foi o teste "divergência declarada que o
+  // shell já resolveu reprova" — a primeira vez que ele mordeu, e exatamente para isto que existe.
+  // A partir daqui o token é coberto pela comparação de VALOR, que é garantia mais forte.
 
   // O shell DECLARA `--tuff-gap-*` e não os usa: medindo os literais de `design-components.css` e
   // `vssh-dialogs.css`, 8px aparece 21 vezes e ao lado dele 5, 6, 10, 3, 7 e 14. Isso não é uma

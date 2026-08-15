@@ -158,7 +158,12 @@ jobs:
           # Desde a v4 o shim vem do `node_modules`, servido por um `mounts` do static-spa — fora
           # da raiz do bundle por construção. É o mesmo defeito com outra causa possível (o `npm
           # ci` não rodou), e a mesma asserção o pega.
-          srcs=$(q -fsS http://app/ | grep -o '<script src="[^"]*"' | cut -d'"' -f2)
+          # ⚠ `<link href>` junto com `<script src>`, e não só os scripts. A biblioteca de UI chega
+          # por `injectStyles`, e no wheel Python ela viaja por uma linha de `force-include`: se
+          # essa linha faltar, a folha vira 404 e o sintoma no servidor é "o app Python é feio" —
+          # que não aponta para arquivo de empacotamento nenhum. Varrer as duas é o que troca esse
+          # sintoma por um job vermelho.
+          srcs=$(q -fsS http://app/             | grep -oE '<script src="[^"]*"|<link rel="stylesheet" href="[^"]*"'             | sed -E 's/.*="([^"]*)"$//')
           test -n "$srcs"
           for s in $srcs; do
             q -fsS "http://app/${s}" >/dev/null \
@@ -229,7 +234,12 @@ jobs:
           # página carrega inteira e `vssh` simplesmente não existe. Aqui ele tem uma causa a mais
           # que no Node: as libs de navegador viajam DENTRO do wheel (o `force-include` do
           # pyproject), e um empacotamento que as deixasse de fora só apareceria assim.
-          srcs=$(q -fsS http://app/ | grep -o '<script src="[^"]*"' | cut -d'"' -f2)
+          # ⚠ `<link href>` junto com `<script src>`, e não só os scripts. A biblioteca de UI chega
+          # por `injectStyles`, e no wheel Python ela viaja por uma linha de `force-include`: se
+          # essa linha faltar, a folha vira 404 e o sintoma no servidor é "o app Python é feio" —
+          # que não aponta para arquivo de empacotamento nenhum. Varrer as duas é o que troca esse
+          # sintoma por um job vermelho.
+          srcs=$(q -fsS http://app/             | grep -oE '<script src="[^"]*"|<link rel="stylesheet" href="[^"]*"'             | sed -E 's/.*="([^"]*)"$//')
           test -n "$srcs"
           for s in $srcs; do
             q -fsS "http://app/${s}" >/dev/null \
