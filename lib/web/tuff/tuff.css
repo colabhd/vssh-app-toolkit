@@ -161,6 +161,24 @@
   }
   .tuff-acoes--direita { justify-content: flex-end; }
 
+  /* ── Ícones ─────────────────────────────────────────────────────────────────
+     As formas vêm de `tuff-icones.js`, que instala o sprite no documento do app. Aqui só o
+     tamanho — a COR vem de `currentColor`, e é por isso que um ícone dentro de um
+     `.tuff-btn--perigo` fica vermelho sem ninguém pedir.
+
+     Três tamanhos, como no shell. `flex: none` porque a maior parte dos ícones vive dentro de um
+     flex ao lado de texto, e sem isso ele encolhe quando o texto é longo — vira um ícone achatado
+     que parece um defeito de renderização. */
+  .tuff-ico {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    display: inline-block;
+    vertical-align: text-bottom;
+  }
+  .tuff-ico--sm { width: 14px; height: 14px; }
+  .tuff-ico--lg { width: 20px; height: 20px; }
+
   /* ── Campos ─────────────────────────────────────────────────────────────────
      Nunca controle nativo. É a primeira linha da tabela do 3.3, e o custo de
      ignorá-la é um `<input type="date">` abrindo um calendário branco no meio de

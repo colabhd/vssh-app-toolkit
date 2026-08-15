@@ -14,6 +14,7 @@
 <link rel="stylesheet" href="../lib/web/tuff/tuff-base.css">
 <link rel="stylesheet" href="../lib/web/tuff/tuff.css">
 <link rel="stylesheet" href="../lib/web/tuff/tuff-midia.css">
+<script src="../lib/web/tuff/tuff-icones.js" defer></script>
 <script src="../lib/web/tuff/tuff-midia.js" defer></script>
 
 <style>
@@ -66,9 +67,10 @@
         <button class="tuff-btn" disabled>indisponível</button>
       </div>
       <div class="amostra">
-        <button class="tuff-btn tuff-btn--icone" aria-label="Recarregar">↻</button>
-        <button class="tuff-btn tuff-btn--icone" aria-label="Ampliar">+</button>
-        <button class="tuff-btn tuff-btn--icone" aria-label="Reduzir">−</button>
+        <button class="tuff-btn tuff-btn--icone" aria-label="Recarregar"><svg class="tuff-ico"><use href="#ico-refresh"></use></svg></button>
+        <button class="tuff-btn tuff-btn--icone" aria-label="Ampliar"><svg class="tuff-ico"><use href="#ico-zoom-in"></use></svg></button>
+        <button class="tuff-btn tuff-btn--icone" aria-label="Reduzir"><svg class="tuff-ico"><use href="#ico-zoom-out"></use></svg></button>
+        <button class="tuff-btn"><svg class="tuff-ico"><use href="#ico-save"></use></svg> com rótulo</button>
         <span class="tuff-sec-desc">quadrados, para barra e chrome — perdem a moldura lá dentro</span>
       </div>
       <hr class="tuff-divisor">
@@ -256,6 +258,25 @@
 
   </div>
 
+  <section class="tuff-painel">
+    <div class="tuff-sec">
+      <div class="tuff-sec-titulo">Ícones</div>
+      <div class="tuff-sec-desc">
+        Os 60 do shell, copiados sem uma vírgula de diferença, mais 27 que um visualizador de fotos
+        e um player de vídeo pedem e que não existiam em lado nenhum. Um traço só, 16×16,
+        <code>currentColor</code> — passe o ponteiro para ver o nome.
+      </div>
+    </div>
+    <div class="amostra">
+      <svg class="tuff-ico tuff-ico--sm"><use href="#ico-folder"></use></svg>
+      <svg class="tuff-ico"><use href="#ico-folder"></use></svg>
+      <svg class="tuff-ico tuff-ico--lg"><use href="#ico-folder"></use></svg>
+      <span class="tuff-sec-desc">14, 16 e 20 — a cor vem do texto ao redor, sempre</span>
+      <span class="tuff-pill tuff-pill--erro"><svg class="tuff-ico tuff-ico--sm"><use href="#ico-x-circle"></use></svg> herda a cor</span>
+    </div>
+    <div id="cat-icones" class="amostra" style="gap:var(--ds-gap-sm)"></div>
+  </section>
+
   <header class="capa">
     <h2>Mídia</h2>
     <p>
@@ -288,7 +309,7 @@
         <canvas id="cat-quadro" width="480" height="270" style="max-width:100%;max-height:100%"></canvas>
       </div>
       <div class="tuff-chrome" id="cat-chrome">
-        <button class="tuff-btn tuff-btn--icone" data-tuff-play aria-label="Reproduzir">▶</button>
+        <button class="tuff-btn tuff-btn--icone" data-tuff-play aria-label="Reproduzir"><svg class="tuff-ico"><use href="#ico-play"></use></svg></button>
         <div class="tuff-trilha" id="cat-trilha" aria-label="Posição">
           <div class="tuff-trilha-trilho">
             <div class="tuff-trilha-buffer" style="width:72%"></div>
@@ -301,9 +322,7 @@
         </div>
         <span class="tuff-tempo"><b>15:47</b> / 41:37</span>
         <div class="tuff-volume">
-          <!-- Glifo monocromático, e não emoji: o ambiente desenha ícones com um sprite SVG de
-               traço, e um emoji colorido no meio disso destoa antes de qualquer outra coisa. -->
-          <button class="tuff-btn tuff-btn--icone" data-tuff-mudo aria-label="Silenciar">◂))</button>
+          <button class="tuff-btn tuff-btn--icone" data-tuff-mudo aria-label="Silenciar"><svg class="tuff-ico"><use href="#ico-volume-on"></use></svg></button>
           <div class="tuff-volume-trilha">
             <div class="tuff-volume-trilho"><div class="tuff-volume-nivel" style="width:70%"></div></div>
           </div>
@@ -371,6 +390,17 @@
   }
 
   addEventListener('DOMContentLoaded', () => {
+    // A galeria de ícones sai da própria lista da biblioteca: escrevê-la à mão criaria uma segunda
+    // lista para esquecer de atualizar, e um ícone novo nasceria invisível.
+    const caixa = document.getElementById('cat-icones');
+    for (const nome of TuffIcones.nomes()) {
+      const cel = document.createElement('span');
+      cel.className = 'tuff-btn tuff-btn--icone';
+      cel.setAttribute('data-tuff-dica', nome);
+      cel.innerHTML = TuffIcones.svg(nome);
+      caixa.appendChild(cel);
+    }
+
     ladrilho(0, 480, 270);
     const q = document.getElementById('cat-quadro').getContext('2d');
     const grad = q.createLinearGradient(0, 0, 480, 270);

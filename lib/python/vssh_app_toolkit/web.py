@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import os
 
-__all__ = ["DIRETORIO_WEB", "SHIMS", "ESTILOS", "ESTILOS_MIDIA", "SCRIPTS_MIDIA"]
+__all__ = ["DIRETORIO_WEB", "SHIMS", "ESTILOS", "SCRIPTS", "ESTILOS_MIDIA", "SCRIPTS_MIDIA"]
 
 _AQUI = os.path.dirname(os.path.abspath(__file__))
 # Instalado: os `.js` viajam DENTRO do pacote, postos ali pelo `force-include` do pyproject.
@@ -51,6 +51,10 @@ SHIMS = ["vssh-app-shim.js", "fsa-polyfill.js"]
 #: de estilo ali dentro reestilizaria os apps já publicados no próximo `pip install`. Adotar a
 #: aparência do ambiente é ato explícito do backend do app.
 ESTILOS = ["tuff/tuff-tokens.css", "tuff/tuff-base.css", "tuff/tuff.css"]
+
+#: Os ícones. Script, e não folha: o sprite precisa ser INJETADO no documento do app, porque um
+#: `<use href="#ico-…">` só resolve dentro do próprio documento.
+SCRIPTS = ["tuff/tuff-icones.js"]
 
 #: As peças de mídia — trilha, volume, chrome que some, grade virtualizada, visor com zoom.
 #:
