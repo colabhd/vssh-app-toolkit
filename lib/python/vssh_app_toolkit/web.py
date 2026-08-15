@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import os
 
-__all__ = ["DIRETORIO_WEB", "SHIMS"]
+__all__ = ["DIRETORIO_WEB", "SHIMS", "ESTILOS"]
 
 _AQUI = os.path.dirname(os.path.abspath(__file__))
 # Instalado: os `.js` viajam DENTRO do pacote, postos ali pelo `force-include` do pyproject.
@@ -44,3 +44,10 @@ DIRETORIO_WEB = _EMBUTIDO if os.path.isdir(_EMBUTIDO) else _NO_CHECKOUT
 
 #: Os dois que quase todo app quer, na ordem em que têm de ser carregados.
 SHIMS = ["vssh-app-shim.js", "fsa-polyfill.js"]
+
+#: A biblioteca de UI, para o `inject_styles` do SPA.
+#:
+#: Lista SEPARADA de propósito, como no lado Node: todo app injeta `SHIMS` sem pensar, e uma folha
+#: de estilo ali dentro reestilizaria os apps já publicados no próximo `pip install`. Adotar a
+#: aparência do ambiente é ato explícito do backend do app.
+ESTILOS = ["tuff/tuff-tokens.css"]

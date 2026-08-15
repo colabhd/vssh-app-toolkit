@@ -9,9 +9,10 @@
   "files": [
     "lib",
     "schema",
-    "!lib/python"
+    "!lib/python",
+    "!lib/web/test"
   ],
-  "//files": "O que um APP precisa quando instala este pacote — nada mais. Sem esta lista o npm empacota a árvore inteira (docs, templates, examples, tests): medido em 1,9 MB por app instalado, contra ~490 KB. `scripts/` fica de fora de propósito: o `vssh-app-publish` roda do checkout do CI, não de dentro do node_modules de um app. E `lib/python/` sai pela mesma régua: um app Node não importa uma linha dela — quem a instala é o pip, pelo pyproject.toml da raiz. `lib/web/` FICA nos dois pacotes, e não é duplicação por descuido: aqueles arquivos são carregados pelo NAVEGADOR, então o backend de qualquer runtime precisa poder servi-los.",
+  "//files": "O que um APP precisa quando instala este pacote — nada mais. Sem esta lista o npm empacota a árvore inteira (docs, templates, examples, tests): medido em 1,9 MB por app instalado, contra ~490 KB. `scripts/` fica de fora de propósito: o `vssh-app-publish` roda do checkout do CI, não de dentro do node_modules de um app. E `lib/python/` sai pela mesma régua: um app Node não importa uma linha dela — quem a instala é o pip, pelo pyproject.toml da raiz. `lib/web/` FICA nos dois pacotes, e não é duplicação por descuido: aqueles arquivos são carregados pelo NAVEGADOR, então o backend de qualquer runtime precisa poder servi-los. `lib/web/test/` sai pela mesma régua do resto e estava entrando por descuido: são 147 KB de bancada `node --test` — mais que as próprias libs de navegador (156 KB) — no node_modules de todo app instalado, para rodar num lugar onde ninguém roda teste. Apareceu quando o wheel Python passou a mapear diretórios em vez de listar arquivo a arquivo, e valia para os dois pacotes o tempo todo.",
   "exports": {
     "./listen": "./lib/node/app-listen.js",
     "./log": "./lib/node/app-log.js",

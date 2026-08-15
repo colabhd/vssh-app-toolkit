@@ -134,14 +134,20 @@ class _Carimbador:
 
 def criar_spa_estatica(root, index_file="index.html", inject_scripts=None, mounts=None,
                        alias_prefixes=None, spa_fallback=False, missing_bundle_hint="",
-                       ao_avisar=None):
+                       ao_avisar=None, inject_styles=None):
     """Devolve `servir(handler) -> bool`. `True` quer dizer que a requisição foi atendida.
 
     O contrato de retorno é o mesmo do lado Node, e pela mesma razão: **404 é decisão de quem
     compõe as rotas**, não da lib. Um handler que respondesse 404 sozinho impediria o app de tentar
     as próprias rotas depois dele.
+
+    `inject_styles` são folhas injetadas como `<link rel="stylesheet">`, com o mesmo carimbo dos
+    scripts e **antes** deles — ver `tags()`. Fica por último na assinatura, e não ao lado de
+    `inject_scripts`, porque quem chama por posição já existe lá fora: acrescentar um parâmetro no
+    meio trocaria silenciosamente o `mounts` de um app pelas folhas.
     """
     inject_scripts = list(inject_scripts or [])
+    inject_styles = list(inject_styles or [])
     alias_prefixes = list((alias_prefixes or {}).items())
     ao_avisar = ao_avisar or (lambda _evento: None)
 
@@ -172,16 +178,24 @@ def criar_spa_estatica(root, index_file="index.html", inject_scripts=None, mount
     def carimbo_do_src(src):
         return carimbador.de(arquivo_do_src(src))
 
+    def _url_carimbada(src):
+        v = carimbo_do_src(src)
+        sep = "&" if "?" in str(src) else "?"
+        return (f"{src}{sep}v={v}" if v else str(src)).replace(chr(34), "&quot;")
+
     def tags():
         # Sem `defer`: precisa executar antes dos scripts diferidos do bundle, que já esperam o
         # parse. O `src` vem do app, não do usuário — mas interpolar em HTML sem escapar é o tipo
         # de coisa que envelhece mal, então quebramos aspas duplas.
+        #
+        # ⚠ As FOLHAS saem antes dos scripts. O `<link>` bloqueia a primeira pintura, e descobri-lo
+        # cedo é o que evita a página aparecer sem estilo por um quadro — fundo branco dentro de uma
+        # janela escura, que é o artefato que mais denuncia "isto é uma página web".
         saida = []
+        for href in inject_styles:
+            saida.append(f'<link rel="stylesheet" href="{_url_carimbada(href)}">')
         for src in inject_scripts:
-            v = carimbo_do_src(src)
-            sep = "&" if "?" in str(src) else "?"
-            url = f"{src}{sep}v={v}" if v else str(src)
-            saida.append(f'<script src="{url.replace(chr(34), "&quot;")}"></script>')
+            saida.append(f'<script src="{_url_carimbada(src)}"></script>')
         return "\n".join(saida)
 
     def corpo_do_index():
@@ -191,14 +205,19 @@ def criar_spa_estatica(root, index_file="index.html", inject_scripts=None, mount
         # index mude é o caso normal (uma reinstalação mexe no pacote, nunca no `index.html`). Sem
         # isto o processo continuaria servindo a URL carimbada antiga até alguém tocar no index — e
         # o carimbo teria virado enfeite justamente no cenário que ele existe para cobrir.
-        chave = (st.st_mtime_ns, tuple((s, carimbo_do_src(s)) for s in inject_scripts))
+        #
+        # ⚠ As folhas entram nesta chave junto com os scripts. Esquecê-las reproduziria o mesmo
+        # defeito que o parágrafo acima descreve, e no caso delas o sintoma é pior: uma cor velha
+        # não parece cache, parece decisão de design.
+        chave = (st.st_mtime_ns,
+                 tuple((s, carimbo_do_src(s)) for s in inject_styles + inject_scripts))
         with tranca_do_index:
             if cache_do_index["chave"] == chave:
                 return cache_do_index["corpo"]
 
         with open(caminho, "r", encoding="utf-8") as fh:
             html = fh.read()
-        if inject_scripts:
+        if inject_styles or inject_scripts:
             marcas = tags()
             if "</head>" in html:
                 html = html.replace("</head>", f"{marcas}\n</head>", 1)

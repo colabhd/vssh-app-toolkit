@@ -73,6 +73,41 @@ class TestCarimbo(BaseSpa):
         # bundle, que já esperam o parse.
         self.assertLess(corpo.index("<script"), corpo.index("</head>"))
 
+    def test_a_folha_sai_como_link_e_ANTES_dos_scripts(self):
+        # A ordem é o teste. O `<link>` bloqueia a primeira pintura, então descobri-lo cedo é o que
+        # evita a página aparecer sem estilo por um quadro — fundo branco dentro de uma janela
+        # escura. Um `<script>` na frente atrasa a folha sem ganhar nada em troca.
+        self.escrever("boot.js", "console.log(1)")
+        self.escrever("tema.css", ":root{--ds-bg:#1e1e1e}")
+        servir = criar_spa_estatica(root=self.raiz, inject_scripts=["boot.js"],
+                                    inject_styles=["tema.css"])
+        h = HandlerFalso("/")
+        self.assertTrue(servir(h))
+        corpo = h.corpo.decode("utf-8")
+        self.assertRegex(corpo, r'<link rel="stylesheet" href="tema\.css\?v=[0-9a-f]{12}">')
+        self.assertLess(corpo.index("<link"), corpo.index("<script"),
+                        "a folha saiu depois do script: a página pinta uma vez sem estilo")
+
+    def test_mudar_a_FOLHA_troca_a_URL_sem_tocar_no_index(self):
+        # O mesmo que o shim, e pelo mesmo motivo — mas o sintoma é pior: uma cor velha não parece
+        # cache, parece decisão de design. Ninguém abre o DevTools por causa de uma cor.
+        self.escrever("tema.css", ":root{--ds-accent:#0e639c}")
+        servir = criar_spa_estatica(root=self.raiz, inject_styles=["tema.css"])
+        antes = HandlerFalso("/")
+        servir(antes)
+
+        self.escrever("tema.css", ":root{--ds-accent:#16825d} /* outra cor, outro tamanho */")
+        depois = HandlerFalso("/")
+        servir(depois)
+        self.assertNotEqual(antes.corpo, depois.corpo)
+
+    def test_folha_ausente_sai_sem_carimbo(self):
+        servir = criar_spa_estatica(root=self.raiz, inject_styles=["nao-existe.css"])
+        h = HandlerFalso("/")
+        servir(h)
+        self.assertIn('<link rel="stylesheet" href="nao-existe.css">',
+                      h.corpo.decode("utf-8"))
+
     def test_mudar_o_shim_troca_a_URL_sem_tocar_no_index(self):
         # É o cenário exato do defeito: atualizar a lib mexe no pacote instalado, nunca no index.
         # Se o carimbo não entrasse na CHAVE do cache do index, o processo seguiria servindo a URL

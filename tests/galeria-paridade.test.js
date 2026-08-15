@@ -32,8 +32,17 @@ const PY = path.join(TEMPLATES, 'hello-vssh-app');
 // acusaria uma diferença que não existe no repositório.
 const ler = (p) => fs.readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
 
-const idsDe = (html, tag) =>
-  [...html.matchAll(new RegExp(`<${tag}[^>]*\\sid="([^"]+)"`, 'g'))].map((m) => m[1]).sort();
+/**
+ * Todo id da marcação, seja qual for a tag.
+ *
+ * ⚠ Isto pedia uma TAG, e o teste percorria uma lista fixa (`section`, `button`, `pre`, `div`, `a`,
+ * `code`). Um id em qualquer outra — `input`, `select`, `label`, `video`, `canvas` — não era
+ * comparado entre os dois templates, então uma peça podia existir num e faltar no outro **sem
+ * reprovar nada**: exatamente a deriva que este arquivo existe para impedir. A lista também
+ * obrigava a lembrar de crescê-la a cada tipo de peça nova, e esquecer não dava sinal.
+ */
+const idsDe = (html) => [...html.replace(/<!--[\s\S]*?-->/g, '')
+  .matchAll(/<[a-z][\w-]*\b[^>]*\sid="([^"]+)"/gi)].map((m) => m[1]).sort();
 
 test('o comportamento do frontend é o MESMO ARQUIVO', () => {
   // Byte a byte, e não "equivalente": `galeria.js` é código de NAVEGADOR, e o navegador é o mesmo
@@ -62,10 +71,8 @@ test('a marcação tem as MESMAS peças, e só o nome do runtime difere', () => 
   const a = ler(path.join(NODE, 'frontend', 'index.html'));
   const b = ler(path.join(PY, 'frontend', 'index.html'));
 
-  for (const tag of ['section', 'button', 'pre', 'div', 'a', 'code']) {
-    assert.deepEqual(idsDe(b, tag), idsDe(a, tag),
-      `os \`<${tag}>\` identificados divergiram entre os templates: uma peça existe num e não no outro`);
-  }
+  assert.deepEqual(idsDe(b), idsDe(a),
+    'os elementos identificados divergiram entre os templates: uma peça existe num e não no outro');
 
   // A ÚNICA diferença tolerada. Normalizando o nome do runtime, os dois arquivos têm de casar —
   // uma frase explicativa a mais num deles é exatamente o tipo de deriva que este teste impede.

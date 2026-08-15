@@ -43,8 +43,30 @@ Homepage = "https://github.com/colabhd/vssh-app-toolkit"
 packages = ["lib/python/vssh_app_toolkit"]
 
 [tool.hatch.build.targets.wheel.force-include]
-# As libs de navegador entram no wheel para que `vssh_app_toolkit.web.WEB_DIR` aponte para elas.
-# É o equivalente exato do `lib/node/web-assets.js` do lado Node, onde o `node_modules` já as traz.
+# As libs de navegador entram no wheel para que `vssh_app_toolkit.web.DIRETORIO_WEB` aponte para
+# elas. É o equivalente exato do `lib/node/web-assets.js` do lado Node, onde o `node_modules` já as
+# traz.
+#
+# ⚠ Aqui havia CINCO linhas, uma por arquivo, e a lista era uma armadilha esperando o primeiro
+# arquivo que não fosse `.js` na raiz. `lib/web/` ganhou um subdiretório (`tuff/`) com CSS, uma
+# fonte e uma licença; nenhum deles entraria, e a guarda que existia para cobrir isto
+# (`tests/lib-version.test.js`) lia o diretório SEM recursão e filtrando `.js`/`.d.ts` — ela teria
+# ficado **verde sobre um wheel sem estilo nenhum**. O sintoma no servidor seria "o app Python é
+# feio", que não aponta para arquivo de empacotamento nenhum.
+#
+# A entrada de DIRETÓRIO é o que resolve: tudo que entrar em `lib/web/tuff/` viaja sem ninguém
+# precisar lembrar de acrescentar uma linha. As cinco de arquivo ficam porque moram na raiz de
+# `lib/web/`, e ali não dá para mapear o diretório inteiro:
+#
+# ⚠ **`force-include` do hatchling IGNORA `exclude`** — medido, nos dois níveis (do alvo e global).
+# Mapear `lib/web` inteiro levaria junto `lib/web/test/`, que são **147 KB** de bancada `node --test`
+# no disco de todo app Python instalado — mais do que as próprias libs de navegador (156 KB) e 2,5×
+# toda a biblioteca Tuff (58 KB). Bancada roda no checkout, não no servidor.
+#
+# Quem impede a lista de envelhecer é `tests/lib-version.test.js`: ele exige que TODA entrada da
+# raiz de `lib/web/` — arquivo ou diretório — esteja aqui, salvo a bancada. Um subdiretório novo
+# reprova até ser mapeado.
+"lib/web/tuff" = "vssh_app_toolkit/web/tuff"
 "lib/web/vssh-app-shim.js" = "vssh_app_toolkit/web/vssh-app-shim.js"
 "lib/web/vssh-app-shim.d.ts" = "vssh_app_toolkit/web/vssh-app-shim.d.ts"
 "lib/web/fsa-polyfill.js" = "vssh_app_toolkit/web/fsa-polyfill.js"

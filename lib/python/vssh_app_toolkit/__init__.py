@@ -10,7 +10,7 @@ importada por si:
     from vssh_app_toolkit.notify import notificar
     from vssh_app_toolkit.live import definir_live, limpar_live
     from vssh_app_toolkit.tray import definir_bandeja, limpar_bandeja
-    from vssh_app_toolkit.web import DIRETORIO_WEB, SHIMS
+    from vssh_app_toolkit.web import DIRETORIO_WEB, SHIMS, ESTILOS
     from vssh_app_toolkit.fs import criar_fs_do_app, criar_handler_fs
 
 Não há um "importe o toolkit inteiro": são peças independentes, e um barrel obrigaria a carregar as

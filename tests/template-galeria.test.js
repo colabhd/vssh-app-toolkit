@@ -32,9 +32,30 @@ const HTML = ler('frontend/index.html');
 const JS = ler('frontend/galeria.js');
 const SERVER = ler('backend/server.js');
 
+// Comentário de HTML fora antes de qualquer contagem: a marcação desta galeria é metade prosa, e
+// um trecho de exemplo dentro de `<!-- -->` viraria um id que ninguém declarou.
+const SEM_COMENTARIOS = HTML.replace(/<!--[\s\S]*?-->/g, '');
+
 /** Os ids que o HTML declara, por tipo de elemento. */
 function idsDoHtml(tag) {
-  return [...HTML.matchAll(new RegExp(`<${tag}[^>]*\\sid="([^"]+)"`, 'g'))].map((m) => m[1]);
+  return [...SEM_COMENTARIOS.matchAll(new RegExp(`<${tag}[^>]*\\sid="([^"]+)"`, 'g'))].map((m) => m[1]);
+}
+
+/**
+ * Todo id da marcação, seja qual for a tag.
+ *
+ * ⚠ Aqui havia uma LISTA de tags (`button`, `pre`, `section`, `div`, `a`, `code`), e ela era uma
+ * armadilha de dois gumes. Um id declarado em qualquer outra tag — `input`, `select`, `label`,
+ * `video`, `canvas`, `details` — **escapava da conferência em silêncio**, que é o oposto do que
+ * este arquivo existe para fazer. E, do outro lado, o primeiro `<input id="x">` que a galeria
+ * ganhasse faria o teste abaixo REPROVAR dizendo que a marcação não tem o id — quando ela tem, e
+ * quem não enxergava era a lista.
+ *
+ * A lista crescia a cada peça de tipo novo (o comentário que estava aqui contava a rodada em que
+ * `div`, `a` e `code` entraram). Perguntar "tem id?" não cresce nunca.
+ */
+function todosOsIds() {
+  return [...SEM_COMENTARIOS.matchAll(/<[a-z][\w-]*\b[^>]*\sid="([^"]+)"/gi)].map((m) => m[1]);
 }
 
 /** Os ids que o comportamento procura, via o `$()` do arquivo. */
@@ -42,12 +63,8 @@ const idsDoJs = new Set([...JS.matchAll(/\$\('([^']+)'\)|escrever\('([^']+)'|fal
   .map((m) => m[1] || m[2] || m[3]));
 
 test('todo id que a galeria procura existe na marcação', () => {
-  // `div`, `a` e `code` entraram quando as peças deixaram de ser todas "um botão e um `<pre>`": a
-  // zona de soltura e a alça de arraste são divs, o link que prova o desvio de `target="_blank"` é
-  // uma âncora sem handler, e o tipo MIME é escrito num `<code>`. Sem eles aqui, um id renomeado
-  // nessas peças voltaria a ser um elemento mudo que nada acusa.
-  const noHtml = new Set([...idsDoHtml('button'), ...idsDoHtml('pre'), ...idsDoHtml('section'),
-                          ...idsDoHtml('div'), ...idsDoHtml('a'), ...idsDoHtml('code')]);
+  // Qualquer elemento com id serve — ver `todosOsIds()` sobre por que a lista de tags saiu.
+  const noHtml = new Set(todosOsIds());
   for (const id of idsDoJs) {
     assert.ok(noHtml.has(id),
       `galeria.js procura '#${id}' e a marcação não tem: a peça fica muda, sem erro nenhum`);

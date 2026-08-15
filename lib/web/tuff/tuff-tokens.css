@@ -1,0 +1,282 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Tuff — os tokens da identidade visual do ambiente, do lado do app.
+
+   ─── Por que este arquivo existe ────────────────────────────────────────────
+
+   Um vssh-app roda num `<iframe>` same-origin dentro do shell, e o shell **não
+   injeta nada nele**: nem folha de estilo, nem token, nem fonte. Herança de
+   aparência não existe — é preciso trazer.
+
+   Enquanto não havia por onde trazer, quem quis se parecer com o ambiente pagou
+   à mão: `vsshapp-recoll/static/css/theme-fusion.css` são 259 linhas recriando
+   esta paleta sob um prefixo privado. E essa cópia **já apodreceu em silêncio** —
+   o `vssh-integration.js` que a acompanha ainda escuta uma mensagem
+   (`{type:'vssh-theme'}`) que foi removida do shell, e cita um caminho
+   (`custom_xprahtml5/`) que não existe mais. Nada acusou.
+
+   ─── Onde mora a verdade ────────────────────────────────────────────────────
+
+   `vssh-sso/vssh-client/css/design-tokens.css`. Este arquivo é uma CÓPIA, e uma
+   cópia entre dois repositórios que se instalam separados, sem CI cruzado, é
+   exatamente a forma do defeito que o `vssh-app-shim.js` narra sobre o MIME de
+   arraste: *"nada acende, nada cai e nada loga — dos dois lados."*
+
+   ⚠ O que impede isso aqui é `tests/tuff-fidelidade.test.js`: com o checkout do
+   `vssh-sso` ao lado, ele resolve cada token dos dois arquivos e exige o MESMO
+   valor. Sem o irmão, ele se pula com motivo nomeado. **Não edite um valor aqui
+   sem editar lá** — ou sem declarar a divergência na lista que o teste carrega.
+
+   ─── Há DOIS vocabulários `--ds-*` no ecossistema, e este segue o do shell ───
+
+   `vssh-sso/public/css/design-tokens.css` (o portal) tem outros nomes para as
+   mesmas coisas: `--tuff-text-main` onde o shell tem `--tuff-text-bright`,
+   `--tuff-accent-b` onde o shell tem `--tuff-accent-h`, `--tuff-danger-bg` onde
+   o shell tem `--tuff-red-bg`. Um app mora no DESKTOP, então a verdade para nós
+   é a do shell. O portal entra aqui uma vez só, e está marcado.
+
+   ─── Estrutura, igual à do shell ────────────────────────────────────────────
+     1. Tokens brutos     (--tuff-*)   — a base
+     2. Tokens semânticos (--ds-*)     — o que os componentes leem
+
+   E a regra do shell vale igual aqui, porque ela se sustenta na prática: os
+   componentes dele fazem 196 usos de `--ds-*` e **zero** de `--tuff-*`. Escreva
+   `--ds-*`; `--tuff-*` é a base que permite trocar sem caçar cor em 20 arquivos.
+
+   Este arquivo declara SÓ tokens e a fonte. O reset, a scrollbar e os
+   componentes moram em `tuff.css` — separados porque há um consumidor real que
+   quer a cor do ambiente sem querer a aparência dele (de novo o recoll, que tem
+   visual próprio e claro).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+
+/* ── A fonte, servida pelo próprio app ───────────────────────────────────────
+
+   `Instrument Sans` é a fonte do ambiente e **não atravessa o iframe** — são dois
+   documentos, e o `@font-face` do shell não vale aqui. Um app que só nomeasse a
+   família cairia em `system-ui` e ficaria estrangeiro ao lado das outras janelas.
+   Tipografia errada denuncia a janela antes de qualquer cor.
+
+   Os arquivos viajam neste pacote (`fonts/`), como no shell, e pela mesma razão
+   que o shell parou de usar o Google Fonts: era requisição a um terceiro,
+   bloqueante, num ambiente cuja estrela-guia é não depender da rede de quem senta
+   na frente — e quando o bloqueador de anúncios derrubava, a MESMA tela mudava de
+   fonte conforme a rede.
+
+   É a versão VARIÁVEL: um arquivo cobre 400–700, então não há um `.woff2` por
+   peso. 41 KB somando os dois subconjuntos.
+
+   ⚠ **A URL é relativa (`fonts/…`), e tem de continuar sendo.** Ela resolve
+   contra a URL deste CSS, que num app instalado vive sob o prefixo do proxy
+   (`/<serverId>/proxy/app/<id>/_vssh/tuff/`). Uma URL absoluta (`/_vssh/…`)
+   funcionaria em dev e daria 404 em produção — e o sintoma seria só a fonte
+   errada, sem erro na tela.
+
+   Dois `@font-face` porque são dois subconjuntos, e o `unicode-range` é o que faz
+   valer a pena: o `latin-ext` (11 KB) só é baixado se a página usar um caractere
+   dele. Português cabe no `latin`.
+
+   Licença: SIL OFL 1.1, em `fonts/OFL.txt`, distribuída junto como ela exige. */
+
+@font-face {
+  font-family: 'Instrument Sans';
+  font-style: normal;
+  font-weight: 400 700;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url(fonts/instrument-sans-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+                 U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+                 U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Instrument Sans';
+  font-style: normal;
+  font-weight: 400 700;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url(fonts/instrument-sans-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304,
+                 U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB,
+                 U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+
+/* ── 1. Tokens brutos ────────────────────────────────────────────────────── */
+
+:root {
+  /* Superfícies */
+  --tuff-bg:           #1e1e1e;
+  --tuff-bg2:          #252526;
+  --tuff-bg3:          #2d2d30;
+  --tuff-bg-input:     #3c3c3c;
+  --tuff-bg-hover:     rgba(255,255,255,0.06);
+
+  /* Bordas */
+  --tuff-border:       #3e3e42;
+  --tuff-border-dark:  #1a1a1a;
+  --tuff-border-focus: var(--tuff-accent);
+
+  /* Texto */
+  --tuff-text:         #cccccc;
+  --tuff-text-dim:     #858585;
+  --tuff-text-bright:  #d4d4d4;
+  --tuff-text-inv:     #ffffff;
+
+  /* Acentos.
+     ⚠ Os quatro tokens de destaque são os ÚNICOS que mudam em runtime: o usuário
+     escolhe a cor em Configurações → Ambiente, e o shell reescreve `--ds-accent`,
+     `--ds-accent-h`, `--ds-accent-bg` e `--ds-sel` inline no `<html>` dele. Quem
+     traz isso para cá é `tuff.js`, lendo `vssh.aparencia`. Todo o RESTO da paleta
+     é estático — é o que torna esta cópia barata e a ponte pequena. */
+  --tuff-accent:       #0e639c;
+  --tuff-accent-h:     #1177bb;
+  --tuff-accent-bg:    rgba(14,99,156,0.15);
+  --tuff-sel:          #094771;
+  --tuff-sel-text:     #ffffff;
+
+  /* Status e sintaxe.
+     Os cinco últimos não têm par semântico no shell e vêm assim mesmo: um
+     visualizador de dados ou um editor precisa de uma paleta de categorias que
+     seja DAQUI, e inventar seis cores novas por app é como o ambiente deixa de
+     parecer um ambiente. */
+  --tuff-green:        #00e676;   /* cursor terminal */
+  --tuff-green2:       #6a9955;   /* código: strings */
+  --tuff-red:          #f44747;
+  --tuff-red-bg:       rgba(244,71,71,0.12);
+  --tuff-amber:        #c89b00;
+  --tuff-yellow:       #dcdcaa;
+  --tuff-orange:       #ce9178;
+  --tuff-blue:         #569cd6;
+  --tuff-cyan:         #4ec9b0;
+  --tuff-purple:       #c678dd;
+
+  /* Tipografia */
+  --tuff-font:         'Instrument Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --tuff-font-mono:    'JetBrains Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
+  --tuff-size-2xs:     10px;
+  --tuff-size-xs:      11px;
+  --tuff-size-sm:      12px;
+  --tuff-size-md:      13px;
+  --tuff-size-lg:      14px;
+  --tuff-size-xl:      16px;
+  --tuff-size-2xl:     20px;
+  --tuff-weight-n:     400;
+  --tuff-weight-m:     500;
+  --tuff-weight-b:     600;
+
+  /* Geometria */
+  --tuff-radius-xs:    2px;
+  --tuff-radius-sm:    3px;
+  --tuff-radius-md:    4px;
+  --tuff-radius-lg:    6px;
+  --tuff-radius-xl:    8px;
+
+  /* Espaçamento */
+  --tuff-gap-xs:       2px;
+  --tuff-gap-sm:       4px;
+  --tuff-gap-md:       8px;
+  --tuff-gap-lg:       12px;
+  --tuff-gap-xl:       20px;
+  --tuff-gap-2xl:      32px;
+
+  /* Sombras (sem glassmorfismo — é decisão de produto, não omissão) */
+  --tuff-shadow-sm:    0 1px 3px rgba(0,0,0,0.3);
+  --tuff-shadow-md:    0 2px 8px rgba(0,0,0,0.4);
+  --tuff-shadow-lg:    0 4px 16px rgba(0,0,0,0.5);
+  --tuff-blur:         none;
+
+  /* Scrollbar */
+  --tuff-sb-w:         6px;
+  --tuff-sb-track:     #1e1e1e;
+  --tuff-sb-thumb:     #4a4a4a;
+  --tuff-sb-thumb-h:   #606060;
+
+  /* Animação */
+  --tuff-ease:         ease;
+  --tuff-ease-out:     ease-out;
+  --tuff-dur:          0.15s;
+  --tuff-dur-fast:     0.08s;
+}
+
+
+/* ── 2. Tokens semânticos (--ds-*) ───────────────────────────────────────────
+   Componentes leem APENAS daqui. */
+
+:root {
+  --ds-bg:             var(--tuff-bg);
+  --ds-bg2:            var(--tuff-bg2);
+  --ds-bg3:            var(--tuff-bg3);
+  --ds-bg-input:       var(--tuff-bg-input);
+  --ds-bg-hover:       var(--tuff-bg-hover);
+  --ds-border:         var(--tuff-border);
+  --ds-border-focus:   var(--tuff-border-focus);
+  --ds-text:           var(--tuff-text);
+  --ds-text-dim:       var(--tuff-text-dim);
+  --ds-text-mid:       var(--tuff-text-bright);
+  --ds-text-inv:       var(--tuff-text-inv);
+  --ds-accent:         var(--tuff-accent);
+  --ds-accent-h:       var(--tuff-accent-h);
+  --ds-accent-bg:      var(--tuff-accent-bg);
+  --ds-sel:            var(--tuff-sel);
+  --ds-sel-text:       var(--tuff-sel-text);
+  --ds-green:          var(--tuff-green);
+  --ds-warn:           var(--tuff-amber);
+  --ds-danger:         var(--tuff-red);
+  --ds-danger-bg:      var(--tuff-red-bg);
+  --ds-font:           var(--tuff-font);
+  --ds-font-mono:      var(--tuff-font-mono);
+  --ds-radius-sm:      var(--tuff-radius-sm);
+  --ds-radius-md:      var(--tuff-radius-md);
+  --ds-radius-lg:      var(--tuff-radius-lg);
+  --ds-radius-xl:      var(--tuff-radius-xl);
+  --ds-shadow-sm:      var(--tuff-shadow-sm);
+  --ds-shadow-md:      var(--tuff-shadow-md);
+  --ds-shadow-lg:      var(--tuff-shadow-lg);
+  --ds-blur:           var(--tuff-blur);
+  --ds-ease:           var(--tuff-ease);
+  --ds-ease-out:       var(--tuff-ease-out);
+  --ds-dur:            var(--tuff-dur);
+  --ds-dur-fast:       var(--tuff-dur-fast);
+
+  /* ── O que esta cópia acrescenta ao shell ──────────────────────────────────
+     Duas adições, e as duas estão na lista de `tests/tuff-fidelidade.test.js`
+     como divergência DELIBERADA, com motivo. A Onda de conserto no `vssh-sso`
+     esvazia essa lista levando as duas para lá. */
+
+  /* (1) Texto SOBRE a cor de destaque. Existe no arquivo do portal e falta no do
+     shell, e a falta tem consequência medida: `#0e639c` é azul médio — preto dá
+     ~3,3:1 (reprova AA), branco dá 5,2:1. Sem este token, quem escreve um botão
+     primário escolhe a cor do texto no olho, e o defeito só aparece para quem
+     troca o destaque. É o mesmo defeito já registrado no roadmap do shell
+     (`08-editor-do-ambiente.md:1331`), onde `[data-theme="tuff"] a` vencia
+     `.btn-primary` por especificidade e pintava o texto com o fundo. */
+  --ds-on-accent:      var(--tuff-text-inv);
+
+  /* (2) A escala de espaçamento, promovida a semântica.
+     O shell DECLARA `--tuff-gap-*` e não os usa: medindo os literais dos
+     componentes dele, 8px aparece 21 vezes, e ao lado dele 5, 6, 10, 3, 7 e 14 —
+     valores fora de qualquer escala. Não é uma escala com exceções; é deriva.
+     Uma biblioteca que nasce agora não tem por que herdar a deriva, e um app que
+     escreve `padding: var(--ds-gap-md)` acerta a densidade do ambiente sem
+     precisar saber que ela é 8. */
+  --ds-gap-xs:         var(--tuff-gap-xs);
+  --ds-gap-sm:         var(--tuff-gap-sm);
+  --ds-gap-md:         var(--tuff-gap-md);
+  --ds-gap-lg:         var(--tuff-gap-lg);
+  --ds-gap-xl:         var(--tuff-gap-xl);
+  --ds-gap-2xl:        var(--tuff-gap-2xl);
+
+  /* ── O que esta cópia deliberadamente NÃO traz ─────────────────────────────
+     Também listado no teste de fidelidade, para que a ausência seja decisão e
+     não esquecimento:
+
+       --ds-fundo-padrao   o papel de parede da área de trabalho. Um app nunca
+                           desenha a área de trabalho.
+       --ds-statusbar-bg   a barra de status do shell.
+       --ds-accent-glow    resquício do tema `neon`, removido na Onda 0c: vale
+                           `none` em todo lugar.
+       --ds-bg-glass       igual a `--ds-bg`, num sistema que declara
+                           `--ds-blur: none`. Um nome que promete vidro onde não
+                           há vidro é um nome que mente para quem ler depois. */
+}

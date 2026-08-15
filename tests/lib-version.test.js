@@ -104,25 +104,99 @@ test('a versão do pyproject é a mesma do package.json', () => {
     `o pyproject declara ${m[1]} e o package.json diz ${PKG.version} — bumpe os dois`);
 });
 
-test('o pacote Python embarca as MESMAS libs de navegador que o Node serve', () => {
-  // O shim é o mesmo arquivo para os dois runtimes, e no Python ele viaja DENTRO do wheel (o
-  // `force-include` do pyproject). Um `.js` novo em `lib/web/` que não entre nessa lista é uma lib
-  // que existe para um runtime e não para o outro — e a falha aparece como um `vssh` incompleto
-  // num servidor, sem nada apontando para um arquivo de empacotamento.
+test('a bancada de lib/web/ não viaja nos pacotes publicados', () => {
+  // 147 KB de `node --test` — mais que as próprias libs de navegador (156 KB) — no disco de todo
+  // app instalado, para rodar num lugar onde ninguém roda teste. Estava entrando no npm desde
+  // sempre, por `files: ["lib"]`, e só ficou visível quando o wheel Python passou a mapear
+  // diretórios: ali a bancada apareceu de uma vez, e a pergunta valia para os dois pacotes.
+  assert.ok(PKG.files.includes('!lib/web/test'),
+    'a bancada voltou ao pacote npm: são 147 KB no node_modules de todo app, sem consumidor');
+
   const pyproject = fs.readFileSync(path.join(ROOT, 'pyproject.toml'), 'utf8');
   const bloco = pyproject.split('[tool.hatch.build.targets.wheel.force-include]')[1] || '';
-  const embarcados = new Set([...bloco.matchAll(/^"lib\/web\/([^"]+)"/gm)].map((x) => x[1]));
+  assert.doesNotMatch(bloco, /^"lib\/web\/test/m,
+    'a bancada foi mapeada para dentro do wheel Python');
 
-  const emDisco = fs.readdirSync(path.join(ROOT, 'lib', 'web'))
-    .filter((f) => f.endsWith('.js') || f.endsWith('.d.ts'));
+  // ⚠ E não adianta tentar resolver por exclusão: `force-include` do hatchling IGNORA `exclude`,
+  // no alvo e global. Medido. É por isso que a raiz de `lib/web/` é listada arquivo a arquivo em
+  // vez de mapeada inteira — e é por isso que o teste abaixo existe.
+  assert.doesNotMatch(bloco, /^"lib\/web"\s*=/m,
+    'lib/web mapeado inteiro: isso arrasta a bancada junto, porque force-include ignora exclude');
+});
 
-  const faltando = emDisco.filter((f) => !embarcados.has(f));
+test('toda entrada da raiz de lib/web/ chega ao pacote Python', () => {
+  // As libs de navegador são os mesmos arquivos para os dois runtimes, e no Python elas viajam
+  // DENTRO do wheel (o `force-include` do pyproject). Um arquivo que não entre é uma lib que existe
+  // para um runtime e não para o outro — e a falha aparece como um `vssh` incompleto ou um app sem
+  // estilo num servidor, sem nada apontando para um arquivo de empacotamento.
+  //
+  // ⚠ Este teste conferia uma lista arquivo a arquivo, e fazia isso lendo `lib/web/` **sem
+  // recursão** e filtrando `.js`/`.d.ts`. Quando `lib/web/tuff/` chegou — CSS, fonte, licença —,
+  // nada dali seria embarcado e este teste continuaria **verde**: ele não enxergava subdiretório
+  // nem outra extensão. Uma guarda que fica verde sobre o defeito que ela existe para pegar é pior
+  // que guarda nenhuma, porque some a pergunta.
+  //
+  // A pergunta certa não é "todo ARQUIVO está listado?" — era essa, e ela não enxergava
+  // subdiretório. É "toda ENTRADA da raiz está mapeada?": um diretório mapeado cobre o que houver
+  // dentro dele para sempre, e uma entrada nova na raiz reprova até ser decidida.
+  const pyproject = fs.readFileSync(path.join(ROOT, 'pyproject.toml'), 'utf8');
+  const bloco = pyproject.split('[tool.hatch.build.targets.wheel.force-include]')[1] || '';
+  const mapeados = new Set([...bloco.matchAll(/^"lib\/web\/([^"/]+)"/gm)].map((x) => x[1]));
+
+  const naRaiz = fs.readdirSync(path.join(ROOT, 'lib', 'web'))
+    .filter((nome) => nome !== 'test');
+
+  const faltando = naRaiz.filter((nome) => !mapeados.has(nome));
   assert.deepEqual(faltando, [],
-    'estes arquivos de lib/web/ não entram no pacote Python: um app Python que os pedisse '
-    + 'receberia 404 na tag injetada, e o sintoma seria o `vssh` incompleto');
+    'estas entradas de lib/web/ não entram no pacote Python: um app Python que as pedisse receberia '
+    + '404 na tag injetada, e o sintoma seria um `vssh` incompleto ou uma janela sem estilo — nada '
+    + 'que aponte para um arquivo de empacotamento');
 
-  const sobrando = [...embarcados].filter((f) => !emDisco.includes(f));
+  const sobrando = [...mapeados].filter((nome) => !naRaiz.includes(nome));
   assert.deepEqual(sobrando, [],
-    'o pyproject embarca arquivos que não existem mais em lib/web/ — o build falha, ou entrega '
+    'o pyproject embarca entradas que não existem mais em lib/web/ — o build falha, ou entrega '
     + 'menos do que declara');
+});
+
+test('SHIMS não carrega estilo, senão todo app publicado é reestilizado sem pedir', () => {
+  // A armadilha mora no idioma: TODO app faz `injectScripts: SHIMS.map((s) => `_vssh/${s}`)`. Um
+  // `.css` ou um `tuff.js` acrescentado a `SHIMS` entraria na página do recoll, do logseq e do
+  // scramjet-wisp no próximo `npm i` — apps com identidade visual própria, um deles servindo
+  // conteúdo de terceiros. Ninguém teria pedido, e a mudança chegaria por uma lista cujo nome fala
+  // de outra coisa.
+  //
+  // Os estilos têm lista própria, e adotá-los é ato explícito do backend do app.
+  const { SHIMS } = require('../lib/node/web-assets');
+  const naoJs = SHIMS.filter((s) => !s.endsWith('.js'));
+  assert.deepEqual(naoJs, [],
+    'SHIMS ganhou algo que não é `.js`: ele é a lista que todo app injeta sem pensar');
+
+  const doTuff = SHIMS.filter((s) => s.includes('tuff/'));
+  assert.deepEqual(doTuff, [],
+    'SHIMS ganhou uma peça da biblioteca de UI: a adoção da UI é escolha do app, não consequência '
+    + 'de atualizar o toolkit');
+});
+
+test('os dois runtimes listam as MESMAS libs de navegador', () => {
+  // `SHIMS` e `ESTILOS` existem duas vezes — em `lib/node/web-assets.js` e em
+  // `lib/python/vssh_app_toolkit/web.py` — porque são dois pacotes que se instalam separados. É a
+  // mesma forma do MIME de arraste que o shim narra, e o mesmo modo de falha: uma lista que ganha
+  // um arquivo e a outra não produz um app Python sem estilo (ou sem `vssh`) enquanto o Node vai
+  // bem, e nada liga um sintoma ao outro.
+  //
+  // Lido por texto, e não importando o módulo Python: a ausência de `python3` não pode reprovar
+  // quem só mexeu em JavaScript — é a régua que o `//test:py` do package.json já estabelece.
+  const py = fs.readFileSync(
+    path.join(ROOT, 'lib', 'python', 'vssh_app_toolkit', 'web.py'), 'utf8');
+  const listaPy = (nome) => {
+    const m = new RegExp(`^${nome} = \\[([^\\]]*)\\]`, 'm').exec(py);
+    assert.ok(m, `não achei '${nome}' em web.py — o teste ficou obsoleto ou a lista sumiu`);
+    return m[1].split(',').map((x) => x.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+  };
+
+  const { SHIMS, ESTILOS } = require('../lib/node/web-assets');
+  assert.deepEqual(listaPy('SHIMS'), SHIMS,
+    'SHIMS divergiu entre os runtimes: um app de um dos dois carrega libs que o outro não');
+  assert.deepEqual(listaPy('ESTILOS'), ESTILOS,
+    'ESTILOS divergiu entre os runtimes: os dois templates deixariam de ser o mesmo app');
 });
