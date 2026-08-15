@@ -1,0 +1,168 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Tuff — a base: o que vale para a página inteira, antes de qualquer componente.
+
+   Reset mínimo, tipografia, scrollbar, foco e seleção. Os componentes moram em
+   `tuff.css`; os valores, em `tuff-tokens.css`, que precisa vir antes deste.
+
+   ─── Por que isto é um arquivo separado ─────────────────────────────────────
+
+   Porque nem todo app quer. Um bundle grande e antigo — o Logseq é o caso real —
+   traz o CSS dele inteiro, e um `box-sizing: border-box` global entrando por
+   adoção parcial é estrago silencioso: nada quebra alto, as caixas só passam a
+   medir outra coisa. Separado, dá para pegar os tokens e os componentes sem o
+   reset.
+
+   ─── @layer, e por que ele é a decisão mais importante deste arquivo ────────
+
+   ⚠ A folha injetada entra imediatamente antes de `</head>`, ou seja **depois**
+   do CSS do próprio app. Com especificidade igual, quem vem depois ganha — então
+   a biblioteca venceria o app em todo empate, e um app não conseguiria
+   sobrescrever a própria biblioteca sem `!important`. Isso é o oposto do que uma
+   biblioteca deve fazer.
+
+   Regra dentro de camada SEMPRE perde para regra fora de camada, seja qual for a
+   ordem no arquivo. Envolver tudo em `@layer vssh` inverte a hierarquia para a
+   certa:
+
+       padrão da biblioteca  <  escolha do app  <  escolha do ambiente
+       (@layer vssh)            (CSS sem camada)   (inline, que ganha de tudo)
+
+   É invisível a teste de texto: o seletor está lá, a regra está lá, e o que muda
+   é só quem ganha. Por isso há caso no Chrome de verdade
+   (`lib/web/test/tuff.browser.test.js`) medindo exatamente isto.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@layer vssh {
+
+  /* ── O ambiente é escuro ────────────────────────────────────────────────────
+     Uma linha, e ela conserta muita coisa que não é nossa: os controles nativos
+     que sobrarem, a scrollbar de subframes, o fundo dos campos antes do CSS
+     carregar. Sem ela, um `<input type="date">` abre um calendário branco no meio
+     de uma janela escura.
+
+     Não há `light dark` aqui: o Tuff é escuro, e o tema `neon` — a segunda
+     variante que existiu — saiu na Onda 0c. Prometer um modo claro que não existe
+     seria pior que não prometer nada. */
+  :root {
+    color-scheme: dark;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ds-bg);
+    color: var(--ds-text);
+    /* 13px: a medida do ambiente. Medindo os componentes do shell, 12px domina (14
+       ocorrências) com 11 e 13 ao lado — a faixa de trabalho é 11–13. O conteúdo de
+       um app respira um pouco mais que a barra de tarefas, então a base é o `md`
+       e as peças densas descem para `sm`. */
+    font: var(--tuff-weight-n) var(--tuff-size-md)/1.5 var(--ds-font);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Hierarquia ─────────────────────────────────────────────────────────────
+     "Rótulo e valor não podem ter o mesmo peso" é item da tabela do critério 3.3,
+     e a razão está escrita lá: sem hierarquia, uma coluna de opções vira uma pilha
+     de pares iguais — a leitura de "está tudo jogado".
+
+     Os títulos sobem por PESO e cor antes de subir por tamanho. Uma página de app
+     não é um artigo; escalas grandes aqui só empurram o conteúdo para baixo. */
+  h1, h2, h3, h4 {
+    margin: 0;
+    font-weight: var(--tuff-weight-b);
+    color: var(--ds-text-mid);
+    line-height: 1.3;
+  }
+  h1 { font-size: var(--tuff-size-2xl); }
+  h2 { font-size: var(--tuff-size-xl); }
+  h3 { font-size: var(--tuff-size-lg); }
+  h4 { font-size: var(--tuff-size-md); }
+
+  p { margin: 0; }
+
+  a {
+    color: var(--ds-accent-h);
+    text-decoration: none;
+  }
+  a:hover { text-decoration: underline; }
+
+  code, kbd, samp, pre {
+    font-family: var(--ds-font-mono);
+    font-size: var(--tuff-size-sm);
+  }
+
+  /* ── Seleção ────────────────────────────────────────────────────────────────
+     A do ambiente, não a azul do sistema. `--ds-sel` é uma das quatro variáveis
+     que acompanham a cor escolhida pelo usuário, então selecionar texto num app
+     fica da cor do ambiente dele. */
+  ::selection {
+    background: var(--ds-sel);
+    color: var(--ds-sel-text);
+  }
+
+  /* ── Foco ───────────────────────────────────────────────────────────────────
+     `:focus-visible`, e não `:focus`: o anel aparece para quem navega por teclado
+     e não para quem acabou de clicar. Um anel em todo clique é o motivo pelo qual
+     tanta gente desliga o foco por completo — e aí a navegação por teclado morre
+     em silêncio, que é bem pior.
+
+     `outline` e não `box-shadow`: outline não participa do layout, então o anel
+     não empurra nada, e sobrevive a `overflow: hidden`. */
+  :focus-visible {
+    outline: 2px solid var(--ds-border-focus);
+    outline-offset: 1px;
+    border-radius: var(--ds-radius-sm);
+  }
+
+  /* ── A scrollbar do tema ────────────────────────────────────────────────────
+     Item literal da tabela do 3.3: *"a do tema, não a do sistema: 6px, track
+     transparente, polegar em --ds-border"*. Uma barra cinza do sistema no meio de
+     uma janela escura é o exemplo que aquele texto usa para explicar por que isto
+     é critério e não gosto.
+
+     ⚠ **As duas sintaxes não somam — a padrão MATA a do WebKit.** Declarar
+     `scrollbar-width` com qualquer valor diferente de `auto` faz o Chrome ignorar
+     `::-webkit-scrollbar-*` por completo, e a barra volta a ser a do sistema. Foi
+     medido: com as duas declaradas juntas, a barra ocupava 10px em vez de 6, e
+     nenhum teste de texto acusaria — as duas regras estão escritas e corretas.
+
+     Por isso a padrão entra dentro de um `@supports not selector(...)`: ela vale
+     onde o pseudo-elemento do WebKit NÃO existe, que é exatamente o Firefox. Não é
+     detecção de navegador disfarçada — é a pergunta certa, feita sobre a
+     capacidade que decide.
+
+     No Firefox fica o limite honesto: `thin` é o mais fino que a plataforma
+     oferece e não há como pedir 6px. Ficar sem ela seria pior. */
+  ::-webkit-scrollbar { width: var(--tuff-sb-w); height: var(--tuff-sb-w); }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--ds-border);
+    border-radius: var(--ds-radius-lg);
+  }
+  ::-webkit-scrollbar-thumb:hover { background: var(--tuff-sb-thumb-h); }
+  ::-webkit-scrollbar-corner { background: transparent; }
+
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: var(--ds-border) transparent;
+    }
+  }
+
+  /* ── Movimento ──────────────────────────────────────────────────────────────
+     Quem pediu menos movimento ao sistema pediu ao app também. Não é preferência
+     estética: enxaqueca vestibular é o motivo pelo qual esta media query existe.
+
+     `0.01ms` em vez de `0`: com duração zero o navegador não dispara
+     `transitionend`, e código que espera esse evento para seguir fica pendurado —
+     um modo de falha que só aparece para quem ligou a preferência. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

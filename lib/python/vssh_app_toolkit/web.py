@@ -50,4 +50,4 @@ SHIMS = ["vssh-app-shim.js", "fsa-polyfill.js"]
 #: Lista SEPARADA de propósito, como no lado Node: todo app injeta `SHIMS` sem pensar, e uma folha
 #: de estilo ali dentro reestilizaria os apps já publicados no próximo `pip install`. Adotar a
 #: aparência do ambiente é ato explícito do backend do app.
-ESTILOS = ["tuff/tuff-tokens.css"]
+ESTILOS = ["tuff/tuff-tokens.css", "tuff/tuff-base.css", "tuff/tuff.css"]

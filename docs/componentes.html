@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tuff — catálogo de componentes</title>
+
+<!-- As três folhas da biblioteca, na ordem em que `ESTILOS` as declara: tokens, base, componentes.
+     Caminho relativo, e sem servidor nenhum: esta página abre com duplo clique, de `file://`. É o
+     mesmo idioma do `vssh-sso/docs/mockups/settings/00-componentes.html`, e existe pela mesma razão
+     — julgamento visual se faz olhando, e uma bancada que precisa de `npm` e de um servidor é uma
+     bancada que ninguém abre. -->
+<link rel="stylesheet" href="../lib/web/tuff/tuff-tokens.css">
+<link rel="stylesheet" href="../lib/web/tuff/tuff-base.css">
+<link rel="stylesheet" href="../lib/web/tuff/tuff.css">
+
+<style>
+  /* Layout DESTA página, e nada mais — nenhuma peça abaixo é estilizada aqui. Fora de `@layer`
+     de propósito: é a demonstração da hierarquia. Se uma regra daqui não vencesse a da biblioteca,
+     a camada estaria errada. */
+  body { padding: var(--ds-gap-xl); }
+  .pagina { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--ds-gap-xl); }
+  .grade { display: grid; gap: var(--ds-gap-lg); grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); }
+  .capa { display: flex; flex-direction: column; gap: var(--ds-gap-sm); }
+  .capa p { color: var(--ds-text-dim); font-size: var(--tuff-size-sm); max-width: 76ch; }
+  .amostra { display: flex; flex-wrap: wrap; gap: var(--ds-gap-md); align-items: center; }
+</style>
+</head>
+<body>
+<div class="pagina">
+
+  <header class="capa">
+    <h1>Tuff — catálogo</h1>
+    <p>
+      Todo componente da biblioteca, numa página só, sem servidor e sem build. O que se julga aqui é
+      o que o critério 3.3 chama de <em>belo</em>: se uma janela montada com estas peças passa por
+      janela do ambiente, ou se denuncia que é uma página web dentro de outra.
+    </p>
+    <p>
+      O que <strong>não</strong> está aqui, e nunca vai estar: diálogo, menu de contexto, aviso,
+      bandeja e seletor de arquivo. Essas superfícies são do desktop — o app as pede por
+      <code>vssh.dialog</code>, <code>vssh.contextMenu</code>, <code>vssh.toast</code> e
+      <code>vssh.pickFile</code>, e é por isso que elas se parecem com o resto do ambiente em vez de
+      serem um <code>&lt;div&gt;</code> que alguém estilizou.
+    </p>
+  </header>
+
+  <div class="grade">
+
+    <section class="tuff-painel">
+      <div class="tuff-sec">
+        <div class="tuff-sec-titulo">Botões</div>
+        <div class="tuff-sec-desc">Três variantes, e não sete. O primário tira a cor do destaque do usuário.</div>
+      </div>
+      <div class="amostra">
+        <button class="tuff-btn">comum</button>
+        <button class="tuff-btn tuff-btn--primario">primário</button>
+        <button class="tuff-btn tuff-btn--perigo">apagar</button>
+        <button class="tuff-btn" disabled>indisponível</button>
+      </div>
+      <hr class="tuff-divisor">
+      <div class="tuff-sec-desc">
+        A barra de ações gruda no fim do painel — botão flutuando no meio do espaço é o sintoma mais
+        comum de tela feita às pressas.
+      </div>
+      <div class="tuff-acoes tuff-acoes--direita">
+        <button class="tuff-btn">cancelar</button>
+        <button class="tuff-btn tuff-btn--primario">salvar</button>
+      </div>
+    </section>
+
+    <section class="tuff-painel">
+      <div class="tuff-sec">
+        <div class="tuff-sec-titulo">Campos</div>
+        <div class="tuff-sec-desc">Nunca controle nativo — inclusive a lista aberta do select.</div>
+      </div>
+      <div>
+        <label class="tuff-rotulo" for="cat-nome">Nome do projeto</label>
+        <input class="tuff-campo" id="cat-nome" placeholder="sem espaços">
+      </div>
+      <div>
+        <label class="tuff-rotulo" for="cat-motor">Motor</label>
+        <select class="tuff-select" id="cat-motor">
+          <option>nenhum</option>
+          <option>Xpra</option>
+          <option>Scramjet</option>
+        </select>
+      </div>
+      <div>
+        <label class="tuff-rotulo" for="cat-busca">Busca</label>
+        <input class="tuff-busca" type="search" id="cat-busca" placeholder="filtrar…">
+      </div>
+      <div>
+        <label class="tuff-rotulo" for="cat-notas">Notas</label>
+        <textarea class="tuff-campo" id="cat-notas" rows="3">O textarea cresce só na vertical.</textarea>
+      </div>
+    </section>
+
+    <section class="tuff-painel">
+      <div class="tuff-sec">
+        <div class="tuff-sec-titulo">Linhas de configuração</div>
+        <div class="tuff-sec-desc">Rótulo e valor nunca com o mesmo peso: sem hierarquia, vira uma pilha de pares iguais.</div>
+      </div>
+      <div class="tuff-grupo">
+        <div class="tuff-linha">
+          <div class="tuff-linha-corpo">
+            <div class="tuff-linha-titulo">Manter o backend vivo</div>
+            <div class="tuff-linha-desc">Fechar a janela não encerra o processo.</div>
+          </div>
+          <div class="tuff-linha-ctrl">
+            <label class="tuff-switch">
+              <input type="checkbox" checked aria-label="Manter o backend vivo">
+              <span class="tuff-switch-trilho"></span>
+            </label>
+          </div>
+        </div>
+        <div class="tuff-linha">
+          <div class="tuff-linha-corpo">
+            <div class="tuff-linha-titulo">Aceleração por GPU</div>
+            <div class="tuff-linha-desc">Sem placa detectada neste servidor.</div>
+          </div>
+          <div class="tuff-linha-ctrl">
+            <label class="tuff-switch">
+              <input type="checkbox" disabled aria-label="Aceleração por GPU">
+              <span class="tuff-switch-trilho"></span>
+            </label>
+          </div>
+        </div>
+        <div class="tuff-linha">
+          <div class="tuff-linha-corpo">
+            <div class="tuff-linha-titulo">Qualidade</div>
+            <div class="tuff-linha-desc">Vale para novas sessões.</div>
+          </div>
+          <div class="tuff-linha-ctrl">
+            <div class="tuff-seg">
+              <label class="tuff-seg-btn"><input type="radio" name="q">baixa</label>
+              <label class="tuff-seg-btn"><input type="radio" name="q" checked>média</label>
+              <label class="tuff-seg-btn"><input type="radio" name="q">alta</label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="tuff-painel">
+      <div class="tuff-sec">
+        <div class="tuff-sec-titulo">Estado</div>
+        <div class="tuff-sec-desc">As cores são as semânticas do ambiente, não escolhidas por peça.</div>
+      </div>
+      <div class="amostra">
+        <span class="tuff-pill tuff-pill--ok">no ar</span>
+        <span class="tuff-pill tuff-pill--aviso">degradado</span>
+        <span class="tuff-pill tuff-pill--erro">fora</span>
+        <span class="tuff-pill tuff-pill--ocupado">subindo</span>
+        <span class="tuff-pill">desconhecido</span>
+      </div>
+      <div class="amostra">
+        <span class="tuff-tag">python3</span>
+        <span class="tuff-tag">ffmpeg</span>
+        <span class="tuff-tag" data-tuff-dica="declarado em requiredPackages">python3-pip</span>
+      </div>
+      <div class="amostra">
+        <span class="tuff-tecla">Ctrl</span>
+        <span class="tuff-tecla">Shift</span>
+        <span class="tuff-tecla">P</span>
+      </div>
+    </section>
+
+    <section class="tuff-painel">
+      <div class="tuff-sec">
+        <div class="tuff-sec-titulo">Espera</div>
+        <div class="tuff-sec-desc">Spinner para "não sei quanto falta"; barra para "sei". Trocar os dois custa confiança.</div>
+      </div>
+      <div class="amostra">
+        <span class="tuff-spinner"></span>
+        <span class="tuff-sec-desc">conectando ao servidor…</span>
+      </div>
+      <div class="tuff-progresso"><div class="tuff-progresso-preenchido" style="width:64%"></div></div>
+      <div class="tuff-progresso tuff-progresso--alerta"><div class="tuff-progresso-preenchido" style="width:92%"></div></div>
+      <div class="tuff-progresso tuff-progresso--indeterminado"><div class="tuff-progresso-preenchido"></div></div>
+    </section>
+
+    <section class="tuff-painel">
+      <div class="tuff-sec">
+        <div class="tuff-sec-titulo">Listas</div>
+        <div class="tuff-sec-desc">A seleção usa o mesmo realce do gerenciador de arquivos do ambiente.</div>
+      </div>
+      <div class="tuff-barra">
+        <span class="tuff-sec-desc">4 itens</span>
+        <span class="tuff-barra-espaco"></span>
+        <button class="tuff-btn" data-tuff-dica="não implementado no catálogo">novo</button>
+      </div>
+      <div class="tuff-lista" role="listbox" aria-label="Arquivos">
+        <div class="tuff-item" role="option" aria-selected="false">relatorio-2026.pdf</div>
+        <div class="tuff-item" role="option" aria-selected="true">medicoes.parquet</div>
+        <div class="tuff-item" role="option" aria-selected="false">notas.md</div>
+        <div class="tuff-item" role="option" aria-selected="false">um-nome-bem-comprido-que-nao-cabe-na-coluna.tar.gz</div>
+      </div>
+      <dl class="tuff-kv tuff-kv--mono">
+        <dt>caminho</dt><dd>/home/pesquisador/dados</dd>
+        <dt>socket</dt><dd>/run/user/1000/vssh-app.sock</dd>
+      </dl>
+    </section>
+
+    <section class="tuff-painel">
+      <div class="tuff-sec">
+        <div class="tuff-sec-titulo">Dicas e vazio</div>
+        <div class="tuff-sec-desc">Uma tela vazia é um convite para agir, não um aviso de que está vazia.</div>
+      </div>
+      <div class="tuff-dica">O caminho é resolvido no servidor, não na sua máquina.</div>
+      <div class="tuff-dica tuff-dica--aviso">Sem systemd de usuário, nenhum limite é aplicado — é informação, não erro.</div>
+      <div class="tuff-dica tuff-dica--erro">O socket já está em uso por outra instância deste app.</div>
+      <div class="tuff-vazio">
+        <div class="tuff-vazio-titulo">Nenhuma pasta escolhida</div>
+        <div class="tuff-vazio-msg">Escolha uma pasta do servidor para começar. O app lê e grava nela como você.</div>
+        <button class="tuff-btn tuff-btn--primario">escolher pasta</button>
+      </div>
+    </section>
+
+    <section class="tuff-painel">
+      <div class="tuff-sec">
+        <div class="tuff-sec-titulo">Detalhe</div>
+        <div class="tuff-sec-desc">
+          <code>&lt;details&gt;</code> nativo: abre sem JavaScript e é achável pelo Ctrl+F do navegador.
+        </div>
+      </div>
+      <details class="tuff-detalhe">
+        <summary>Por que o app não vê meus arquivos</summary>
+        <div class="tuff-detalhe-corpo">
+          O backend roda como você no servidor, com acesso POSIX. O seletor existe para você dizer
+          <em>qual</em> pasta, não para conceder permissão que já havia.
+        </div>
+      </details>
+      <details class="tuff-detalhe" open>
+        <summary>Tooltip</summary>
+        <div class="tuff-detalhe-corpo">
+          Passe o ponteiro sobre <span class="tuff-tag" data-tuff-dica="e o teclado também: Tab até aqui">este item</span>.
+          O <code>title</code> nativo seria desenhado pelo sistema — claro, com fonte do sistema, no
+          meio de uma janela escura.
+        </div>
+      </details>
+    </section>
+
+  </div>
+</div>
+</body>
+</html>

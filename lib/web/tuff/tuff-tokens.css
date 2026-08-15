@@ -102,7 +102,21 @@
 }
 
 
+/* ── A camada ────────────────────────────────────────────────────────────────
+   Os tokens entram em `@layer vssh` como o resto da biblioteca, e o efeito é o que
+   se quer: um app que declare `:root { --ds-accent: … }` FORA de camada ganha
+   destes, sem `!important`. É a hierarquia certa —
+
+       padrão da biblioteca  <  escolha do app  <  escolha do ambiente
+       (@layer vssh)            (CSS sem camada)   (inline, do `vssh.aparencia`)
+
+   O `@font-face` acima fica fora: ele não é regra de estilo, não participa de
+   cascata, e mantê-lo fora evita depender de um detalhe de especificação para
+   carregar a fonte. */
+
 /* ── 1. Tokens brutos ────────────────────────────────────────────────────── */
+
+@layer vssh {
 
 :root {
   /* Superfícies */
@@ -280,3 +294,5 @@
                            `--ds-blur: none`. Um nome que promete vidro onde não
                            há vidro é um nome que mente para quem ler depois. */
 }
+
+}  /* @layer vssh */

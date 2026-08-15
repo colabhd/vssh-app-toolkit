@@ -1,0 +1,591 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Tuff — os componentes.
+
+   Depende de `tuff-tokens.css` (os valores) e supõe `tuff-base.css` (o reset e a
+   scrollbar). Tudo dentro de `@layer vssh`, para o app poder sobrescrever sem
+   `!important` — ver o cabeçalho de `tuff-base.css`.
+
+   ─── O que este arquivo NÃO tem, e nunca deve ter ───────────────────────────
+
+   ⚠ **Diálogo, menu de contexto, aviso, bandeja e seletor de arquivo.** Parece
+   buraco e é o contrário: essas superfícies são do DESKTOP, e o app as pede por
+   `vssh.dialog.*`, `vssh.contextMenu`, `vssh.toast`, `vssh.notify`, `vssh.tray` e
+   `vssh.pickFile`. `docs/api.md` explica o porquê melhor do que este comentário
+   caberia: *"é o que permite ao desktop montar o menu ele mesmo, e é por isso que
+   o seu menu se parece com o resto do ambiente em vez de ser um `<div>` que você
+   estilizou."*
+
+   E há um motivo mecânico além do estético: um modal desenhado aqui dentro fica
+   **preso no iframe**. Ele não cobre a janela, não sobrevive a um app em tela
+   cheia e não aparece por cima do resto do ambiente. Um `<div>` com
+   `position: fixed` num app dá a impressão de diálogo até o dia em que alguém
+   maximiza a janela.
+
+   `tests/tuff-nao-reimplementa.test.js` recusa as marcas dessas peças aqui dentro.
+
+   ─── A régua de aceitação ──────────────────────────────────────────────────
+
+   A tabela do critério 3.3 (`docs/roadmap/criterios.md`), item por item:
+
+     • controle nativo: nunca — `<select>` e `<input>` têm caixa própria
+     • scrollbar do tema: em `tuff-base.css`, 6px, polegar `--ds-border`
+     • hierarquia: rótulo e valor nunca têm o mesmo peso
+     • divisas e âncoras: `.tuff-acoes` gruda no fim do painel
+     • `option`: estilizada também, senão sai branca sob controle escuro
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@layer vssh {
+
+  /* ── Superfícies ────────────────────────────────────────────────────────────
+     Três fundos, e a diferença entre eles é profundidade, não decoração: `--ds-bg`
+     é a página, `--ds-bg2` é uma peça sobre ela, `--ds-bg3` é algo sobre a peça.
+     Sem sombra difusa e sem vidro — `--ds-blur` vale `none` em todo o sistema, e
+     isso é decisão de produto declarada no arquivo de tokens do shell. */
+
+  .tuff-painel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ds-gap-md);
+    padding: var(--ds-gap-lg);
+    background: var(--ds-bg2);
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-lg);
+    min-width: 0;
+  }
+
+  /* Cabeçalho de seção: o par título+descrição, com a hierarquia obrigatória. */
+  .tuff-sec { display: flex; flex-direction: column; gap: var(--ds-gap-xs); }
+  .tuff-sec-titulo {
+    font-size: var(--tuff-size-md);
+    font-weight: var(--tuff-weight-b);
+    color: var(--ds-text-mid);
+  }
+  .tuff-sec-desc {
+    font-size: var(--tuff-size-sm);
+    color: var(--ds-text-dim);
+    max-width: 70ch;
+  }
+
+  .tuff-divisor {
+    height: 1px;
+    background: var(--ds-border);
+    border: 0;
+    margin: var(--ds-gap-sm) 0;
+  }
+
+  /* ── Botões ─────────────────────────────────────────────────────────────────
+     Três variantes e não sete. O shell tem exatamente estas, e a razão de não
+     inventar mais está no critério 3.3: *"um vocabulário, não uma variante"*. */
+
+  .tuff-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--ds-gap-sm);
+    padding: 5px var(--ds-gap-lg);
+    min-height: 26px;
+    font: var(--tuff-weight-n) var(--tuff-size-sm) var(--ds-font);
+    color: var(--ds-text);
+    background: var(--ds-bg3);
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background var(--ds-dur-fast) var(--ds-ease),
+                border-color var(--ds-dur-fast) var(--ds-ease);
+  }
+  .tuff-btn:hover:not(:disabled) { background: var(--ds-bg-hover); }
+  .tuff-btn:active:not(:disabled) { transform: translateY(1px); }
+  .tuff-btn:disabled { opacity: .45; cursor: default; }
+
+  /* O primário usa `--ds-on-accent` para o texto, e essa variável existe por um
+     motivo medido: `#0e639c` é azul médio — preto sobre ele dá ~3,3:1 e reprova
+     AA; branco dá 5,2:1. Sem o token, cada app escolhe no olho, e o erro só
+     aparece para quem troca a cor de destaque. */
+  .tuff-btn--primario {
+    background: var(--ds-accent);
+    border-color: var(--ds-accent);
+    color: var(--ds-on-accent);
+  }
+  .tuff-btn--primario:hover:not(:disabled) {
+    background: var(--ds-accent-h);
+    border-color: var(--ds-accent-h);
+  }
+
+  .tuff-btn--perigo {
+    background: transparent;
+    border-color: var(--ds-danger);
+    color: var(--ds-danger);
+  }
+  .tuff-btn--perigo:hover:not(:disabled) { background: var(--ds-danger-bg); }
+
+  /* ⚠ A barra de ações GRUDA no fim do painel, e isso é item da tabela do 3.3:
+     *"botão flutuando no meio do espaço é o sintoma mais comum"*. O `margin-top:
+     auto` só morde dentro de um flex em coluna — que é o que `.tuff-painel` é. */
+  .tuff-acoes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ds-gap-md);
+    margin-top: auto;
+    padding-top: var(--ds-gap-md);
+  }
+  .tuff-acoes--direita { justify-content: flex-end; }
+
+  /* ── Campos ─────────────────────────────────────────────────────────────────
+     Nunca controle nativo. É a primeira linha da tabela do 3.3, e o custo de
+     ignorá-la é um `<input type="date">` abrindo um calendário branco no meio de
+     uma janela escura. */
+
+  .tuff-rotulo {
+    display: block;
+    font-size: var(--tuff-size-xs);
+    font-weight: var(--tuff-weight-m);
+    color: var(--ds-text-dim);
+    margin-bottom: var(--ds-gap-sm);
+  }
+
+  .tuff-campo {
+    width: 100%;
+    padding: 5px var(--ds-gap-md);
+    min-height: 26px;
+    font: var(--tuff-weight-n) var(--tuff-size-sm) var(--ds-font);
+    color: var(--ds-text);
+    background: var(--ds-bg-input);
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-md);
+  }
+  .tuff-campo::placeholder { color: var(--ds-text-dim); }
+  .tuff-campo:focus { border-color: var(--ds-border-focus); }
+  .tuff-campo:disabled { opacity: .5; }
+  textarea.tuff-campo { min-height: 5rem; resize: vertical; line-height: 1.5; }
+
+  /* ⚠ **`.tuff-select` basta sozinho, e aqui a biblioteca DIVERGE do shell de
+     propósito.** No shell é preciso escrever `.pnd-field` MAIS `.pnd-select` — a
+     caixa e a seta —, e o `criterios.md` registra isso como pegadinha: *"os dois;
+     só o segundo dá seta certa e caixa nenhuma"*. Uma armadilha documentada
+     continua sendo uma armadilha, e uma biblioteca que nasce agora não tem por que
+     herdá-la. Uma classe, um controle.
+
+     A seta é `background-image` porque `appearance: none` apaga a nativa e não há
+     pseudo-elemento em `<select>` para desenhar outra. SVG embutido, sem arquivo.
+
+     ⚠ **Limite honesto:** a cor da seta (`%23858585`, que é `--tuff-text-dim`) está
+     escrita dentro do SVG, e é o único lugar da biblioteca onde uma cor não sai de
+     um token. Não há saída: um data URI não lê custom property, e a técnica que
+     resolveria (`mask-image` sobre `background-color`) precisa de um elemento
+     próprio — que `<select>` e `<input>` não têm. Trocar o cinza do texto secundário
+     obriga a trocar aqui também, e é por isso que isto está dito em voz alta em vez
+     de descoberto depois. O mesmo vale para a lupa de `.tuff-busca`. */
+  .tuff-select {
+    width: 100%;
+    padding: 5px 28px 5px var(--ds-gap-md);
+    min-height: 26px;
+    font: var(--tuff-weight-n) var(--tuff-size-sm) var(--ds-font);
+    color: var(--ds-text);
+    background-color: var(--ds-bg-input);
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-md);
+    appearance: none;
+    background-repeat: no-repeat;
+    background-position: right var(--ds-gap-md) center;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23858585' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+    cursor: pointer;
+  }
+  .tuff-select:focus { border-color: var(--ds-border-focus); }
+
+  /* A lista ABERTA também, e este é o item mais fácil de esquecer da tabela do
+     3.3: em Windows ela herda o fundo do sistema e sai branca sob um controle
+     escuro. O `<select>` fechado fica perfeito e a lista denuncia tudo. */
+  .tuff-select option {
+    background: var(--ds-bg3);
+    color: var(--ds-text);
+  }
+
+  /* ── Switch ─────────────────────────────────────────────────────────────────
+     Um `<input type="checkbox">` de verdade por baixo: ele traz teclado, foco,
+     `:checked` e o rótulo clicável de graça. Desenhar um switch com `<div>` custa
+     todos os quatro, e o que se ganha em troca é nada. */
+
+  .tuff-switch {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    width: 30px;
+    height: 16px;
+    flex: none;
+  }
+  .tuff-switch input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .tuff-switch-trilho {
+    width: 100%;
+    height: 100%;
+    background: var(--ds-bg-input);
+    border: 1px solid var(--ds-border);
+    border-radius: 999px;
+    transition: background var(--ds-dur) var(--ds-ease);
+    pointer-events: none;
+  }
+  .tuff-switch-trilho::after {
+    content: '';
+    display: block;
+    width: 10px;
+    height: 10px;
+    margin: 2px;
+    border-radius: 50%;
+    background: var(--ds-text-dim);
+    transition: transform var(--ds-dur) var(--ds-ease), background var(--ds-dur) var(--ds-ease);
+  }
+  .tuff-switch input:checked + .tuff-switch-trilho {
+    background: var(--ds-accent);
+    border-color: var(--ds-accent);
+  }
+  .tuff-switch input:checked + .tuff-switch-trilho::after {
+    transform: translateX(14px);
+    background: var(--ds-on-accent);
+  }
+  .tuff-switch input:focus-visible + .tuff-switch-trilho {
+    outline: 2px solid var(--ds-border-focus);
+    outline-offset: 1px;
+  }
+  .tuff-switch input:disabled + .tuff-switch-trilho { opacity: .45; }
+
+  /* ── Linha de configuração ──────────────────────────────────────────────────
+     O par rótulo/controle, com a hierarquia que o 3.3 exige: o título em
+     `--ds-text`, a descrição em `--ds-text-dim` e um corpo menor. Sem isso, uma
+     coluna de opções vira uma pilha de pares iguais. */
+
+  .tuff-grupo {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-lg);
+    overflow: hidden;
+  }
+  .tuff-linha {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-gap-lg);
+    padding: var(--ds-gap-md) var(--ds-gap-lg);
+    background: var(--ds-bg2);
+  }
+  .tuff-linha + .tuff-linha { border-top: 1px solid var(--ds-border); }
+  .tuff-linha-corpo { flex: 1; min-width: 0; }
+  .tuff-linha-titulo {
+    font-size: var(--tuff-size-sm);
+    color: var(--ds-text);
+  }
+  .tuff-linha-desc {
+    font-size: var(--tuff-size-xs);
+    color: var(--ds-text-dim);
+    margin-top: 2px;
+  }
+  .tuff-linha-ctrl { flex: none; display: flex; align-items: center; gap: var(--ds-gap-md); }
+
+  /* ── Estado ─────────────────────────────────────────────────────────────────
+     A pílula responde "como está isto?" numa palavra. As cores são as semânticas,
+     e não escolhidas por peça: um verde de app aqui e outro ali é como um ambiente
+     deixa de parecer um ambiente. */
+
+  .tuff-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ds-gap-sm);
+    padding: 1px var(--ds-gap-md);
+    font-size: var(--tuff-size-2xs);
+    font-weight: var(--tuff-weight-m);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    border-radius: 999px;
+    border: 1px solid currentColor;
+    color: var(--ds-text-dim);
+  }
+  .tuff-pill--ok { color: var(--ds-green); }
+  .tuff-pill--aviso { color: var(--ds-warn); }
+  .tuff-pill--erro { color: var(--ds-danger); }
+  .tuff-pill--ocupado { color: var(--ds-accent-h); animation: tuff-pulsar 1.4s var(--ds-ease) infinite; }
+
+  @keyframes tuff-pulsar { 50% { opacity: .45; } }
+
+  .tuff-tag {
+    display: inline-block;
+    padding: 1px var(--ds-gap-md);
+    font-size: var(--tuff-size-xs);
+    color: var(--ds-text-dim);
+    background: var(--ds-bg3);
+    border-radius: var(--ds-radius-sm);
+  }
+
+  .tuff-tecla {
+    display: inline-block;
+    min-width: 18px;
+    padding: 1px 5px;
+    font: var(--tuff-weight-m) var(--tuff-size-2xs) var(--ds-font-mono);
+    text-align: center;
+    color: var(--ds-text-mid);
+    background: var(--ds-bg3);
+    border: 1px solid var(--ds-border);
+    border-bottom-width: 2px;
+    border-radius: var(--ds-radius-sm);
+  }
+
+  /* ── Dica ───────────────────────────────────────────────────────────────────
+     A linha explicativa que acompanha um controle. Barra à esquerda em vez de
+     caixa inteira: ela pertence ao que está acima, e uma caixa a transformaria
+     numa peça independente. */
+
+  .tuff-dica {
+    display: flex;
+    gap: var(--ds-gap-md);
+    padding: var(--ds-gap-sm) 0 var(--ds-gap-sm) var(--ds-gap-lg);
+    border-left: 2px solid var(--ds-border);
+    font-size: var(--tuff-size-xs);
+    color: var(--ds-text-dim);
+    max-width: 70ch;
+  }
+  .tuff-dica--aviso { border-left-color: var(--ds-warn); color: var(--ds-warn); }
+  .tuff-dica--erro { border-left-color: var(--ds-danger); color: var(--ds-danger); }
+
+  /* ── Vazio ──────────────────────────────────────────────────────────────────
+     "Uma tela vazia é um convite para agir." O estado vazio tem título e uma
+     frase, e a frase diz o que fazer — não que está vazio, o que já é visível. */
+
+  .tuff-vazio {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--ds-gap-sm);
+    padding: var(--ds-gap-2xl) var(--ds-gap-lg);
+    text-align: center;
+    color: var(--ds-text-dim);
+  }
+  .tuff-vazio-titulo {
+    font-size: var(--tuff-size-md);
+    font-weight: var(--tuff-weight-m);
+    color: var(--ds-text);
+  }
+  .tuff-vazio-msg { font-size: var(--tuff-size-sm); max-width: 44ch; }
+
+  /* ── Espera ─────────────────────────────────────────────────────────────────
+     Spinner para "não sei quanto falta"; barra para "sei". Trocar os dois é o erro
+     comum, e ele custa confiança: uma barra que anda até 90% e para ensina a não
+     acreditar em barra nenhuma. */
+
+  .tuff-spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--ds-border);
+    border-top-color: var(--ds-accent);
+    border-radius: 50%;
+    animation: tuff-girar .7s linear infinite;
+  }
+  @keyframes tuff-girar { to { transform: rotate(360deg); } }
+
+  .tuff-progresso {
+    position: relative;
+    height: 4px;
+    background: var(--ds-bg-input);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .tuff-progresso-preenchido {
+    height: 100%;
+    width: 0;
+    background: var(--ds-accent);
+    border-radius: inherit;
+    transition: width var(--ds-dur) var(--ds-ease-out);
+  }
+  .tuff-progresso--alerta .tuff-progresso-preenchido { background: var(--ds-warn); }
+  /* Indeterminado: uma faixa que atravessa. Não finge saber a fração. */
+  .tuff-progresso--indeterminado .tuff-progresso-preenchido {
+    width: 35%;
+    animation: tuff-atravessar 1.1s var(--ds-ease) infinite;
+  }
+  @keyframes tuff-atravessar {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(340%); }
+  }
+
+  /* ── Controle segmentado ────────────────────────────────────────────────────
+     Radios de verdade por baixo, pelo mesmo motivo do switch: setas do teclado,
+     agrupamento e foco vêm prontos. `:has()` é o que permite pintar o rótulo a
+     partir do estado do input sem uma linha de JavaScript. */
+
+  .tuff-seg {
+    display: inline-flex;
+    padding: 2px;
+    background: var(--ds-bg-input);
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-md);
+  }
+  .tuff-seg-btn {
+    position: relative;
+    padding: 3px var(--ds-gap-lg);
+    font-size: var(--tuff-size-sm);
+    color: var(--ds-text-dim);
+    border-radius: var(--ds-radius-sm);
+    cursor: pointer;
+    transition: background var(--ds-dur-fast) var(--ds-ease), color var(--ds-dur-fast) var(--ds-ease);
+  }
+  .tuff-seg-btn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .tuff-seg-btn:hover { color: var(--ds-text); }
+  .tuff-seg-btn:has(input:checked) {
+    background: var(--ds-accent);
+    color: var(--ds-on-accent);
+  }
+  .tuff-seg-btn:has(input:focus-visible) {
+    outline: 2px solid var(--ds-border-focus);
+    outline-offset: 1px;
+  }
+
+  /* ── Lista ──────────────────────────────────────────────────────────────────
+     A seleção usa `--ds-sel`, que é o mesmo realce do gerenciador de arquivos do
+     ambiente e uma das quatro variáveis que acompanham a cor do usuário. Inventar
+     um destaque próprio aqui faria a lista de um app se comportar diferente da
+     lista ao lado, no mesmo desktop. */
+
+  .tuff-lista {
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+    min-height: 0;
+  }
+  .tuff-item {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-gap-md);
+    padding: 3px var(--ds-gap-md);
+    font-size: var(--tuff-size-sm);
+    color: var(--ds-text);
+    cursor: default;
+    border-radius: var(--ds-radius-sm);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .tuff-item:hover { background: var(--ds-bg-hover); }
+  .tuff-item[aria-selected="true"] { background: var(--ds-sel); color: var(--ds-sel-text); }
+
+  /* Tabela chave/valor: o par de leitura, com a hierarquia obrigatória. A coluna
+     do valor é monoespaçada quando o conteúdo é dado (caminho, id, hash) — texto
+     proporcional embaralha a leitura de coisa que se compara olhando. */
+  .tuff-kv {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--ds-gap-sm) var(--ds-gap-lg);
+    font-size: var(--tuff-size-sm);
+  }
+  .tuff-kv dt { color: var(--ds-text-dim); }
+  .tuff-kv dd { margin: 0; color: var(--ds-text); }
+  .tuff-kv--mono dd { font-family: var(--ds-font-mono); font-size: var(--tuff-size-xs); }
+
+  /* ── Barra de ferramentas ───────────────────────────────────────────────────
+     A divisa é `border-bottom`, e ela existe para o item da tabela do 3.3 sobre
+     divisas: blocos que mudam juntos separados por linha. */
+
+  .tuff-barra {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-gap-md);
+    padding: var(--ds-gap-sm) var(--ds-gap-md);
+    background: var(--ds-bg2);
+    border-bottom: 1px solid var(--ds-border);
+  }
+  .tuff-barra-espaco { flex: 1; }
+
+  /* ── Busca ──────────────────────────────────────────────────────────────────
+     Um `<input type="search">` com a lupa embutida. A cruz nativa do WebKit sai:
+     ela é branca, quadrada e não tem nada a ver com o resto. */
+
+  .tuff-busca {
+    width: 100%;
+    padding: 5px var(--ds-gap-md) 5px 26px;
+    min-height: 26px;
+    font: var(--tuff-weight-n) var(--tuff-size-sm) var(--ds-font);
+    color: var(--ds-text);
+    background-color: var(--ds-bg-input);
+    background-repeat: no-repeat;
+    background-position: var(--ds-gap-md) center;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Ccircle cx='5' cy='5' r='3.5' fill='none' stroke='%23858585' stroke-width='1.3'/%3E%3Cpath d='M8 8l3 3' stroke='%23858585' stroke-width='1.3' stroke-linecap='round'/%3E%3C/svg%3E");
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-md);
+  }
+  .tuff-busca:focus { border-color: var(--ds-border-focus); }
+  .tuff-busca::-webkit-search-cancel-button { appearance: none; }
+
+  /* ── Detalhe (disclosure) ───────────────────────────────────────────────────
+     `<details>` nativo: abre sem JavaScript, é encontrável pelo Ctrl+F do
+     navegador e já anuncia o estado a um leitor de tela. A seta padrão sai e volta
+     como pseudo-elemento, para girar. */
+
+  .tuff-detalhe {
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-md);
+    background: var(--ds-bg2);
+  }
+  .tuff-detalhe > summary {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-gap-md);
+    padding: var(--ds-gap-md) var(--ds-gap-lg);
+    font-size: var(--tuff-size-sm);
+    color: var(--ds-text);
+    cursor: pointer;
+    list-style: none;
+  }
+  .tuff-detalhe > summary::-webkit-details-marker { display: none; }
+  .tuff-detalhe > summary::before {
+    content: '';
+    width: 0;
+    height: 0;
+    border-left: 4px solid var(--ds-text-dim);
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+    transition: transform var(--ds-dur-fast) var(--ds-ease);
+  }
+  .tuff-detalhe[open] > summary::before { transform: rotate(90deg); }
+  .tuff-detalhe-corpo {
+    padding: 0 var(--ds-gap-lg) var(--ds-gap-lg);
+    font-size: var(--tuff-size-sm);
+    color: var(--ds-text-dim);
+  }
+
+  /* ── Tooltip ────────────────────────────────────────────────────────────────
+     ⚠ **Isto NÃO existe no shell, e é adição deliberada.** Lá se usa o atributo
+     `title` nativo — que o SISTEMA desenha: no Windows, uma caixinha clara com
+     fonte do sistema, no meio de uma janela escura. É exatamente o exemplo que o
+     critério 3.3 usa para explicar por que aparência é critério.
+
+     O texto vem de `data-tuff-dica`, e o elemento deve ter também um rótulo
+     acessível próprio (`aria-label`, ou texto visível): um tooltip em CSS puro não
+     é anunciado por leitor de tela, e usá-lo como ÚNICA fonte da informação a
+     esconderia de quem mais precisa dela. Ele é reforço, nunca o único caminho. */
+
+  [data-tuff-dica] { position: relative; }
+  [data-tuff-dica]::after {
+    content: attr(data-tuff-dica);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 3px var(--ds-gap-md);
+    font: var(--tuff-weight-n) var(--tuff-size-xs) var(--ds-font);
+    color: var(--ds-text);
+    background: var(--ds-bg3);
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-sm);
+    box-shadow: var(--ds-shadow-md);
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--ds-dur) var(--ds-ease);
+    z-index: 10;
+  }
+  [data-tuff-dica]:hover::after,
+  [data-tuff-dica]:focus-visible::after { opacity: 1; }
+}
