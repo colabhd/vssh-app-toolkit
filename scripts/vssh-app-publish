@@ -344,8 +344,57 @@ else
   DECLARA="$(grep -rl '"vssh-app-toolkit"' --include=package.json "${PKG}" 2>/dev/null \
     | grep -v '/node_modules/' | head -1 || true)"
 
+  # ── E o mesmo, do lado PYTHON ────────────────────────────────────────────────
+  #
+  # As libs existem nos dois runtimes desde que o template Python passou a usá-las, e este portão
+  # só sabia perguntar ao npm. A consequência não era um furo teórico: um app Python que dependesse
+  # das libs recebia *"O app não depende das libs deste toolkit"* — o portão AFIRMANDO o contrário
+  # do que era verdade, que é a pior forma de uma conferência falhar.
+  #
+  # A versão instalada vem do nome do `.dist-info`, que é o que o `pip install --target` escreve.
+  # Não é heurística: o nome do diretório é normativo (PEP 376), e ele existe justamente para
+  # responder "que versão está aqui?" sem abrir arquivo nenhum.
+  INSTALADAS_PY="$(find "${PKG}" -type d -name 'vssh_app_toolkit-*.dist-info' -not -path '*/.git/*' 2>/dev/null || true)"
+  # O app DECLARA em Python se o installCommand (ou um requirements) cita este pacote. Um app
+  # Python não tem `package.json` para consultar — é o installCommand que carrega a dependência.
+  DECLARA_PY=""
+  if grep -qE 'vssh[-_]app[-_]toolkit' "${PKG}/vssh-app.json" 2>/dev/null; then
+    DECLARA_PY="vssh-app.json (installCommand)"
+  elif grep -rlE 'vssh[-_]app[-_]toolkit' --include='requirements*.txt' --include='pyproject.toml' \
+        "${PKG}" 2>/dev/null | grep -v '/vendor/' | head -1 > /dev/null 2>&1; then
+    DECLARA_PY="$(grep -rlE 'vssh[-_]app[-_]toolkit' --include='requirements*.txt' --include='pyproject.toml' \
+      "${PKG}" 2>/dev/null | grep -v '/vendor/' | head -1)"
+    DECLARA_PY="${DECLARA_PY#${PKG}/}"
+  fi
+
+  # Um app Python que declara e não leva as libs está no MESMO caso do Node que instala no alvo: o
+  # `installCommand` resolve no servidor, e daqui não dá para conferir a versão. Dizer isso em voz
+  # alta é o contrato desta seção — conferência que se acha feita sem ter sido é pior que nenhuma.
+  if [ -z "${INSTALADAS_PY}" ] && [ -n "${DECLARA_PY}" ]; then
+    anotar notice "libs Python instaladas no servidor" \
+      "${DECLARA_PY} declara o toolkit e o pacote não leva vendor/py — o installCommand vai instalar no alvo. A versão NÃO foi conferida aqui."
+  fi
+
+  while IFS= read -r di; do
+    [ -n "${di}" ] || continue
+    # `vssh_app_toolkit-4.12.0.dist-info` → `4.12.0`
+    DELE_PY="$(basename "${di}")"; DELE_PY="${DELE_PY#vssh_app_toolkit-}"; DELE_PY="${DELE_PY%.dist-info}"
+    ONDE_PY="${di#${PKG}/}"
+    [ "${DELE_PY}" = "${NOSSA_LIB}" ] && continue
+    if [ "${DELE_PY%%.*}" != "${NOSSA_LIB%%.*}" ]; then
+      anotar error "libs de outra major" \
+        "${ONDE_PY} traz o toolkit ${DELE_PY} e este é ${NOSSA_LIB}.
+Atualize:  pip install --target vendor/py \"https://github.com/colabhd/vssh-app-toolkit/archive/refs/tags/v${NOSSA_LIB%%.*}.tar.gz\""
+      exit 1
+    fi
+    anotar warning "libs desatualizadas" \
+      "${ONDE_PY} traz o toolkit ${DELE_PY}; este é ${NOSSA_LIB}. Compatível, mas vale atualizar."
+  done <<< "${INSTALADAS_PY}"
+
   if [ -z "${INSTALADAS}" ]; then
-    if [ -z "${DECLARA}" ]; then
+    if [ -n "${DECLARA_PY}" ] || [ -n "${INSTALADAS_PY}" ]; then
+      : # o lado Python já respondeu acima; não repetir "sem libs" sobre um app que as usa
+    elif [ -z "${DECLARA}" ]; then
       anotar notice "sem libs do toolkit" "O app não depende das libs deste toolkit."
     else
     # A pergunta é "este app instala as libs no alvo?", e ela não se responde no TEXTO do

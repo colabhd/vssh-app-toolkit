@@ -67,12 +67,23 @@ function rodar(app, { nossaVersao = '4.0.0' } = {}) {
   }
 }
 
-/** Um pacote de app: manifesto, package.json opcional e node_modules opcional. */
-function app({ manifesto = {}, declara = false, instalada = null, legado = false, script = null } = {}) {
+/**
+ * Um pacote de app: manifesto, package.json opcional e node_modules opcional.
+ *
+ * `instaladaPy` põe o `.dist-info` que o `pip install --target` escreve — é dali que o portão lê a
+ * versão do lado Python, e o nome daquele diretório é normativo (PEP 376), não convenção nossa.
+ */
+function app({ manifesto = {}, declara = false, instalada = null, legado = false, script = null,
+               instaladaPy = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vssh-app-'));
   fs.writeFileSync(path.join(dir, 'vssh-app.json'), JSON.stringify({
     id: 'x', version: '1.0.0', backend: { runtime: 'node', entrypoint: 'b.js', ...manifesto },
   }, null, 2));
+  if (instaladaPy) {
+    const di = path.join(dir, 'vendor', 'py', `vssh_app_toolkit-${instaladaPy}.dist-info`);
+    fs.mkdirSync(di, { recursive: true });
+    fs.writeFileSync(path.join(di, 'METADATA'), `Name: vssh-app-toolkit\nVersion: ${instaladaPy}\n`);
+  }
   if (declara) {
     fs.writeFileSync(path.join(dir, 'package.json'),
       JSON.stringify({ name: 'x', dependencies: { 'vssh-app-toolkit': 'github:colabhd/vssh-app-toolkit#v4' } }, null, 2));
@@ -185,4 +196,50 @@ test('sem saber a própria versão, o portão diz que NÃO conferiu', seNaoTemBa
   const r = rodar(app({ declara: true, instalada: '3.0.0' }), { nossaVersao: null });
   assert.equal(r.code, 0, 'não dá para recusar por uma comparação que não foi feita');
   assert.match(r.saida, /warning\|libs não conferidas/);
+});
+
+// ─── O mesmo portão, do lado PYTHON ──────────────────────────────────────────
+//
+// Estas quatro entraram junto com as libs Python, e a primeira delas mede o defeito que existia
+// enquanto o portão só sabia perguntar ao npm: um app Python que dependia das libs era anunciado
+// como *"não depende das libs deste toolkit"*. Não era um furo silencioso — era o portão AFIRMANDO
+// o contrário do que era verdade, que é a pior forma de uma conferência falhar.
+
+const INSTALL_PY = 'python3 -m pip install --target vendor/py '
+  + '"https://github.com/colabhd/vssh-app-toolkit/archive/refs/tags/v4.tar.gz"';
+
+test('app Python que DECLARA as libs não é mais anunciado como se não usasse nenhuma', seNaoTemBash, () => {
+  const r = rodar(app({ manifesto: { runtime: 'python3', entrypoint: 'backend/main.py',
+                                     installCommand: INSTALL_PY } }));
+  assert.equal(r.code, 0);
+  assert.doesNotMatch(r.saida, /sem libs do toolkit/,
+    'o portão disse que o app não usa as libs, e o installCommand dele as instala');
+  assert.match(r.saida, /notice\|libs Python instaladas no servidor/);
+  // E ele diz que NÃO conferiu — uma conferência que se acha feita sem ter sido é pior que nenhuma.
+  assert.match(r.saida, /NÃO foi conferida aqui/);
+});
+
+test('libs Python de outra MAJOR param a publicação', seNaoTemBash, () => {
+  const r = rodar(app({ manifesto: { runtime: 'python3', installCommand: INSTALL_PY },
+                        instaladaPy: '3.0.0' }));
+  assert.equal(r.code, 1, 'publicou com libs de outra geração');
+  assert.match(r.saida, /error\|libs de outra major/);
+  assert.match(r.saida, /3\.0\.0.*4\.0\.0/s);
+  // O conserto tem de vir junto, e no idioma do runtime certo: mandar rodar `npm i` num app Python
+  // seria uma instrução que não funciona, dada com a autoridade de quem barrou a publicação.
+  assert.match(r.saida, /pip install --target vendor\/py/);
+});
+
+test('libs Python de minor à frente avisam e deixam passar', seNaoTemBash, () => {
+  const r = rodar(app({ manifesto: { runtime: 'python3', installCommand: INSTALL_PY },
+                        instaladaPy: '4.1.0' }));
+  assert.equal(r.code, 0);
+  assert.match(r.saida, /warning\|libs desatualizadas/);
+});
+
+test('libs Python da mesma versão passam calado', seNaoTemBash, () => {
+  const r = rodar(app({ manifesto: { runtime: 'python3', installCommand: INSTALL_PY },
+                        instaladaPy: '4.0.0' }));
+  assert.equal(r.code, 0);
+  assert.doesNotMatch(r.saida, /major|desatualizadas|sem libs do toolkit/);
 });

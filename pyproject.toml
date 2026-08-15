@@ -1,0 +1,55 @@
+# O mesmo repositório, o segundo empacotamento.
+#
+# Este arquivo mora na RAIZ, ao lado do `package.json`, e não dentro de `lib/python/`. Duas coisas
+# dependem disso:
+#
+#   1. `pip install <tarball do GitHub>` acha o projeto sem `subdirectory=` — a mesma propriedade
+#      que faz `npm i github:colabhd/vssh-app-toolkit#v4` funcionar sem caminho nenhum;
+#   2. o `force-include` abaixo alcança `lib/web/`, que fica FORA do pacote Python. Com o
+#      pyproject dentro de `lib/python/`, aquele diretório estaria acima da raiz do projeto, e a
+#      saída seria copiar os `.js` na árvore — uma segunda cópia para envelhecer, que é
+#      exatamente o defeito que aposentou o `vssh-app-lib-sync` na v4.
+#
+# ── Por que hatchling, e não setuptools ──
+#
+# Pelo `force-include`. As libs de NAVEGADOR são as mesmas para os dois runtimes (o shim é o mesmo
+# arquivo servido ao mesmo navegador), e um app Python precisa SERVI-LAS — então elas têm de viajar
+# dentro do wheel. Com setuptools, `package-data` só alcança o que está dentro do diretório do
+# pacote; a alternativa seria manter uma cópia de `lib/web/` sob `lib/python/`, e duas cópias do
+# mesmo arquivo divergem.
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vssh-app-toolkit"
+# ESPELHA o `package.json`, e há um teste que reprova a divergência
+# (`tests/lib-version.test.js`). Uma lib com dois números de versão é uma lib cuja versão ninguém
+# sabe dizer — foi assim que dois apps publicaram libs 3.0.0 contra um toolkit 4.0.0.
+version = "4.12.0"
+description = "Bibliotecas para o backend Python de um vssh-app"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+# NENHUMA dependência, e isto é regra do repositório, não acaso: estas libs rodam no servidor do
+# usuário, e cada dependência é mais uma coisa que pode faltar lá na hora do `pip install`.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/colabhd/vssh-app-toolkit"
+
+[tool.hatch.build.targets.wheel]
+packages = ["lib/python/vssh_app_toolkit"]
+
+[tool.hatch.build.targets.wheel.force-include]
+# As libs de navegador entram no wheel para que `vssh_app_toolkit.web.WEB_DIR` aponte para elas.
+# É o equivalente exato do `lib/node/web-assets.js` do lado Node, onde o `node_modules` já as traz.
+"lib/web/vssh-app-shim.js" = "vssh_app_toolkit/web/vssh-app-shim.js"
+"lib/web/vssh-app-shim.d.ts" = "vssh_app_toolkit/web/vssh-app-shim.d.ts"
+"lib/web/fsa-polyfill.js" = "vssh_app_toolkit/web/fsa-polyfill.js"
+"lib/web/electron-shim.js" = "vssh_app_toolkit/web/electron-shim.js"
+"lib/web/tauri-shim.js" = "vssh_app_toolkit/web/tauri-shim.js"
+
+[tool.hatch.build.targets.sdist]
+include = ["lib/python", "lib/web", "pyproject.toml", "README.md", "LICENSE"]

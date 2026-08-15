@@ -20,8 +20,24 @@
       "required": false
     }
   ],
+  "opens": {
+    "extensions": [
+      "hello"
+    ]
+  },
+  "handles": "editor",
   "contributes": {
-    "settings": "configuracoes.js"
+    "settings": "configuracoes.js",
+    "contextMenu": [
+      {
+        "id": "painel",
+        "superficie": "icone-do-app",
+        "rotulo": "Abrir o painel",
+        "acao": "abrirRota",
+        "rota": "?painel=1",
+        "ordem": 12
+      }
+    ]
   },
   "minShellVersion": "4.1.0",
   "backend": {
@@ -29,7 +45,8 @@
     "transport": "socket",
     "entrypoint": "backend/server.js",
     "installCommand": "( [ \"${VSSH_APP_REBUILD:-}\" != 1 ] && test -d node_modules ) || npm ci --omit=dev",
-    "healthcheckPath": "/healthz"
+    "healthcheckPath": "/healthz",
+    "aoFechar": "encerrar"
   },
   "window": {
     "title": "Hello World (Node)",

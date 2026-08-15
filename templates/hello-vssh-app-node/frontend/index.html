@@ -38,6 +38,17 @@
     }
     code { background: var(--fundo); padding: .05em .3em; border-radius: 4px; }
     .larga { grid-column: 1 / -1; }
+    a { color: inherit; }
+
+    /* As duas pontas do arraste. `#solte` precisa de área para se acertar, e `#arraste` precisa
+       parecer agarrável — um alvo de soltura invisível é indistinguível de um que não funciona. */
+    #solte, #arraste {
+      border: 1px dashed var(--linha); border-radius: 6px; padding: .6rem .8rem;
+      min-width: 14rem; text-align: center; opacity: .8;
+    }
+    #solte.sobre { border-style: solid; background: var(--fundo); opacity: 1; }
+    #arraste { cursor: grab; border-style: solid; }
+    #fs-imagem img { max-width: 100%; max-height: 12rem; border-radius: 6px; }
   </style>
 </head>
 <body>
@@ -95,6 +106,8 @@
         <button id="runtime">ler api/runtime</button>
         <button id="bench">medir GPU × CPU (leva alguns segundos)</button>
         <button id="segredo">guardar HELLO_SEGREDO</button>
+        <button id="segredo-listar">listar os nomes guardados</button>
+        <button id="segredo-apagar">apagar HELLO_SEGREDO</button>
       </div>
       <pre id="runtimeout">—</pre>
       <p class="porque">
@@ -154,12 +167,22 @@
         <code>javascript:</code> são recusados pelo shell: a janela leva o título e o ícone do seu
         app, e servir outra coisa ali seria material de tela falsa.
       </p>
+      <p class="porque">
+        E há um caminho que <strong>não passa pelo backend</strong>: <code>BroadcastChannel</code>.
+        Shell e apps compartilham uma origem só, então ele funciona entre duas janelas do mesmo
+        app, entre dois apps diferentes e entre o app e o shell — sem ponte nossa, porque embrulhar
+        o que o navegador já faz só acrescentaria um lugar onde a mensagem se perde. O aviso vem
+        junto: <strong>outro app da mesma sessão escuta os seus canais.</strong> Não mande por aqui
+        o que você não mandaria por um mural.
+      </p>
       <div class="acoes">
         <button id="somar">somar 1 no backend</button>
         <button id="reler">reler api/estado</button>
         <button id="extra">abrir uma janela extra (painel)</button>
+        <button id="canal">mandar um oi pelo BroadcastChannel</button>
       </div>
       <pre id="estado">— (assine o SSE acima para receber as mudanças da outra janela)</pre>
+      <pre id="canalout">—</pre>
     </section>
 
     <section class="larga">
@@ -179,9 +202,59 @@
         <button id="toast">vssh.toast — some sem deixar nada</button>
         <button id="notify">vssh.notify — fica no sino</button>
         <button id="notify-acao">notify com ação e prioridade alta</button>
-        <button id="confirm">vssh.dialog.confirm</button>
+      </div>
+      <p class="porque">
+        Os cinco diálogos <strong>bloqueiam e devolvem valor</strong> — é a diferença entre eles e
+        um aviso. <code>alert</code> e <code>error</code> só informam (o segundo com a cor de
+        erro); <code>confirm</code> devolve booleano; <code>prompt</code> e <code>password</code>
+        devolvem texto, ou <code>null</code> quando a pessoa desiste — e <em>desistir é resposta</em>,
+        não falha. Fora do desktop os cinco degradam para o equivalente do navegador em vez de
+        lançar, então o app não precisa de <code>if</code> nenhum.
+      </p>
+      <div class="acoes">
+        <button id="dialog-alert">alert</button>
+        <button id="dialog-error">error</button>
+        <button id="confirm">confirm</button>
+        <button id="dialog-prompt">prompt</button>
+        <button id="dialog-password">password</button>
       </div>
       <pre id="bridge">—</pre>
+    </section>
+
+    <section>
+      <h2>Menu de contexto do ambiente</h2>
+      <p class="porque">
+        O menu é <strong>do desktop</strong>, desenhado por cima da janela — o app manda só
+        <em>dados</em> (nunca HTML, nunca função) e recebe de volta o <code>id</code> do item
+        escolhido, ou <code>null</code> se a pessoa fechou sem escolher. As coordenadas são as do
+        <em>seu</em> viewport; quem soma a posição da janela é o shell. Submenu vai
+        <strong>um nível</strong> só — o segundo é ignorado, e é melhor saber disso aqui.
+      </p>
+      <div class="acoes">
+        <button id="menu">clique com o botão direito nesta caixa</button>
+      </div>
+      <pre id="menuout">—</pre>
+    </section>
+
+    <section>
+      <h2>Controles da janela</h2>
+      <p class="porque">
+        A janela é do ambiente, e o app <strong>pede</strong> — não manipula. Não existe
+        <code>setSize</code> nem <code>setPosition</code>: o tamanho inicial vem do manifesto e
+        depois é do usuário. Minimizar sem um jeito de voltar deixaria esta peça sem saída, então o
+        botão de minimizar restaura sozinho depois de dois segundos.
+      </p>
+      <div class="acoes">
+        <button id="win-min">minimize (volta em 2s)</button>
+        <button id="win-max">maximize</button>
+        <button id="win-restore">restore</button>
+      </div>
+      <p class="porque">
+        <code>focus()</code> não tem botão aqui de propósito: pedir foco para a janela que já está
+        na frente não faz nada visível. Ele é exercitado onde tem sentido — no menu da
+        <em>bandeja</em>, que é o caminho de quem quer a janela de volta sem procurá-la.
+      </p>
+      <pre id="janela">—</pre>
     </section>
 
     <section class="larga">
@@ -192,13 +265,30 @@
         notificação no lugar. A mesma chave reescreve no lugar, então relatar progresso vinte
         vezes não empilha vinte linhas.
       </p>
+      <p class="porque">
+        <strong>Pelo backend há um prazo de validade</strong>, e ele existe porque um arquivo
+        <code>live</code> sobrevive a um <code>kill -9</code>: o portal descarta a atividade que
+        passa ~60&nbsp;s sem renovar o carimbo de tempo. Quem renova é
+        <code>keepLiveAlive()</code>, ligado uma vez no boot. O botão de 80&nbsp;s existe para
+        <em>ver</em> isso: se a barra atravessar, a renovação está ligada; se sumir no meio, falta
+        a chamada — e numa tarefa de seis segundos os dois casos são indistinguíveis.
+      </p>
       <div class="acoes">
         <button id="live-ir">começar (10 passos)</button>
         <button id="live-parar">desistir (some sem registrar)</button>
         <button id="live-backend">a mesma coisa, pelo BACKEND (sem janela)</button>
+        <button id="live-backend-lento">pelo backend, 80s (atravessa o TTL)</button>
         <button id="avisar-backend">notify do backend, com key estável</button>
+        <button id="avisar-backend-acao">notify do backend COM ação</button>
       </div>
       <pre id="live">—</pre>
+      <p class="porque">
+        A notificação do backend também aceita <strong>ação</strong>, e aí a resposta precisa de
+        um lugar para chegar: o app pode estar sem janela quando alguém clicar. Por isso o journal
+        carrega <code>onAction: { path }</code> — o desktop faz um <code>POST</code> nessa rota do
+        <em>seu</em> backend. Clique no botão, depois no botão da notificação no sino, e a linha
+        abaixo muda sem esta página ter feito requisição nenhuma.
+      </p>
     </section>
 
     <section>
@@ -213,6 +303,43 @@
         <button id="tray-off">remover</button>
       </div>
       <pre id="tray">—</pre>
+      <p class="porque">
+        <strong>Há dois caminhos até o mesmo ícone, e eles não são alternativas.</strong> Os botões
+        acima usam <code>vssh.tray.*</code>, que é síncrono e só existe com uma janela aberta. O de
+        baixo usa a lib do <em>backend</em> (<code>vssh-app-toolkit/tray</code>), que escreve um
+        <code>tray.json</code> e funciona com o app <strong>sem janela nenhuma</strong> — é o
+        caminho de um <code>kind:"service"</code>. O clique volta como um <code>POST</code> no seu
+        próprio backend, e não como uma função: função não atravessa arquivo.
+      </p>
+      <div class="acoes">
+        <button id="tray-backend">pela lib do backend (sem janela)</button>
+        <button id="tray-backend-off">remover a do backend</button>
+      </div>
+      <pre id="tray-back">—</pre>
+    </section>
+
+    <section class="larga">
+      <h2>Armazenamento privado do app</h2>
+      <p class="porque">
+        <code>vssh-app-toolkit/fs</code> dá ao app um filesystem <strong>próprio</strong> por HTTP:
+        uma raiz confinada com <code>realpath</code> (um <code>..</code> não sai dela), gate do
+        <code>X-Vssh-App-Token</code>, e <code>errno</code> classificado — um caminho que não existe
+        é 404, e não um 500 dizendo que o servidor quebrou.
+      </p>
+      <p class="porque">
+        <strong>Não confunda com a peça de cima.</strong> Para os arquivos <em>do usuário</em> (a
+        home dele) o caminho é a File System Access, onde quem concede é o seletor. Isto aqui é o
+        armazém <em>do app</em>, dentro do <code>VSSH_APP_DATA_DIR</code>: índice, cache, o que o
+        app gerou. São casos diferentes, e usar um pelo outro é como um app acaba pedindo acesso à
+        home para guardar o próprio cache.
+      </p>
+      <div class="acoes">
+        <button id="priv-escrever">gravar</button>
+        <button id="priv-listar">listar</button>
+        <button id="priv-ler">ler</button>
+        <button id="priv-apagar">apagar</button>
+      </div>
+      <pre id="privado">—</pre>
     </section>
 
     <section class="larga">
@@ -248,11 +375,152 @@
       <div class="acoes">
         <button id="fs-pick">escolher um arquivo</button>
         <button id="fs-exists" disabled>exists</button>
+        <button id="fs-stat" disabled>stat</button>
+        <button id="fs-read" disabled>read</button>
+        <button id="fs-bytes" disabled>readBytes</button>
         <button id="fs-copy" disabled>copy → .bak</button>
         <button id="fs-rename" disabled>rename do .bak</button>
         <button id="fs-watch" disabled>watch</button>
       </div>
       <pre id="fs">—</pre>
+      <p class="porque">
+        A outra metade: <strong>escrever</strong>. <code>mkdir</code> → <code>write</code> →
+        <code>list</code> → <code>writeBytes</code> → <code>delete</code>, numa pasta que o próprio
+        ciclo cria e apaga dentro do que você escolher. <code>write</code> é para
+        <em>texto</em> e <code>writeBytes</code> para <em>binário</em> — texto-encodar bytes os
+        corrompe, e é por isso que são duas funções e não um parâmetro.
+      </p>
+      <div class="acoes">
+        <button id="fs-dir">escolher a pasta de trabalho</button>
+        <button id="fs-ciclo" disabled>mkdir → write → list → delete</button>
+        <button id="fs-url" disabled>urlFor num &lt;img&gt;</button>
+      </div>
+      <pre id="fs-escrita">—</pre>
+      <div id="fs-imagem"></div>
+      <p class="porque">
+        <strong>Permissão tem três respostas, e a terceira decide o oposto da segunda.</strong>
+        <code>isGranted()</code> devolve <code>true</code>, <code>false</code> ou
+        <code>null</code> — e <code>null</code> é <em>"não obtive resposta"</em> (shell antigo, erro,
+        timeout), que manda <em>seguir</em>, enquanto <code>false</code> manda desistir. Tratar os
+        dois como um só é como um app deixa de funcionar num servidor mais velho sem nunca dizer
+        por quê. <code>grantedPaths()</code> é síncrona e lista o que este app já pode tocar sem
+        abrir seletor nenhum — inclusive de sessões anteriores e de outra máquina, porque o grant
+        mora no usuário.
+      </p>
+      <div class="acoes">
+        <button id="fs-grants">isGranted + grantedPaths</button>
+      </div>
+      <pre id="grants">—</pre>
+    </section>
+
+    <section>
+      <h2>Seletores do desktop</h2>
+      <p class="porque">
+        Três, e a diferença entre eles é o que o usuário vê: abrir, salvar (com nome sugerido) e
+        escolher pasta. Todos devolvem o <strong>caminho absoluto no servidor</strong>, ou
+        <code>null</code> quando a pessoa cancela — e <code>null</code> também fora do desktop, onde
+        não há caminho de servidor que faça sentido. <strong>Escolher é consentir:</strong> é o
+        seletor que concede o acesso do <code>vssh.fs</code> àquele caminho, e não há segunda
+        confirmação.
+      </p>
+      <div class="acoes">
+        <button id="pick-file">pickFile</button>
+        <button id="pick-save">pickSave</button>
+        <button id="pick-dir">pickDirectory</button>
+      </div>
+      <pre id="picks">—</pre>
+    </section>
+
+    <section>
+      <h2>Área de transferência</h2>
+      <p class="porque">
+        Duas coisas diferentes com o mesmo nome: o clipboard de <strong>arquivos</strong> do
+        desktop (o que o gerenciador de arquivos escreve quando você copia um arquivo) e o de
+        <strong>imagem</strong> do navegador. O de imagem pode ser <em>recusado</em>, e o motivo
+        vem nomeado em <code>err.reason</code>: <code>no-user-activation</code> quer dizer
+        &ldquo;faltou o gesto&rdquo; e é conserto de quem escreve o app; <code>denied</code> é
+        permissão do navegador; <code>unsupported</code> é o ambiente. Sem essa separação, os três
+        viram &ldquo;falhou ao ler o clipboard&rdquo;.
+      </p>
+      <div class="acoes">
+        <button id="clip-ler">ler arquivos copiados</button>
+        <button id="clip-por">copiar um arquivo</button>
+        <button id="clip-img-ler">ler imagem</button>
+        <button id="clip-img-por">copiar imagem</button>
+      </div>
+      <pre id="clip">—</pre>
+    </section>
+
+    <section class="larga">
+      <h2>Arrastar arquivo, nas duas direções</h2>
+      <p class="porque">
+        Um tipo MIME só (<code id="mime">…</code>), com caminhos absolutos separados por linha —
+        e é ele que faz o arraste ser <strong>um contrato, não três integrações</strong>: do
+        ambiente para o app, do app para o ambiente, e de um app para outro, que cai de graça das
+        duas primeiras. Arraste um arquivo do gerenciador de arquivos até a área abaixo; depois
+        arraste a linha de volta para uma pasta.
+      </p>
+      <p class="porque">
+        A armadilha que não deixa rastro: sem <code>preventDefault</code> no
+        <code>dragover</code>, o navegador entende que o alvo recusa a soltura e o
+        <strong><code>drop</code> nunca acontece</strong> — sem erro, sem log, só o cursor de
+        proibido. Quem usa <code>vssh.onArquivosSoltos()</code> não precisa lembrar disso.
+      </p>
+      <div class="acoes">
+        <div id="solte">solte arquivos aqui</div>
+        <div id="arraste" draggable="true">◧ arraste isto para fora</div>
+      </div>
+      <pre id="arrastar">—</pre>
+    </section>
+
+    <section class="larga">
+      <h2>Abrir no ambiente</h2>
+      <p class="porque">
+        O app não abre PDF, nem vídeo, nem pasta: ele <strong>manda o caminho</strong> e o ambiente
+        escolhe o visualizador pela extensão. <code>openWith</code> devolve o rótulo que o usuário
+        escolheu; os outros não devolvem nada, porque não há o que responder.
+      </p>
+      <p class="porque">
+        <code>openUrl</code> é o que mais engana: o link abre no navegador <strong>do
+        ambiente</strong>, que resolve a rede a partir do servidor Linux — então
+        <code>http://localhost:3000</code> ali é o loopback <em>do servidor</em>, não o da sua
+        máquina. Só <code>http</code>/<code>https</code>; o resto é recusado. E o link comum ao
+        lado prova a outra metade: <code>window.open</code> e <code>target="_blank"</code> são
+        <strong>desviados sozinhos</strong> pelo shim — o app não faz nada e mesmo assim não abre
+        aba no navegador hospedeiro.
+      </p>
+      <div class="acoes">
+        <button id="abrir-arquivo">openFile (escolhe e abre)</button>
+        <button id="abrir-pasta">openFolder</button>
+        <button id="abrir-com">openWith</button>
+        <button id="abrir-url">openUrl</button>
+        <a id="link-alvo" href="https://example.org" target="_blank" rel="noreferrer">um link comum</a>
+      </div>
+      <pre id="abrir">—</pre>
+    </section>
+
+    <section class="larga">
+      <h2>Voltar no lugar certo, e ser aberto com um arquivo</h2>
+      <p class="porque">
+        <code>vssh.lembrarRota()</code> guarda <strong>uma rota, e só</strong> — um ponteiro, não um
+        armazém. Quando a sessão é restaurada, a janela reabre nela, sem código de restauração
+        nenhum do seu lado. O que não couber num endereço vai para o backend do seu app: o teto é
+        512 caracteres, sem esquema, sem barra inicial e sem <code>..</code>.
+      </p>
+      <p class="porque">
+        <code>onOpenContext()</code> é o outro lado: <em>&ldquo;abra assim&rdquo;</em>. Chega o
+        <code>path</code> de um &ldquo;Abrir Terminal Aqui&rdquo;, o arquivo que alguém abriu com
+        este app (é o que <code>opens</code> declara no manifesto), ou uma <code>rota</code>, quando
+        clicam num item da <strong>jump list</strong> — o menu do botão direito no ícone do app, que
+        este manifesto declara em <code>contributes.contextMenu</code>. Com o app fechado a rota
+        entra na URL; com ele aberto, chega por aqui. Sem tratar isto, o item da jump list funciona
+        só na primeira abertura.
+      </p>
+      <div class="acoes">
+        <button id="rota-lembrar">lembrar “?painel=1”</button>
+        <button id="rota-limpar">esquecer</button>
+      </div>
+      <pre id="rota">—</pre>
     </section>
 
     <section>
@@ -300,6 +568,6 @@
 
   <!-- O comportamento está em `galeria.js`, que NÃO tem tag aqui: ele é injetado pelo
        `static-spa` junto com o shim, para ganhar o carimbo de conteúdo na URL. Ver o cabeçalho
-       do arquivo e `injectScripts` em backend/server.js. -->
+       do arquivo e a lista de scripts injetados no backend deste app. -->
 </body>
 </html>

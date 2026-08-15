@@ -81,6 +81,19 @@ jobs:
         shell: bash
         run: npm test
 
+      # As libs Python e o template que as usa. Separado do `npm test` porque `node --test` não
+      # sabe rodá-lo — e porque a ausência de `python3` não pode reprovar quem só mexeu em
+      # JavaScript, que é a mesma regra dos testes de navegador.
+      #
+      # Sem `setup-python`: o `python3` do runner é o que interessa. Um app Python roda com o
+      # interpretador que o SERVIDOR tem, e é justamente o do sistema — instalar uma versão nova
+      # aqui mediria um Python que o alvo não tem.
+      - name: Testes das libs Python
+        shell: bash
+        run: |
+          python3 --version
+          npm run test:py
+
   smoke-template-node:
     runs-on: ubuntu-latest
     steps:
@@ -171,3 +184,85 @@ jobs:
           grep -q '"contador":1' "${RUNNER_TEMP}/sse.txt" \
             || { echo "a mudança de estado não chegou a quem não clicou"; exit 1; }
           q -fsS http://app/api/estado | grep -q '"contador":1'
+
+  # O MESMO roteiro do smoke acima, no outro runtime. Ele existe porque a promessa "os dois
+  # templates são o mesmo app" só vale enquanto os dois SOBEM — e a última vez que ninguém mediu
+  # isso, o template Python passou duas majors lendo uma variável que já não existia, morrendo com
+  # `KeyError` antes de escutar. As guardas de paridade comparam texto; este passo executa.
+  smoke-template-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # As libs vêm da ÁRVORE DE TRABALHO, e não da tag publicada — mesma razão do smoke Node: o
+      # smoke existe para provar que o que está NESTE commit sobe. Instalar `@v4` faria o CI
+      # validar a versão já publicada e passar verde sobre uma quebra recém-introduzida.
+      #
+      # `--target vendor/py` é literalmente o que o `installCommand` do manifesto faz no servidor,
+      # e é o que o `backend/main.py` põe no `sys.path`.
+      - name: Libs do template = esta árvore
+        run: python3 -m pip install --quiet --no-cache-dir --target vendor/py "${GITHUB_WORKSPACE}"
+        working-directory: templates/hello-vssh-app
+
+      - name: Smoke do template Python
+        run: |
+          cd templates/hello-vssh-app
+          SOCK="${RUNNER_TEMP}/hwp.sock"
+          # Um SCRIPT, e não uma função de shell: `timeout` faz `exec` no que recebe, então ele
+          # enxerga o PATH e não enxerga função nenhuma. É a mesma armadilha documentada no smoke
+          # do Node, e ela derrubou aquele job por quatro commits.
+          printf '#!/bin/sh\nexec curl --unix-socket "%s" "$@"\n' "${SOCK}" > "${RUNNER_TEMP}/q"
+          chmod +x "${RUNNER_TEMP}/q"
+          PATH="${RUNNER_TEMP}:${PATH}"
+          VSSH_APP_SOCKET="${SOCK}" VSSH_APP_ID=hello-world \
+            VSSH_APP_DATA_DIR="${RUNNER_TEMP}/hwp" python3 backend/main.py &
+          for i in $(seq 1 20); do q -fsS http://app/healthz >/dev/null 2>&1 && break; sleep 0.5; done
+          q -fsS http://app/healthz | grep -q ok
+          q -fsS http://app/api/ping | grep -q '"pong":true'
+          q -fsS http://app/ | grep -q '<!DOCTYPE html>'
+          timeout 3 q -sN http://app/api/events | grep -q 'event: tick'
+          test -s "${RUNNER_TEMP}/hwp/app.log"
+
+          # ── A ponte com o desktop ──────────────────────────────────────────────────────────
+          #
+          # O defeito real mora ENTRE duas asserções: a tag é injetada, ninguém serve o arquivo, a
+          # página carrega inteira e `vssh` simplesmente não existe. Aqui ele tem uma causa a mais
+          # que no Node: as libs de navegador viajam DENTRO do wheel (o `force-include` do
+          # pyproject), e um empacotamento que as deixasse de fora só apareceria assim.
+          srcs=$(q -fsS http://app/ | grep -o '<script src="[^"]*"' | cut -d'"' -f2)
+          test -n "$srcs"
+          for s in $srcs; do
+            q -fsS "http://app/${s}" >/dev/null \
+              || { echo "injetado mas NÃO servido: ${s}"; exit 1; }
+            case "$s" in
+              *\?v=*) ;;
+              *) echo "injetado sem carimbo de conteúdo: ${s} — uma reinstalação serviria a versão velha"; exit 1 ;;
+            esac
+          done
+          echo "$srcs" | grep -q 'vssh-app-shim.js'
+          echo "$srcs" | grep -q 'galeria.js'
+          q -fsS http://app/_vssh/vssh-app-shim.js | grep -q 'window.vssh'
+
+          # ── A galeria: um backend, N janelas ───────────────────────────────────────────────
+          ( timeout 5 q -sN http://app/api/events > "${RUNNER_TEMP}/sse.txt" & )
+          sleep 1
+          q -fsS -X POST http://app/api/estado/incrementar >/dev/null
+          sleep 1
+          grep -q '"contador":1' "${RUNNER_TEMP}/sse.txt" \
+            || { echo "a mudança de estado não chegou a quem não clicou"; exit 1; }
+          q -fsS http://app/api/estado | grep -q '"contador":1'
+
+          # ── O filesystem privado, e o confinamento ─────────────────────────────────────────
+          #
+          # A fuga de raiz é medida no smoke, e não só na bancada: aqui ela passa pelo servidor
+          # inteiro (URL, parse, handler), que é onde um `..` decodificado cedo demais escaparia.
+          q -fsS -X POST -H 'Content-Type: application/json' \
+            -d '{"op":"write-file","path":"n.txt","content":"oi"}' http://app/api/privado | grep -q '"ok":true'
+          q -fsS -X POST -H 'Content-Type: application/json' \
+            -d '{"op":"read-file","path":"n.txt"}' http://app/api/privado | grep -q '"content":"oi"'
+          q -s -X POST -H 'Content-Type: application/json' \
+            -d '{"op":"read-file","path":"../../../../etc/passwd"}' http://app/api/privado | grep -q 'EACCES'
+
+          # ── A bandeja pelo BACKEND ─────────────────────────────────────────────────────────
+          q -fsS -X POST http://app/api/bandeja | grep -q '"ok":true'
+          test -s "${RUNNER_TEMP}/hwp/../tray.json" || { echo "o tray.json não foi escrito"; exit 1; }

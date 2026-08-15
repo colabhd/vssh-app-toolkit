@@ -352,11 +352,13 @@ respostas JSON).
 ## Não reimplemente: as bibliotecas do toolkit
 
 Quatro problemas aparecem em todo app, e todo mundo erra do mesmo jeito na primeira vez. Já estão
-resolvidos em `lib/`, e **desde a v4 elas se instalam** (antes eram copiadas por um script próprio,
-`vssh-app-lib-sync`, que morreu por ter deixado dois apps com libs de outra major sem avisar):
+resolvidos em `lib/`, **nos dois runtimes**, e elas se instalam (antes eram copiadas por um script
+próprio, `vssh-app-lib-sync`, que morreu por ter deixado dois apps com libs de outra major sem
+avisar):
 
 ```bash
-npm i github:colabhd/vssh-app-toolkit#v4    # e commite o package-lock.json
+npm i github:colabhd/vssh-app-toolkit#v4                                                # Node
+pip install "https://github.com/colabhd/vssh-app-toolkit/archive/refs/tags/v4.tar.gz"   # Python
 ```
 
 ```js
@@ -366,27 +368,51 @@ const { escutar } = require('vssh-app-toolkit/listen');
 const { WEB_DIR, SHIMS } = require('vssh-app-toolkit/web');   // as libs de NAVEGADOR
 ```
 
+```python
+from vssh_app_toolkit.log import criar_log_do_app
+from vssh_app_toolkit.spa import criar_spa_estatica
+from vssh_app_toolkit.listen import criar_servidor
+from vssh_app_toolkit.web import DIRETORIO_WEB, SHIMS       # as libs de NAVEGADOR
+```
+
+> **As libs de NAVEGADOR são as mesmas nos dois.** O shim e o polyfill rodam no navegador — o que
+> muda é só quem os SERVE. Um backend Python com o `vssh` completo é uma questão de montar o
+> diretório certo, e não de portar JavaScript.
+
 No servidor, quem instala é o `installCommand` do manifesto — e ele não precisa de `git` nem de
-chave SSH no alvo (medido em `node:22-slim`, sem os dois, 1 s):
+chave SSH no alvo (medido em `node:22-slim`, sem os dois, 1 s; do lado Python é a mesma
+propriedade, e por isso o endereço é o **tarball**, não `git+https://`):
 
 ```jsonc
+// Node
 "installCommand": "( [ \"${VSSH_APP_REBUILD:-}\" != 1 ] && test -d node_modules ) || npm ci --omit=dev"
+
+// Python — declare `python3-pip` em requiredPackages, senão o servidor sem pip só se descobre
+// quando o primeiro usuário abre o app (a segunda execução do installCommand falha, e o app não
+// sobe PARA AQUELE usuário)
+"installCommand": "( [ \"${VSSH_APP_REBUILD:-}\" != 1 ] && test -d vendor/py ) || python3 -m pip install --no-cache-dir --target vendor/py \"https://github.com/colabhd/vssh-app-toolkit/archive/refs/tags/v4.tar.gz\""
 ```
 
 Se preferir levar o `node_modules` dentro do tarball, não o ignore no `.gitignore`: o publish
 empacota o que `git add -A` pega. O `vssh-app-publish` recusa publicar um app cujas libs sejam de
 outra **major**, e recusa também um app que declare a dependência sem levá-la nem instalá-la.
 
-| Peça | Resolve |
-|---|---|
-| `app-log.js` | Log estruturado em `$VSSH_APP_DATA_DIR`. **Comece por esta**, na primeira linha de código. |
-| `static-spa.js` | Servir uma SPA construída sob o prefixo do proxy: 304, prefixos alias, injeção de script de boot com **carimbo de versão** (o conserto do cache velho — ver abaixo), fallback de SPA. |
-| `sse.js` | Server-Sent Events com os headers que sobrevivem ao proxy e ao CDN. Sem eles os eventos chegam em lote, ou nunca — e sem erro nenhum. |
-| `vssh-app-fs/` | Filesystem **privado** do app por HTTP: confinado a uma raiz, token-gated, errno classificado. |
-| `vssh-tray.js` | Ícone na bandeja para app **sem janela** (`engine`/`service`) — escrita atômica de `tray.json`, e o clique volta como POST no seu backend. App COM janela usa `vssh.tray.*` do shim, que é síncrono. |
-| `vssh-notify.js` | Avisar o usuário **do backend**, inclusive com o desktop fechado. Cuida do `id`, que é a chave de deduplicação de ponta a ponta e falha em silêncio nos dois sentidos quando é escrito na mão. `key` para avisar uma vez só. App COM janela usa `vssh.notify()` do shim. |
+As mesmas nove peças existem nas duas árvores, com as mesmas garantias — uma armadilha do socket
+unix não deixa de existir porque o backend é Python.
 
-Comece pelo `templates/hello-vssh-app-node/`, que já nasce com tudo isso ligado.
+| Node | Python | Resolve |
+|---|---|---|
+| `app-listen.js` | `listen.py` | Bindar onde o lifecycle mandou. Limpa socket órfão **por tentativa de conexão** (nunca por "o arquivo existe", que derrubaria a instância viva), põe o modo 0600 contra o umask e falha alto quando não veio endereço nenhum. |
+| `app-log.js` | `log.py` | Log estruturado em `$VSSH_APP_DATA_DIR`. **Comece por esta**, na primeira linha de código. |
+| `static-spa.js` | `spa.py` | Servir uma SPA construída sob o prefixo do proxy: 304, `mounts`, prefixos alias, injeção de script de boot com **carimbo de versão** (o conserto do cache velho — ver abaixo), fallback de SPA. |
+| `sse.js` | `sse.py` | Server-Sent Events com os headers que sobrevivem ao proxy e ao CDN. Sem eles os eventos chegam em lote, ou nunca — e sem erro nenhum. |
+| `vssh-app-fs/` | `fs/` | Filesystem **privado** do app por HTTP: confinado a uma raiz, token-gated, errno classificado. |
+| `vssh-tray.js` | `tray.py` | Ícone na bandeja para app **sem janela** (`engine`/`service`) — escrita atômica de `tray.json`, e o clique volta como POST no seu backend. App COM janela usa `vssh.tray.*` do shim, que é síncrono. |
+| `vssh-notify.js` | `notify.py` | Avisar o usuário **do backend**, inclusive com o desktop fechado. Cuida do `id`, que é a chave de deduplicação de ponta a ponta e falha em silêncio nos dois sentidos quando é escrito na mão. `key` para avisar uma vez só. App COM janela usa `vssh.notify()` do shim. |
+| `vssh-live.js` | `live.py` | "O que está acontecendo AGORA", com barra — e o `at` renovado, sem o qual a atividade some no meio de uma tarefa longa. |
+| `web-assets.js` | `web.py` | O diretório dos `.js` que o NAVEGADOR carrega, para o `mounts` do SPA. |
+
+Comece pelo template do seu runtime (`templates/hello-vssh-app/` para Python, `templates/hello-vssh-app-node/` para Node) — os dois já nascem com tudo isso ligado.
 
 ## Falar com o desktop: diálogo, notificação, seletor, arquivos
 
@@ -406,7 +432,7 @@ createStaticSpa({
 `injectScripts` **só injeta a tag `<script>`**; quem serve o arquivo é o `static-spa`, e ele só
 serve o que está sob `root` ou sob um `mounts`. Sem o mount a tag aponta para 404 e o `vssh` nunca
 existe — silenciosamente, porque a página carrega normalmente. Ver
-`templates/hello-vssh-app-node/`, que já vem com os dois passos ligados.
+os dois templates, que já vêm com os dois passos ligados.
 
 > **Cache: por que a tag sai com `?v=…`.** O `static-spa` carimba cada script injetado com o hash do
 > conteúdo dele e serve a URL carimbada como `immutable`. Não é otimização — é o conserto de um bug
@@ -572,29 +598,37 @@ usuários ou peça para reabrirem o app.
 
 ## Exemplos de referência: os dois templates
 
-**Qual copiar:**
+**Os dois são o MESMO APP, em dois runtimes.** Mesmas peças, mesmas rotas, e o
+`frontend/galeria.js` byte a byte idêntico — a escolha entre eles é de **linguagem**, e mais nada.
 
 | | `templates/hello-vssh-app/` | `templates/hello-vssh-app-node/` |
 |---|---|---|
-| Runtime | Python 3 stdlib | Node stdlib |
-| Traz | o mínimo absoluto | as libs do toolkit, por `npm i github:colabhd/vssh-app-toolkit#v4` |
-| Já vem com | — | log estruturado, gate de token timing-safe, healthcheck isento, SSE |
-| E também | — | a **galeria**: uma peça por capacidade do ambiente (ponte, FSA, `vssh.fs`, OPFS, bandeja, som, impressão, duas janelas sobre um backend só) |
-| Use quando | o app é pequeno e você quer ler tudo em 2 minutos | qualquer coisa que vá crescer |
+| Runtime | Python 3 | Node |
+| Instala as libs com | `pip install "…/archive/refs/tags/v4.tar.gz" --target vendor/py` | `npm ci --omit=dev` |
+| Já vem com | log estruturado, gate de token resistente a timing, healthcheck isento, SSE, filesystem privado, bandeja pelo backend | idem |
+| E também | a **galeria**: uma peça por capacidade do ambiente — ponte, diálogos, menu de contexto, clipboard, arraste nas duas direções, FSA, `vssh.fs` inteiro, OPFS, bandeja, som, impressão, cofre, jump list, duas janelas sobre um backend só | idem |
+| Use quando | o seu app é Python | o seu app é Node |
 
 > **A galeria é para instalar, não só para ler.** Ela é a resposta a "este servidor faz isto?" —
 > cada peça diz o que PROVA, e a primeira delas (*Ambiente*) mostra a versão do shim que o app
 > carrega ao lado da versão do shell daquele servidor, que é o que explica quase toda ausência.
-> Ao copiar o template para um app seu, apague `frontend/galeria.js`, as peças de
-> `frontend/index.html` e as rotas `api/estado*` — o que sobra é o mínimo.
+> Os `id` dos dois são distintos de propósito: dá para instalar os dois lado a lado e comparar os
+> runtimes com as mãos.
+>
+> Ao copiar um template para um app seu, apague `frontend/galeria.js`, as peças de
+> `frontend/index.html` e as rotas `api/*` que não forem suas — o que sobra é o mínimo.
 
-O Python é o menor caminho até "funciona": um app mínimo completo que exercita o pipeline inteiro
-— janela abre, o iframe carrega `frontend/index.html` servido pelo próprio backend, e um botão faz
-um round-trip `fetch('api/ping')`. Só demonstra `do_GET`; um app com API de verdade (POST/DELETE)
-precisa adicionar os handlers do método (`BaseHTTPRequestHandler` não faz isso de graça).
+**A paridade é medida, não prometida:** `tests/galeria-paridade.test.js` reprova qualquer deriva
+entre os dois, e `tests/galeria-cobertura.test.js` exige que cada membro do `vssh` apareça em
+alguma peça das duas galerias. Isso existe porque o contrário já aconteceu: o template Python ficou
+congelado duas majors lendo `VSSH_APP_PORT`, uma variável que a v4 aposentou, e **morria com
+`KeyError` antes de escutar** — ninguém percebeu porque nada media a distância entre os dois.
 
-O Node já nasce com o que a experiência mostrou ser necessário cedo — em especial o log
-estruturado, que é o que salva a primeira depuração remota.
+> **Esta tabela dizia outra coisa, e vale saber o quê.** O Python era "o mínimo absoluto, para ler
+> em 2 minutos" e o Node era "qualquer coisa que vá crescer" — uma divisão por TAMANHO que fazia
+> sentido enquanto todas as libs eram JavaScript. Ela custou o congelamento acima: escolher o
+> Python significava abrir mão de log, de SSE, de token e da ponte, e um template que ninguém usa
+> para valer é um template que ninguém atualiza.
 
 > **Apps de referência.** Os dois templates moram neste toolkit (`templates/`). Os demais citados
 > abaixo são apps reais, cada um no seu próprio repositório — caminhos como `terminal-latch/…` ou

@@ -86,3 +86,43 @@ test('o que o `files` NÃO leva é deliberado, e o pacote fica pequeno', () => {
       `'${pesada}' entrou no files — é ~1,4 MB de coisa que app nenhum importa`);
   }
 });
+
+// ── O pacote Python ───────────────────────────────────────────────────────────
+//
+// Um segundo empacotamento do MESMO repositório, e portanto um segundo lugar onde o número pode
+// ficar para trás. É exatamente o defeito que o `.vssh-lib-version` cometeu na era da cópia: um
+// mecanismo de versão com uma versão própria para esquecer.
+//
+// A pergunta "que libs este app carrega?" tem de ter UMA resposta, e não uma por runtime — senão
+// um relato de bug de um app Python manda quem investiga para a versão errada, com confiança.
+
+test('a versão do pyproject é a mesma do package.json', () => {
+  const pyproject = fs.readFileSync(path.join(ROOT, 'pyproject.toml'), 'utf8');
+  const m = /^version = "([^"]+)"/m.exec(pyproject);
+  assert.ok(m, 'não achei o `version` no pyproject.toml');
+  assert.equal(m[1], PKG.version,
+    `o pyproject declara ${m[1]} e o package.json diz ${PKG.version} — bumpe os dois`);
+});
+
+test('o pacote Python embarca as MESMAS libs de navegador que o Node serve', () => {
+  // O shim é o mesmo arquivo para os dois runtimes, e no Python ele viaja DENTRO do wheel (o
+  // `force-include` do pyproject). Um `.js` novo em `lib/web/` que não entre nessa lista é uma lib
+  // que existe para um runtime e não para o outro — e a falha aparece como um `vssh` incompleto
+  // num servidor, sem nada apontando para um arquivo de empacotamento.
+  const pyproject = fs.readFileSync(path.join(ROOT, 'pyproject.toml'), 'utf8');
+  const bloco = pyproject.split('[tool.hatch.build.targets.wheel.force-include]')[1] || '';
+  const embarcados = new Set([...bloco.matchAll(/^"lib\/web\/([^"]+)"/gm)].map((x) => x[1]));
+
+  const emDisco = fs.readdirSync(path.join(ROOT, 'lib', 'web'))
+    .filter((f) => f.endsWith('.js') || f.endsWith('.d.ts'));
+
+  const faltando = emDisco.filter((f) => !embarcados.has(f));
+  assert.deepEqual(faltando, [],
+    'estes arquivos de lib/web/ não entram no pacote Python: um app Python que os pedisse '
+    + 'receberia 404 na tag injetada, e o sintoma seria o `vssh` incompleto');
+
+  const sobrando = [...embarcados].filter((f) => !emDisco.includes(f));
+  assert.deepEqual(sobrando, [],
+    'o pyproject embarca arquivos que não existem mais em lib/web/ — o build falha, ou entrega '
+    + 'menos do que declara');
+});

@@ -1,18 +1,56 @@
 {
   "id": "hello-world",
-  "name": "Hello World",
-  "version": "1.0.0",
+  "name": "Hello World (Python)",
+  "version": "4.0.0",
   "icon": "icon.svg",
   "category": "Utility",
-  "description": "Exemplo mínimo de vssh-app — front HTML + backend Python stdlib.",
+  "description": "Template de vssh-app com backend Python e galeria das capacidades do ambiente — ponte com o desktop, File System Access, bandeja, som, impressão, duas janelas sobre um backend só, e o que o ambiente decide por um app: limite de recurso, GPU e cofre de segredos.",
+  "requiredPackages": [
+    "ffmpeg",
+    "python3-pip"
+  ],
+  "gpu": true,
+  "resources": {
+    "memoryMax": "512M",
+    "tasksMax": "128"
+  },
+  "secrets": [
+    {
+      "name": "HELLO_SEGREDO",
+      "description": "Qualquer texto. Serve só para demonstrar o cofre: guarde aqui, reinicie o app, e a galeria mostra que ele chegou — sem nunca mostrar o valor.",
+      "required": false
+    }
+  ],
+  "opens": {
+    "extensions": [
+      "hello"
+    ]
+  },
+  "handles": "editor",
+  "contributes": {
+    "settings": "configuracoes.js",
+    "contextMenu": [
+      {
+        "id": "painel",
+        "superficie": "icone-do-app",
+        "rotulo": "Abrir o painel",
+        "acao": "abrirRota",
+        "rota": "?painel=1",
+        "ordem": 12
+      }
+    ]
+  },
+  "minShellVersion": "4.1.0",
   "backend": {
     "runtime": "python3",
+    "transport": "socket",
     "entrypoint": "backend/main.py",
-    "installCommand": "echo 'App sem dependências externas'",
-    "healthcheckPath": "/"
+    "installCommand": "( [ \"${VSSH_APP_REBUILD:-}\" != 1 ] && test -d vendor/py ) || python3 -m pip install --no-cache-dir --target vendor/py \"https://github.com/colabhd/vssh-app-toolkit/archive/refs/tags/v4.tar.gz\"",
+    "healthcheckPath": "/healthz",
+    "aoFechar": "encerrar"
   },
   "window": {
-    "title": "Hello World",
+    "title": "Hello World (Python)",
     "width": 900,
     "height": 640
   }

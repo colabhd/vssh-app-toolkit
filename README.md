@@ -20,21 +20,62 @@ padrão — **sem nenhum PAT/GitHub App**.
 | [`scripts/vssh-app-publish`](scripts/vssh-app-publish) | Empacota + publica um app no Worker. Roda em CI e localmente. |
 | [`package.json`](package.json) | Este repositório **é** o pacote npm das libs: `npm i github:colabhd/vssh-app-toolkit#v4`. Não há mais script de cópia. |
 | [`.github/workflows/_publish-app-reusable.yml`](.github/workflows/_publish-app-reusable.yml) | Reusable workflow que o CI do seu repo de app chama com um `uses:`. |
-| [`templates/hello-vssh-app/`](templates/hello-vssh-app/) | Template de partida (Python 3 stdlib, zero deps). Copie e adapte. |
-| [`templates/hello-vssh-app-node/`](templates/hello-vssh-app-node/) | Template Node **e galeria**: log estruturado, gate de token e SSE — e uma peça por capacidade do ambiente, para instalar num servidor e conferir com as mãos. |
+| [`templates/hello-vssh-app/`](templates/hello-vssh-app/) | Template **Python** e galeria. Copie e adapte. |
+| [`templates/hello-vssh-app-node/`](templates/hello-vssh-app-node/) | Template **Node** e galeria. O mesmo app, no outro runtime — [ver abaixo](#os-dois-templates-são-o-mesmo-app). |
 | [`docs/api.md`](docs/api.md) | **Referência de API** — o que o app pode pedir ao ambiente: janela, título, diálogos, menu de contexto, seletores, arquivos, abas. E o que não existe. |
 | [`docs/porting.md`](docs/porting.md) | Portar um app web/Electron/Tauri: árvore de decisão e como medir o buraco em minutos. |
 | [`docs/lessons/logseq-port.md`](docs/lessons/logseq-port.md) | O que portar um app real ensinou — a origem da maioria das regras acima. |
 | [`docs/roadmap/`](docs/roadmap/) | **Plano vivo do ecossistema** — diagnóstico, casos de uso, critérios de projeto e as ondas de trabalho, com estado por item. |
 
+## Os dois templates são o mesmo app
+
+`templates/hello-vssh-app/` (Python) e `templates/hello-vssh-app-node/` (Node) são **o mesmo app em
+dois runtimes**: mesmas peças, mesmas rotas, e o `frontend/galeria.js` byte a byte idêntico. A
+escolha entre eles é de **linguagem**, e mais nada.
+
+Isso é medido, não prometido: [`tests/galeria-paridade.test.js`](tests/galeria-paridade.test.js)
+reprova qualquer deriva — peça nova num lado, rota que existe só no outro, manifesto que declara
+uma capacidade a menos. E não é zelo abstrato: até a v4 o template Python ficou congelado na v2,
+lendo uma variável de ambiente que já não existia, **morrendo com `KeyError` antes de escutar**.
+Ninguém percebeu porque nada media a distância entre os dois.
+
+> **A galeria é para instalar, não só para ler.** Cada peça responde "este servidor faz isto?", e a
+> primeira delas (*Ambiente*) mostra a versão do shim que o app carrega ao lado da versão do shell
+> daquele servidor — o que explica quase toda ausência. Instale os dois lado a lado e compare os
+> runtimes com as mãos; os `id` são distintos justamente para isso.
+>
+> Ao copiar um deles para um app seu, apague `frontend/galeria.js`, as peças de
+> `frontend/index.html` e as rotas `api/*` que não forem suas — o que sobra é o mínimo.
+
+Uma segunda guarda,
+[`tests/galeria-cobertura.test.js`](tests/galeria-cobertura.test.js), enumera a superfície real do
+`vssh` em runtime e exige que **cada membro apareça em alguma peça** das duas galerias. As exceções
+são nomeadas com o motivo no próprio arquivo, e uma exceção que perca a API que a justificava
+reprova junto. Sem ela a galeria envelhece em silêncio: quando foi escrita, cobria 23 dos 68
+membros, e as quatro APIs mais recentes do toolkit não tinham uma peça sequer.
+
 ## Bibliotecas (`lib/`)
 
-Nenhuma tem dependência npm e nenhuma lê variável de ambiente: quem traduz o ambiente VSSH em
-config é o backend do app.
+Nenhuma tem dependência externa e nenhuma lê variável de ambiente por conta própria: quem traduz o
+ambiente VSSH em config é o backend do app.
 
-**São instaladas por npm** — `npm i github:colabhd/vssh-app-toolkit#v4` — e importadas por
-subcaminho: `require('vssh-app-toolkit/listen')`, `/log`, `/spa`, `/sse`, `/fs`, `/tray`,
-`/notify`, `/web`.
+**São instaladas pelo gerenciador de pacotes do seu runtime**, e importadas por subcaminho:
+
+```bash
+npm i github:colabhd/vssh-app-toolkit#v4                                     # Node
+pip install "https://github.com/colabhd/vssh-app-toolkit/archive/refs/tags/v4.tar.gz"   # Python
+```
+
+```js
+const { escutar } = require('vssh-app-toolkit/listen');   // /log /spa /sse /fs /tray /notify /live /web
+```
+```python
+from vssh_app_toolkit.listen import criar_servidor        # .log .spa .sse .fs .tray .notify .live .web
+```
+
+> **O tarball, e não `git+https://`.** Ele dispensa `git` no servidor-alvo — a mesma propriedade
+> que o `npm ci` tem e que foi medida (`node:22-slim` sem git e sem ssh, 1 s). Um alvo que precise
+> de `git` para instalar uma dependência é um alvo a menos onde o seu app roda.
 
 > **Isto aqui dizia o contrário até a v4, e vale dizer por que mudou.** A regra era *"são
 > vendorizadas, não instaladas"*, com o `vssh-app-lib-sync` copiando `lib/` para dentro do repo do
@@ -52,18 +93,34 @@ subcaminho: `require('vssh-app-toolkit/listen')`, `/log`, `/spa`, `/sse`, `/fs`,
 > da SPA. Quem resolve isso é o `mounts` do `static-spa` — mesma confinação, mesmo 304, mesmo
 > carimbo de conteúdo que o bundle tem. Ver [Ligando ao seu app](#ligando-ao-seu-app).
 
-### Backend (`lib/node/`) — `require()`adas pelo seu processo
+### Backend (`lib/node/` e `lib/python/`) — importadas pelo seu processo
 
-| Peça | Para quê |
-|---|---|
-| `lib/node/vssh-app-fs/` | Filesystem **privado** do app por HTTP: 12 ops, confinamento à raiz com `realpath`, assets binários com `Range`, gate de `X-Vssh-App-Token` timing-safe, errno classificado (4xx x 500 honesto). |
-| `lib/node/static-spa.js` | Serve uma SPA construída sob o prefixo do proxy: content-type, 304, injeção de script de boot, **prefixos alias** e fallback de SPA para roteamento HTML5. |
-| `lib/node/app-log.js` | Log estruturado em `$VSSH_APP_DATA_DIR`. Vinte linhas que se pagam na primeira depuração remota. |
-| `lib/node/sse.js` | Server-Sent Events com os headers que sobrevivem ao proxy e ao CDN (`X-Accel-Buffering: no` + `flushHeaders`). |
+**As duas árvores têm as mesmas nove peças, com as mesmas garantias.** Não é coincidência de
+escopo: cada uma resolve uma armadilha que já mordeu, e uma armadilha do socket unix não deixa de
+existir porque o backend é Python.
+
+| Peça | `lib/node/` | `lib/python/` | Para quê |
+|---|---|---|---|
+| endereço | `app-listen.js` | `listen.py` | Bindar onde o lifecycle mandou: socket unix, órfão limpo **por tentativa de conexão** (nunca por `exists`, que derrubaria a instância viva), modo 0600 contra o umask, erro nomeado para "já está escutando". |
+| log | `app-log.js` | `log.py` | Log estruturado em `$VSSH_APP_DATA_DIR`. Vinte linhas que se pagam na primeira depuração remota. |
+| SPA | `static-spa.js` | `spa.py` | Serve uma SPA sob o prefixo do proxy: content-type, 304, `mounts`, prefixos alias, fallback de SPA, e o **carimbo de conteúdo** na URL do que é injetado. |
+| SSE | `sse.js` | `sse.py` | Eventos com os cabeçalhos que sobrevivem ao proxy e ao CDN (`X-Accel-Buffering: no` + flush). Sem eles, os eventos chegam em lote — ou nunca, sem erro nenhum. |
+| filesystem | `vssh-app-fs/` | `fs/` | Filesystem **privado** do app por HTTP: 12 ops, confinamento à raiz com `realpath`, binário com `Range`, gate de token resistente a timing, errno classificado (4xx × 500 honesto). |
+| bandeja | `vssh-tray.js` | `tray.py` | Ícone na bandeja para app **sem janela**; escrita atômica, e o clique volta como POST no seu backend. |
+| notificação | `vssh-notify.js` | `notify.py` | Avisar do backend, inclusive com o desktop fechado. Cuida do `id`, que é a chave de deduplicação de ponta a ponta. |
+| atividade | `vssh-live.js` | `live.py` | "O que está acontecendo agora", com barra — e o `at` renovado, sem o qual a barra some no meio. |
+| libs de navegador | `web-assets.js` | `web.py` | O diretório dos `.js` que o navegador carrega, para o `mounts` do SPA. |
+
+> **As libs de NAVEGADOR não têm — nem precisam de — versão Python.** O shim é o mesmo arquivo,
+> servido ao mesmo navegador; o que muda entre um app Node e um app Python é só **quem o serve**.
+> No pacote Python eles viajam dentro do wheel, e `vssh_app_toolkit.web.DIRETORIO_WEB` aponta para
+> lá. Um app Python com o `vssh` completo é, portanto, uma questão de montar o diretório certo — e
+> não de portar 2.200 linhas de JavaScript.
 
 ### Frontend (`lib/web/`) — carregadas pelo navegador, por tag `<script>`
 
-É a superfície inteira de API do cliente. Referência completa em [`docs/api.md`](docs/api.md).
+É a superfície inteira de API do cliente, e vale igual nos dois runtimes. Referência completa em
+[`docs/api.md`](docs/api.md).
 
 | Peça | Para quê |
 |---|---|
@@ -75,14 +132,9 @@ subcaminho: `require('vssh-app-toolkit/listen')`, `/log`, `/spa`, `/sse`, `/fs`,
 
 ### Ligando ao seu app
 
-```bash
-# no repo do seu app
-npm i github:colabhd/vssh-app-toolkit#v4      # e commite o package-lock.json
-```
-
 ```js
+// Node
 const { createStaticSpa } = require('vssh-app-toolkit/spa');
-const { escutar } = require('vssh-app-toolkit/listen');
 const { WEB_DIR, SHIMS } = require('vssh-app-toolkit/web');
 
 const spa = createStaticSpa({
@@ -90,6 +142,18 @@ const spa = createStaticSpa({
   mounts: { '/_vssh/': WEB_DIR },                       // as libs de navegador, do node_modules
   injectScripts: SHIMS.map((s) => `_vssh/${s}`),        // a ordem já vem certa em SHIMS
 });
+```
+
+```python
+# Python
+from vssh_app_toolkit.spa import criar_spa_estatica
+from vssh_app_toolkit.web import DIRETORIO_WEB, SHIMS
+
+spa = criar_spa_estatica(
+    root=os.path.join(AQUI, "..", "frontend"),
+    mounts={"/_vssh/": DIRETORIO_WEB},                  # as libs de navegador, do pacote instalado
+    inject_scripts=[f"_vssh/{s}" for s in SHIMS],       # a ordem já vem certa em SHIMS
+)
 ```
 
 **A parte que todo mundo esquece, e que o `mounts` existe para resolver:** as libs de `lib/web/`
@@ -100,16 +164,20 @@ nenhum ligando uma coisa à outra.
 **No servidor**, quem instala é o `installCommand` do manifesto:
 
 ```jsonc
+// Node
 "installCommand": "( [ \"${VSSH_APP_REBUILD:-}\" != 1 ] && test -d node_modules ) || npm ci --omit=dev"
+
+// Python
+"installCommand": "( [ \"${VSSH_APP_REBUILD:-}\" != 1 ] && test -d vendor/py ) || python3 -m pip install --no-cache-dir --target vendor/py \"https://github.com/colabhd/vssh-app-toolkit/archive/refs/tags/v4.tar.gz\""
 ```
 
-Medido: o `npm ci` resolve este pacote pelo tarball do codeload, **sem precisar de `git` nem de
-chave SSH** no alvo (`node:22-slim` sem os dois, 1 s). Se você preferir levar o `node_modules`
-dentro do tarball, basta não ignorá-lo no `.gitignore` — o publish empacota o que `git add -A`
-pega.
+Nos dois casos a instalação grava **dentro do pacote do app**, e não num ambiente global: é a
+execução como root do `installCommand` que pode escrever em `/opt/vssh-apps/<id>/`, e o guard
+(`test -d …`) impede a segunda execução — a de usuário, não-root — de tentar escrever onde não
+pode. No Python, o `sys.path` do `backend/main.py` aponta para `vendor/py`; é o `node_modules` com
+outro nome.
 
-O template [`templates/hello-vssh-app-node/`](templates/hello-vssh-app-node/) já vem com tudo isso
-ligado — copie de lá em vez de montar à mão.
+O template do seu runtime já vem com tudo isso ligado — copie de lá em vez de montar à mão.
 
 **Precisa dar ao app acesso aos arquivos do usuário** (a home, não uma raiz privada)? Não é o
 `vssh-app-fs`: é o polyfill da File System Access API, que fala com o `/api/fs/*` do portal pelo

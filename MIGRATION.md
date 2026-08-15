@@ -1,8 +1,56 @@
 # Migração
 
-As libs deste toolkit são **instaladas por npm** desde a v4 — `npm i github:colabhd/vssh-app-toolkit#v4`.
+As libs deste toolkit são **instaladas pelo gerenciador de pacotes do seu runtime** desde a v4 —
+`npm i github:colabhd/vssh-app-toolkit#v4` ou
+`pip install "https://github.com/colabhd/vssh-app-toolkit/archive/refs/tags/v4.tar.gz"`.
 Nada abaixo atinge um app automaticamente: a mudança só chega quando alguém sobe a dependência,
 deliberadamente. **Leia a seção da sua major antes de fazê-lo.**
+
+---
+
+# Se o seu backend é Python
+
+Até agora, **todo o SDK de backend era JavaScript**, e um app Python reimplementava tudo à mão:
+socket, log, servir a SPA, SSE, notificação. Não é mais o caso — `lib/python/` tem as mesmas nove
+peças de `lib/node/`, com as mesmas garantias.
+
+```bash
+pip install --target vendor/py "https://github.com/colabhd/vssh-app-toolkit/archive/refs/tags/v4.tar.gz"
+```
+
+```jsonc
+"requiredPackages": ["python3-pip"],
+"backend": {
+  "runtime": "python3",
+  "transport": "socket",
+  "installCommand": "( [ \"${VSSH_APP_REBUILD:-}\" != 1 ] && test -d vendor/py ) || python3 -m pip install --no-cache-dir --target vendor/py \"https://github.com/colabhd/vssh-app-toolkit/archive/refs/tags/v4.tar.gz\""
+}
+```
+
+`--target vendor/py` e não um venv: quem pode escrever em `/opt/vssh-apps/<id>/` é a execução
+**root** do `installCommand`, e o guard impede a segunda — a de usuário — de tentar. No
+`backend/main.py`, `sys.path.insert(0, …/vendor/py)`. É o `node_modules` com outro nome.
+
+**A armadilha que provavelmente está no seu app agora:**
+
+```python
+PORT = int(os.environ["VSSH_APP_PORT"])                    # ← morre com KeyError desde a v4
+httpd = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+```
+
+```python
+from vssh_app_toolkit.listen import criar_servidor
+criar_servidor(Handler).serve_forever()                     # ← socket unix, órfão limpo, modo 0600
+```
+
+`VSSH_APP_PORT` só chegava a apps com `transport: "tcp"`, valor que o schema **já não aceita**. Um
+backend que a lê não sobe — e o template Python deste repositório passou duas majors assim, sem que
+nada acusasse. Hoje `tests/galeria-paridade.test.js` reprova a volta desse padrão.
+
+E as libs de **navegador** (o shim, o polyfill da File System Access) não têm versão Python: elas
+rodam no navegador, e viajam dentro do pacote instalado. O que o seu backend precisa fazer é
+servi-las — `vssh_app_toolkit.web.DIRETORIO_WEB` no `mounts` do `criar_spa_estatica`. Um app Python
+tem o `vssh` completo, e sempre teve: o que faltava era quem servisse os arquivos.
 
 ---
 

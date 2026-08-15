@@ -42,7 +42,12 @@ const idsDoJs = new Set([...JS.matchAll(/\$\('([^']+)'\)|escrever\('([^']+)'|fal
   .map((m) => m[1] || m[2] || m[3]));
 
 test('todo id que a galeria procura existe na marcação', () => {
-  const noHtml = new Set([...idsDoHtml('button'), ...idsDoHtml('pre'), ...idsDoHtml('section')]);
+  // `div`, `a` e `code` entraram quando as peças deixaram de ser todas "um botão e um `<pre>`": a
+  // zona de soltura e a alça de arraste são divs, o link que prova o desvio de `target="_blank"` é
+  // uma âncora sem handler, e o tipo MIME é escrito num `<code>`. Sem eles aqui, um id renomeado
+  // nessas peças voltaria a ser um elemento mudo que nada acusa.
+  const noHtml = new Set([...idsDoHtml('button'), ...idsDoHtml('pre'), ...idsDoHtml('section'),
+                          ...idsDoHtml('div'), ...idsDoHtml('a'), ...idsDoHtml('code')]);
   for (const id of idsDoJs) {
     assert.ok(noHtml.has(id),
       `galeria.js procura '#${id}' e a marcação não tem: a peça fica muda, sem erro nenhum`);
@@ -106,6 +111,33 @@ test('o que o backend injeta existe em disco, e a ordem importa', () => {
     'galeria.js está injetado E com tag no HTML: ele seria carregado duas vezes, e a segunda sem carimbo');
 });
 
+test('o que o backend IMPORTA do toolkit, ele CHAMA', () => {
+  // O defeito que esta guarda existe para impedir, e que já aconteceu: `keepLiveAlive` e
+  // `clearLiveOnExit` importados na linha 32, com o comentário da rota afirmando *"`keepLiveAlive()`
+  // uma vez"* como decisão de desenho — e nenhuma chamada no arquivo inteiro. Não aparecia porque a
+  // tarefa de exemplo durava 6,4 s contra um TTL de 60 s: o único caso em que a ausência morde é o
+  // que a demonstração não exercitava.
+  //
+  // Num template, isto é pior que um import morto qualquer. Ele é o arquivo de onde todo app novo
+  // nasce, e o comentário sobrevive à cópia — então o defeito se propaga como se fosse a prática
+  // recomendada, com a assinatura de quem parece ter pensado no assunto.
+  const importados = [...SERVER.matchAll(/const \{([^}]+)\} = require\('vssh-app-toolkit\/[^']+'\)/g)]
+    .flatMap((m) => m[1].split(',').map((s) => s.trim()))
+    .filter(Boolean);
+  assert.ok(importados.length >= 7, 'o backend parou de importar as libs — o teste ficou obsoleto');
+
+  for (const nome of importados) {
+    // MAIÚSCULAS é a convenção de VALOR neste repositório (`WEB_DIR`, `SHIMS`): eles se usam por
+    // referência, e exigir `NOME(` deles acusaria um uso correto. Para o resto, o que se mede é a
+    // CHAMADA — um `require` que só aparece no próprio `require` não faz nada por ninguém.
+    const ehValor = nome === nome.toUpperCase();
+    const usos = SERVER.match(new RegExp(ehValor ? `\\b${nome}\\b` : `\\b${nome}\\s*\\(`, 'g')) || [];
+    assert.ok(usos.length >= 1 && (!ehValor || usos.length > 1),
+      `o backend importa '${nome}' do toolkit e nunca o ${ehValor ? 'usa' : 'chama'}: ` +
+      'o template ensinaria pelo import uma coisa que o código não faz');
+  }
+});
+
 test('toda rota que a galeria chama existe no backend', () => {
   const chamadas = new Set([
     ...[...JS.matchAll(/fetch\('([^']+)'/g)].map((m) => m[1]),
@@ -113,10 +145,13 @@ test('toda rota que a galeria chama existe no backend', () => {
   ]);
   assert.ok(chamadas.size >= 4, 'a galeria parou de chamar o próprio backend — o teste ficou obsoleto');
 
-  for (const rota of chamadas) {
+  for (const chamada of chamadas) {
     // URL relativa, sempre: com barra no começo o app pediria à raiz do portal, não a si mesmo.
-    assert.ok(!rota.startsWith('/'),
-      `'${rota}' começa com barra: sob /<serverId>/proxy/app/<id>/ isso aponta para o portal, não para o app`);
+    assert.ok(!chamada.startsWith('/'),
+      `'${chamada}' começa com barra: sob /<serverId>/proxy/app/<id>/ isso aponta para o portal, não para o app`);
+    // O que o backend compara é o `pathname`; a query é parâmetro daquela mesma rota. Sem separar,
+    // uma chamada legítima (`api/tarefa-longa?lento=1`) reprovava contra o `if` que a atende.
+    const rota = chamada.split('?')[0];
     assert.ok(SERVER.includes(`'/${rota}'`),
       `a galeria chama '${rota}' e o backend não atende esse caminho`);
   }

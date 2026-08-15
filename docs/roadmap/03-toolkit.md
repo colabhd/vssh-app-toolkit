@@ -661,3 +661,83 @@ certa com o conteúdo errado e segue como se o usuário tivesse escolhido um arq
 Sete ataques por refutação, todos vermelhos: `removeEntry` voltando a apagar direto, a guarda
 invertida, o `list` que falha virando "tem conteúdo", a base voltando a ser a nativa, `move` sem
 atualizar o handle, `types` sem virar filtro, e `multiple` voltando a ser silencioso.
+
+---
+
+## As libs deixam de ser só de JavaScript, e a galeria ganha um portão
+
+Duas coisas fechadas juntas, porque a segunda é o que impede a primeira de apodrecer.
+
+### O que se mediu antes de começar
+
+| | |
+|---|---|
+| Membros do `vssh` que a galeria exercitava | **23 de 68** |
+| APIs publicadas nas quatro últimas majors menores (4.9 → 4.12) com peça na galeria | **nenhuma** — jump list, `openUrl`, `lembrarRota` e o desvio de `window.open` |
+| Estado do template Python | **não subia**: lia `VSSH_APP_PORT`, aposentado na v4, morrendo com `KeyError` antes de escutar |
+| Idade do template Python | congelado na v2, dois commits, enquanto o Node andou até a 4.12 |
+| Libs de backend disponíveis para um app Python | **zero** |
+
+Nada disso estava quebrado no sentido de dar erro. Cada bump publicou uma capacidade, documentou-a
+em `docs/api.md`, e seguiu — e a galeria continuou verde medindo o ambiente de meses atrás, porque
+**não havia nada que pudesse ficar vermelho**.
+
+### O portão que faltava
+
+`lib/web/test/tipos.test.js` já prendia o `.d.ts` à superfície real do shim, nos dois sentidos. O
+que não existia era o equivalente para a galeria — e a diferença entre os dois é a diferença entre
+*declarar* e *demonstrar*.
+
+`tests/galeria-cobertura.test.js` enumera o `vssh` em runtime (reusando o mesmo harness, agora em
+`lib/web/test/_superficie.js`) e exige que cada membro apareça em alguma peça, nas **duas**
+galerias. As exceções são nomeadas com o motivo no próprio arquivo, e cada uma responde à mesma
+pergunta — *por que ISTO não cabe numa galeria?* —, sempre com a mesma forma de resposta:
+exercitá-la exigiria um manifesto diferente do que a galeria tem (`richChrome` põe abas no
+cabeçalho; `cabecalho: "app"` tira o cabeçalho do ambiente; os dois são exclusivos entre si).
+Exceção que perca a API que a justificava reprova junto — senão ela vira autorização sem dono.
+
+Rodá-lo produziu a lista de trabalho, executável em vez de prometida: 37 membros a cobrir.
+
+### Por que uma galeria incompleta MENTE
+
+Não é uma galeria menor. Quem instala percorre as peças, não encontra clipboard, e conclui que o
+ambiente não tem clipboard — que é o oposto do que ela existe para dizer. É o mesmo argumento que
+tirou o botão morto da taskbar na Onda 2.1: um controle que não morde ensina a pessoa a não
+confiar em controle nenhum.
+
+### O SDK deixa de ser de um runtime só
+
+`lib/python/` tem as mesmas nove peças de `lib/node/`. **A decisão que economizou metade do
+trabalho:** as libs de NAVEGADOR não precisavam de port. O shim e o polyfill rodam no navegador —
+o que muda entre um app Node e um app Python é só quem os SERVE. Elas viajam dentro do wheel
+(`force-include` do `pyproject.toml`, que fica na RAIZ para alcançá-las sem uma segunda cópia na
+árvore), e `vssh_app_toolkit.web.DIRETORIO_WEB` aponta para lá.
+
+O que o port exigiu de verdade foi o que a stdlib do Python não dá pronto:
+
+- `socketserver.UnixStreamServer` + `ThreadingMixIn` + `BaseHTTPRequestHandler` — a combinação não
+  existe na stdlib, e o `client_address` de um `AF_UNIX` é a string vazia, que o `address_string()`
+  da stdlib não sabe ler (quebra DENTRO de uma requisição que estava indo bem);
+- um `handle_error` que **silencia queda de conexão**. O padrão despeja um traceback de 15 linhas
+  no `run.log` a cada aba fechada durante um SSE — medido, e um susto por requisição;
+- `separators=(",", ":")` em todo JSON que vai para o wire, para os dois runtimes produzirem os
+  MESMOS bytes. Sem isso o `grep '"contador":1'` de um smoke passa num e falha no outro, e o
+  primeiro a descobrir é quem escreve o teste de ponta a ponta.
+
+### A paridade também é medida
+
+`tests/galeria-paridade.test.js`: `galeria.js` byte a byte, mesmos ids de peça, mesmas rotas,
+mesmos campos de manifesto. E uma guarda nominal contra a regressão que originou tudo — o backend
+Python não pode voltar a ler `VSSH_APP_PORT`.
+
+O portão de publicação foi junto: ele só sabia perguntar ao npm, e para um app Python que dependia
+das libs respondia *"o app não depende das libs deste toolkit"*. Não era um furo silencioso — era o
+portão **afirmando o contrário do que era verdade**, que é a pior forma de uma conferência falhar.
+
+### O que isto custou à documentação
+
+A tabela "qual copiar" dividia os templates por TAMANHO: o Python era "o mínimo absoluto, para ler
+em 2 minutos", o Node era "qualquer coisa que vá crescer". Fazia sentido enquanto todas as libs
+eram JavaScript — e foi o que produziu o congelamento: escolher o Python significava abrir mão de
+log, de SSE, de token e da ponte, e um template que ninguém usa para valer é um template que
+ninguém atualiza. A divisão agora é por LINGUAGEM, e mais nada.
