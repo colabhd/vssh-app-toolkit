@@ -102,6 +102,19 @@ test('toda classe do catálogo existe no CSS', () => {
     + 'nada avisa — quem escreveu jura que escreveu');
 });
 
+test('todo botão de ícone tem nome acessível', () => {
+  // Um botão sem texto não tem nome nenhum na tela, e um leitor de tela anuncia "botão" e para aí.
+  // A regra vale para o catálogo porque é dele que quem escreve um app copia a marcação — um
+  // exemplo sem `aria-label` ensina a esquecer.
+  const html = ler(CATALOGO);
+  const semNome = [...html.matchAll(/<button[^>]*tuff-btn--icone[^>]*>/g)]
+    .map((m) => m[0])
+    .filter((tag) => !/aria-label="/.test(tag));
+  assert.deepEqual(semNome, [],
+    'botão de ícone sem `aria-label`: o nome dele não está em lugar nenhum, e quem usa leitor de '
+    + 'tela ouve só "botão"');
+});
+
 test('o tooltip por atributo é exercitado', () => {
   // Ele não é classe, então escapa dos dois testes acima — e é justamente a peça que NÃO existe no
   // shell, ou seja, a que menos gente vai reparar se sumir.

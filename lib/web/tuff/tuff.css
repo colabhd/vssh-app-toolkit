@@ -119,6 +119,36 @@
   }
   .tuff-btn--perigo:hover:not(:disabled) { background: var(--ds-danger-bg); }
 
+  /* O botão de ÍCONE: quadrado, sem o respiro lateral que existe para acomodar palavra.
+     Ele apareceu olhando o catálogo pintado — o `▶` do player estava dentro de um botão com
+     padding de texto, e lia como um botão que tinha perdido o rótulo. Toda barra de ferramentas e
+     todo chrome de mídia precisa dele; sem ele, cada app inventa o seu, e é assim que dois apps do
+     mesmo ambiente passam a ter botões de tamanhos diferentes lado a lado.
+
+     ⚠ Um botão sem texto precisa de `aria-label` — o nome não está na tela, e sem ele um leitor de
+     tela anuncia "botão" e nada mais. `tests/tuff-vocabulario.test.js` cobra isso no catálogo. */
+  .tuff-btn--icone {
+    width: 26px;
+    padding: 0;
+    flex: none;
+    font-size: var(--tuff-size-md);
+    line-height: 1;
+  }
+  /* Dentro de uma barra ou de um chrome, o botão de ícone perde a moldura: uma fileira de caixas
+     com borda vira uma grade de retângulos, e o que se quer ver são os símbolos. A borda volta no
+     hover, que é quando ela informa algo. */
+  .tuff-barra .tuff-btn--icone,
+  .tuff-chrome .tuff-btn--icone {
+    background: transparent;
+    border-color: transparent;
+    color: var(--ds-text-dim);
+  }
+  .tuff-barra .tuff-btn--icone:hover:not(:disabled),
+  .tuff-chrome .tuff-btn--icone:hover:not(:disabled) {
+    background: var(--ds-bg-hover);
+    color: var(--ds-text);
+  }
+
   /* ⚠ A barra de ações GRUDA no fim do painel, e isso é item da tabela do 3.3:
      *"botão flutuando no meio do espaço é o sintoma mais comum"*. O `margin-top:
      auto` só morde dentro de um flex em coluna — que é o que `.tuff-painel` é. */

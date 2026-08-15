@@ -22,7 +22,12 @@
      a camada estaria errada. */
   body { padding: var(--ds-gap-xl); }
   .pagina { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--ds-gap-xl); }
-  .grade { display: grid; gap: var(--ds-gap-lg); grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); }
+  /* `align-items: start` para os painéis medirem o conteúdo deles. Sem isto a grade estica toda a
+     linha até a altura do painel mais alto, e o catálogo enche de buracos — que era o que a
+     primeira captura mostrou. É layout do catálogo, e não da biblioteca: num app, um painel
+     esticado até o contêiner é o comportamento certo. */
+  .grade { display: grid; gap: var(--ds-gap-lg); align-items: start;
+           grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); }
   .capa { display: flex; flex-direction: column; gap: var(--ds-gap-sm); }
   .capa p { color: var(--ds-text-dim); font-size: var(--tuff-size-sm); max-width: 76ch; }
   .amostra { display: flex; flex-wrap: wrap; gap: var(--ds-gap-md); align-items: center; }
@@ -49,7 +54,7 @@
 
   <div class="grade">
 
-    <section class="tuff-painel">
+    <section class="tuff-painel" style="min-height:270px">
       <div class="tuff-sec">
         <div class="tuff-sec-titulo">Botões</div>
         <div class="tuff-sec-desc">Três variantes, e não sete. O primário tira a cor do destaque do usuário.</div>
@@ -59,6 +64,12 @@
         <button class="tuff-btn tuff-btn--primario">primário</button>
         <button class="tuff-btn tuff-btn--perigo">apagar</button>
         <button class="tuff-btn" disabled>indisponível</button>
+      </div>
+      <div class="amostra">
+        <button class="tuff-btn tuff-btn--icone" aria-label="Recarregar">↻</button>
+        <button class="tuff-btn tuff-btn--icone" aria-label="Ampliar">+</button>
+        <button class="tuff-btn tuff-btn--icone" aria-label="Reduzir">−</button>
+        <span class="tuff-sec-desc">quadrados, para barra e chrome — perdem a moldura lá dentro</span>
       </div>
       <hr class="tuff-divisor">
       <div class="tuff-sec-desc">
@@ -277,7 +288,7 @@
         <canvas id="cat-quadro" width="480" height="270" style="max-width:100%;max-height:100%"></canvas>
       </div>
       <div class="tuff-chrome" id="cat-chrome">
-        <button class="tuff-btn" data-tuff-play aria-label="Reproduzir">▶</button>
+        <button class="tuff-btn tuff-btn--icone" data-tuff-play aria-label="Reproduzir">▶</button>
         <div class="tuff-trilha" id="cat-trilha" aria-label="Posição">
           <div class="tuff-trilha-trilho">
             <div class="tuff-trilha-buffer" style="width:72%"></div>
@@ -290,7 +301,9 @@
         </div>
         <span class="tuff-tempo"><b>15:47</b> / 41:37</span>
         <div class="tuff-volume">
-          <button class="tuff-btn" data-tuff-mudo aria-label="Silenciar">🔊</button>
+          <!-- Glifo monocromático, e não emoji: o ambiente desenha ícones com um sprite SVG de
+               traço, e um emoji colorido no meio disso destoa antes de qualquer outra coisa. -->
+          <button class="tuff-btn tuff-btn--icone" data-tuff-mudo aria-label="Silenciar">◂))</button>
           <div class="tuff-volume-trilha">
             <div class="tuff-volume-trilho"><div class="tuff-volume-nivel" style="width:70%"></div></div>
           </div>

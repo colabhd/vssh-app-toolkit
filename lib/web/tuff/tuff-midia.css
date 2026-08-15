@@ -107,11 +107,19 @@
     touch-action: none;           /* o arraste é nosso, não do scroll da página */
     min-width: 4rem;
   }
+  /* ⚠ O trilho é `--ds-bg3` e o buffer é `--ds-text-dim`, e a escolha veio de OLHAR a peça
+     ampliada. A primeira versão usava `--ds-bg-input` (#3c3c3c) no trilho e `--ds-border` (#3e3e42)
+     no buffer — duas cores separadas por dois níveis, ou seja, **a faixa bufferizada era invisível**.
+     Ela existe exatamente para se distinguir do que ainda não baixou, e não se distinguia de nada.
+     Nenhuma medição de junção pegaria isso: as duas camadas estavam lá, com as larguras certas.
+
+     A hierarquia agora é a de sempre num player: sulco escuro, buffer em cinza neutro, tocado na cor
+     de destaque — que é saturada e continua dominando mesmo sendo mais escura que o cinza. */
   .tuff-trilha-trilho {
     position: relative;
     width: 100%;
     height: 3px;
-    background: var(--ds-bg-input);
+    background: var(--ds-bg3);
     border-radius: 999px;
     overflow: hidden;
     transition: height var(--ds-dur-fast) var(--ds-ease);
@@ -124,7 +132,7 @@
     position: absolute;
     inset: 0 auto 0 0;
     width: 0;
-    background: var(--ds-border);
+    background: var(--ds-text-dim);
   }
   .tuff-trilha-tocado {
     position: absolute;
@@ -216,10 +224,12 @@
     cursor: pointer;
     touch-action: none;
   }
+  /* Mesmo sulco da trilha do tempo: as duas são o mesmo tipo de controle, e usar fundos diferentes
+     faria uma parecer ativa e a outra desligada. */
   .tuff-volume-trilho {
     width: 100%;
     height: 3px;
-    background: var(--ds-bg-input);
+    background: var(--ds-bg3);
     border-radius: 999px;
     overflow: hidden;
   }
