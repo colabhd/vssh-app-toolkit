@@ -26,8 +26,8 @@
      junto e deixaria de responder "onde eu estou", que é a única coisa que ela faz. */
   html, body { height: 100%; }
   body { padding: 0; overflow: hidden; }
+  /* O `.tuff-gaveta-conteudo` da biblioteca já dá o respiro; aqui só a coluna e o teto de largura. */
   .pagina { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--ds-gap-xl); }
-  .topo { position: sticky; top: 0; z-index: 1; }
   /* `align-items: start` para os painéis medirem o conteúdo deles. Sem isto a grade estica toda a
      linha até a altura do painel mais alto, e o catálogo enche de buracos — que era o que a
      primeira captura mostrou. É layout do catálogo, e não da biblioteca: num app, um painel
@@ -46,16 +46,18 @@
   <nav class="tuff-gaveta-lateral" id="gaveta-nav" aria-label="Seções"></nav>
   <div class="tuff-gaveta-corpo">
 
-<div class="tuff-barra topo">
-  <button class="tuff-btn tuff-btn--icone tuff-gaveta-abrir" data-tuff-gaveta-abrir aria-label="Seções">
-    <svg class="tuff-ico"><use href="#ico-menu"></use></svg>
-  </button>
-  <strong>Tuff — catálogo</strong>
-  <span class="tuff-barra-espaco"></span>
-  <span class="tuff-tag">biblioteca de UI do vssh-app-toolkit</span>
-</div>
+    <!-- A barra fica DENTRO do que rola, presa com `--fixa`, e encosta nas bordas porque o corpo
+         não tem padding — o respiro mora em `.tuff-gaveta-conteudo`, abaixo. -->
+    <div class="tuff-barra tuff-barra--fixa">
+      <button class="tuff-btn tuff-btn--icone tuff-gaveta-abrir" data-tuff-gaveta-abrir aria-label="Seções">
+        <svg class="tuff-ico"><use href="#ico-menu"></use></svg>
+      </button>
+      <strong>Tuff — catálogo</strong>
+      <span class="tuff-barra-espaco"></span>
+      <span class="tuff-tag">biblioteca de UI do vssh-app-toolkit</span>
+    </div>
 
-<div class="pagina">
+<div class="tuff-gaveta-conteudo pagina">
 
   <header class="capa">
     <p>

@@ -546,6 +546,17 @@
   }
   .tuff-barra-espaco { flex: 1; }
 
+  /* A barra que fica no topo enquanto o conteúdo rola por baixo.
+     ⚠ Ela só encosta nas bordas se o contêiner de rolagem NÃO tiver padding — é por isso que
+     `.tuff-gaveta-corpo` não tem, e que o respiro mora em `.tuff-gaveta-conteudo`. Com padding no
+     contêiner, esta barra flutua a uma distância das bordas e o conteúdo aparece por trás dela.
+     O fundo é opaco pelo mesmo motivo: sob uma barra translúcida passa texto rolando. */
+  .tuff-barra--fixa {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+  }
+
   /* ── A gaveta de navegação ──────────────────────────────────────────────────
      Lateral com as seções + o corpo. Compilada da janela de Configurações do shell
      (`.sw-lateral`, `.sw-nav-item`), inclusive a medida de 208px e o realce do item ativo em
@@ -622,12 +633,20 @@
   .tuff-gaveta-item:focus-visible { outline: 2px solid var(--ds-accent); outline-offset: -2px; }
   .tuff-gaveta-item--ativo { background: var(--ds-accent-bg); color: var(--ds-accent-h); }
 
+  /* ⚠ **Sem padding**, e isto é a correção de um defeito real. O corpo é o que ROLA, e um contêiner
+     de rolagem com padding empurra tudo que estiver dentro dele — inclusive uma barra presa com
+     `position: sticky`, que passa a flutuar a 20px das bordas em vez de encostar nelas. O sintoma
+     que chega é "a barra parece jogada no nada", e a causa não está na barra.
+     Quem carrega o respiro é `.tuff-gaveta-conteudo`, logo abaixo. */
   .tuff-gaveta-corpo {
     flex: 1;
     min-width: 0;
     overflow: auto;
-    padding: var(--ds-gap-xl);
   }
+
+  /* O respiro do conteúdo, separado do contêiner de rolagem justamente para que uma barra fixa
+     possa ser irmã dele e encostar nas bordas. */
+  .tuff-gaveta-conteudo { padding: var(--ds-gap-xl); }
 
   /* O véu. Só existe estreito, e só quando a gaveta está aberta. `color-mix` em vez de um rgba
      escrito à mão: a cor sai do fundo do ambiente, então ela acompanha se a base mudar. */
@@ -667,7 +686,10 @@
       transition: transform var(--ds-dur) var(--ds-ease), visibility 0s;
     }
     .tuff-gaveta--aberta > .tuff-gaveta-veu { opacity: 1; pointer-events: auto; }
-    .tuff-gaveta-corpo { padding: var(--ds-gap-lg); }
+    /* ⚠ No CONTEÚDO, e nunca no corpo. Numa janela estreita o respiro encolhe, mas pô-lo de volta
+       no contêiner de rolagem traria o defeito inteiro de volta só neste tamanho — a barra fixa
+       flutuando a 12px das bordas, num lugar onde ninguém pensaria em procurar. */
+    .tuff-gaveta-conteudo { padding: var(--ds-gap-lg); }
   }
 
   /* ── Busca ──────────────────────────────────────────────────────────────────

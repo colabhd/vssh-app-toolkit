@@ -15,19 +15,13 @@
        e um app não conseguiria sobrescrever nada sem `!important`. A hierarquia é:
        padrão da biblioteca < escolha do app < escolha do ambiente. */
 
-    /* Quem rola é o CORPO da gaveta, e não o `<body>` — senão a lateral rolaria junto e deixaria
-       de responder "onde eu estou", que é a única coisa que ela faz. */
     html, body { height: 100%; }
     body { margin: 0; padding: 0; overflow: hidden; }
-    /* A gaveta ocupa a janela inteira, e quem rola é o corpo dela. Sem esta altura ela cresce com o
-       conteúdo, a lateral acompanha e sai da tela — e aí ela deixa de responder "onde eu estou",
-       que é a única coisa que ela faz. */
     #gaveta { height: 100%; }
-    .topo { position: sticky; top: 0; z-index: 1; }
-    .conteudo {
-      padding: var(--ds-gap-xl);
-      display: flex; flex-direction: column; gap: var(--ds-gap-xl);
-    }
+
+    /* Sem padding aqui: quem dá o respiro é o `.tuff-gaveta-conteudo` da biblioteca, e ele é irmão
+       da barra fixa — é assim que ela encosta nas bordas em vez de flutuar. */
+    .conteudo { display: flex; flex-direction: column; gap: var(--ds-gap-xl); }
     header { display: flex; flex-direction: column; gap: var(--ds-gap-sm); }
     header p { color: var(--ds-text-dim); max-width: 70ch; }
 
@@ -63,27 +57,34 @@
   </style>
 </head>
 <body>
-<!-- A gaveta: lateral com as peças + o corpo que rola. A lista da lateral é montada por
-     `galeria.js` a partir das próprias seções — escrevê-la aqui criaria uma segunda lista, e o
-     sintoma de esquecer seria uma peça que existe na página e não existe na navegação. -->
+<!-- A gaveta: lateral com as peças + o corpo que rola, e a barra presa no topo do corpo.
+
+     ⚠ A barra ENCOSTA nas bordas porque `.tuff-gaveta-corpo` não tem padding — o respiro mora em
+     `.tuff-gaveta-conteudo`, que é irmão dela. Um contêiner de rolagem com padding empurra tudo
+     que está dentro, inclusive o que é `sticky`: a barra passa a flutuar longe das bordas e o
+     conteúdo aparece por trás dela.
+
+     A lista da lateral é montada por `galeria.js` a partir das próprias seções: escrevê-la aqui
+     criaria uma segunda lista, e o sintoma de esquecer seria uma peça que existe na página e não
+     existe na navegação. -->
 <div class="tuff-gaveta" id="gaveta">
   <div class="tuff-gaveta-veu"></div>
   <nav class="tuff-gaveta-lateral" id="gaveta-nav" aria-label="Peças da galeria"></nav>
   <div class="tuff-gaveta-corpo">
 
-    <div class="tuff-barra topo">
+    <div class="tuff-barra tuff-barra--fixa">
       <button class="tuff-btn tuff-btn--icone tuff-gaveta-abrir" data-tuff-gaveta-abrir
               aria-label="Peças da galeria">
         <svg class="tuff-ico"><use href="#ico-menu"></use></svg>
       </button>
-      <!-- O `<h1>` mora AQUI, e não no cabeçalho da página: a barra é fixa, então o título
-           continua na tela enquanto se rola — e uma página precisa de um `<h1>` só. -->
+      <!-- O `<h1>` mora AQUI, e não no cabeçalho da página: a barra não sai da tela, então o
+           título continua visível enquanto se rola — e uma página precisa de um `<h1>` só. -->
       <h1 class="tuff-sec-titulo">Hello World — vssh-app (Python)</h1>
       <span class="tuff-barra-espaco"></span>
       <span class="tuff-tag">galeria do ambiente</span>
     </div>
 
-    <div class="conteudo">
+    <div class="tuff-gaveta-conteudo conteudo">
   <header>
     <p>
       Template de partida <strong>e</strong> galeria: cada peça abaixo exercita uma capacidade real
