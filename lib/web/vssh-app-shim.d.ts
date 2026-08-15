@@ -368,6 +368,40 @@ interface VsshAudio {
   onChange(fn: () => void): () => void;
 }
 
+/**
+ * Os tokens de destaque que o ambiente escolheu. As chaves são nomes de custom property CSS, para
+ * o app poder escrevê-las direto no `:root` dele sem traduzir nada.
+ *
+ * São **quatro**, e não uma: o shell escreve `--ds-accent-h` a partir de uma conta própria
+ * (`IconeDeDestaque.clara`). Derivar as outras três a partir do destaque traria essa fórmula para
+ * cá, numa cópia entre dois repositórios que não se medem.
+ */
+interface VsshTokensDeAparencia {
+  '--ds-accent': string;
+  '--ds-accent-h': string;
+  '--ds-accent-bg': string;
+  '--ds-sel': string;
+}
+
+/**
+ * A aparência que o ambiente escolheu — hoje, a cor de destaque do usuário.
+ *
+ * Isto **reporta**; quem pinta é a biblioteca de UI (`lib/web/tuff/`) ou o próprio app. A separação
+ * é o que permite a um app com identidade visual própria puxar só a cor sem herdar a paleta.
+ */
+interface VsshAparencia {
+  /**
+   * `null` quando não há ambiente a quem perguntar — aba solta, ou app servido de outra origem.
+   *
+   * `null` e não os padrões, de propósito: os padrões já estão no CSS da biblioteca, que é onde
+   * precisam estar para a página pintar certo antes de qualquer JavaScript. Devolvê-los aqui faria
+   * do hex padrão uma segunda cópia. `null` quer dizer "não sobrescreva nada".
+   */
+  tokens(): VsshTokensDeAparencia | null;
+  /** Avisa quando o usuário troca a cor, e só então. Devolve a função que cancela. */
+  onChange(fn: (t: VsshTokensDeAparencia | null) => void): () => void;
+}
+
 /** "Abra assim" — o arquivo ou caminho com que o app foi aberto (campo `opens` do manifesto). */
 /**
  * O cofre: credenciais que o app precisa e o USUÁRIO guarda.
@@ -488,6 +522,7 @@ interface Vssh {
 
   clipboard: VsshClipboard;
   audio: VsshAudio;
+  aparencia: VsshAparencia;
 
   /** "Abra assim": o path de "Abrir Terminal Aqui", ou o arquivo escolhido para abrir com este app. */
   onOpenContext(handler: (ctx: VsshContextoDeAbertura) => void): void;

@@ -14,3 +14,10 @@ scripts/vssh-app-lib-sync  text eol=lf
 *.jpeg  binary
 *.ico   binary
 *.svg   binary
+# A fonte do ambiente, em lib/web/tuff/fonts/. O `text=auto` acima provavelmente acertaria sozinho
+# (detecta binario por byte nulo), e "provavelmente" nao e resposta para um arquivo de 30 KB cuja
+# corrupcao apareceria como texto invisivel na tela de um app, e nao como erro.
+*.woff2 binary
+*.woff  binary
+*.ttf   binary
+*.otf   binary

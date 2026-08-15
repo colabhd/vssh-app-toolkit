@@ -564,6 +564,21 @@
       <pre id="audio">—</pre>
     </section>
 
+    <section class="larga">
+      <h2>A cor do ambiente</h2>
+      <p class="porque">
+        A pessoa escolhe uma cor de destaque em Configurações → Ambiente, e ela <strong>não
+        atravessa</strong> sozinha: o app é outro documento, e o shell não injeta nada aqui. Quem não
+        pergunta fica com a cor de fábrica enquanto o ambiente inteiro está noutra — e a janela dele
+        é a única fora do tom. Troque a cor lá com esta peça aberta: as amostras mudam aqui, sem
+        recarregar. Fora do ambiente a resposta é <code>null</code>, e a leitura certa é
+        <em>não sobrescreva nada</em> — o padrão da folha de estilo já está certo.
+      </p>
+      <div class="acoes"><button id="cor-ler">perguntar ao ambiente</button></div>
+      <div id="cor-amostras"></div>
+      <pre id="cor">—</pre>
+    </section>
+
   </div>
 
   <!-- O comportamento está em `galeria.js`, que NÃO tem tag aqui: ele é injetado pelo

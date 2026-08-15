@@ -1179,6 +1179,48 @@ function montarGaleria() {
     }
     if (temAudio) vssh.audio.onChange(relatarSom);
     relatarSom();
+
+    // ── A cor que a pessoa escolheu ─────────────────────────────────────────────
+    //
+    // A única coisa da aparência do ambiente que muda em runtime. Ela mora no `<html>` do SHELL, e
+    // este app é outro documento — nada atravessa sozinho. Um app que não pergunte fica com a cor
+    // de fábrica enquanto o ambiente inteiro está noutra, e a janela dele é a única fora do tom.
+    //
+    // São QUATRO variáveis, e não uma: o realce, a versão clara, o fundo translúcido e a seleção. O
+    // shell calcula a clara com uma conta própria — derivá-la aqui traria essa conta para dentro do
+    // app, onde ela envelheceria sem ninguém notar.
+    const temAparencia = typeof vssh.aparencia !== 'undefined';
+    function pintarCor(t) {
+      const amostras = $('cor-amostras');
+      amostras.textContent = '';
+      if (!t) {
+        escrever('cor', 'null — não há ambiente a quem perguntar.\n'
+          + 'Não é falha: quer dizer "não sobrescreva nada". O padrão já veio na folha de estilo, '
+          + 'e é ele que está pintando esta página agora.');
+        return;
+      }
+      for (const [nome, valor] of Object.entries(t)) {
+        const bloco = document.createElement('span');
+        bloco.style.cssText = 'display:inline-block;width:5.5rem;height:2rem;border-radius:6px;'
+          + 'margin:0 .4rem .4rem 0;border:1px solid var(--linha);vertical-align:middle';
+        bloco.style.background = valor;
+        bloco.title = `${nome}: ${valor}`;
+        amostras.appendChild(bloco);
+      }
+      escrever('cor', Object.entries(t).map(([n, v]) => `${n}: ${v}`).join('\n'));
+    }
+
+    if (!temAparencia) {
+      escrever('cor', 'este shim é anterior à biblioteca de UI e não tem vssh.aparencia — a janela '
+        + 'não acompanha a cor do ambiente. Atualize as libs do toolkit e reinstale.');
+    } else {
+      $('cor-ler').addEventListener('click', () => pintarCor(vssh.aparencia.tokens()));
+      // Ao vivo, e sem recarregar. O `onChange` só dispara quando o VALOR muda: o shell reescreve o
+      // `style` do `<html>` dele por outros motivos (papel de parede, posição da barra), e acordar
+      // o app a cada um deles seria trabalho no meio de um quadro para repintar a mesma cor.
+      vssh.aparencia.onChange(pintarCor);
+      pintarCor(vssh.aparencia.tokens());
+    }
   }
 }
 
