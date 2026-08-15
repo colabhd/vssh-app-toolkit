@@ -13,6 +13,8 @@
 <link rel="stylesheet" href="../lib/web/tuff/tuff-tokens.css">
 <link rel="stylesheet" href="../lib/web/tuff/tuff-base.css">
 <link rel="stylesheet" href="../lib/web/tuff/tuff.css">
+<link rel="stylesheet" href="../lib/web/tuff/tuff-midia.css">
+<script src="../lib/web/tuff/tuff-midia.js" defer></script>
 
 <style>
   /* Layout DESTA página, e nada mais — nenhuma peça abaixo é estilizada aqui. Fora de `@layer`
@@ -242,6 +244,153 @@
     </section>
 
   </div>
+
+  <header class="capa">
+    <h2>Mídia</h2>
+    <p>
+      Onde o Tuff era silencioso: o shell não tem player, nem grade de fotos, nem visor com zoom.
+      A tese é que o chrome de mídia usa <strong>o material do ambiente</strong> — opaco, com a
+      divisa da barra de tarefas — e não a barra de vidro que todo player web usa; o sistema declara
+      <code>--ds-blur: none</code>, e isso é decisão de produto.
+    </p>
+    <p>
+      A assinatura: <strong>o destaque que você escolheu é o playhead</strong>. Troque a cor com esta
+      página aberta e a trilha, o anel de seleção da grade e a borda da tira acompanham.
+      As imagens abaixo são desenhadas em <code>&lt;canvas&gt;</code> na hora — mídia binária num
+      repositório é uma dívida que ninguém revisita.
+    </p>
+  </header>
+
+  <div class="grade">
+
+    <section class="tuff-painel" style="grid-column: 1 / -1">
+      <div class="tuff-sec">
+        <div class="tuff-sec-titulo">Player</div>
+        <div class="tuff-sec-desc">
+          A trilha tem 3px em repouso e 6px sob o ponteiro — o 6 é a medida de trilho fino do
+          ambiente, a mesma da scrollbar. O timecode é monoespaçado com <code>tabular-nums</code>:
+          em fonte proporcional o número treme a cada segundo, no único elemento que o olho segue
+          continuamente.
+        </div>
+      </div>
+      <div class="tuff-palco" id="cat-palco" style="height:150px">
+        <canvas id="cat-quadro" width="480" height="270" style="max-width:100%;max-height:100%"></canvas>
+      </div>
+      <div class="tuff-chrome" id="cat-chrome">
+        <button class="tuff-btn" data-tuff-play aria-label="Reproduzir">▶</button>
+        <div class="tuff-trilha" id="cat-trilha" aria-label="Posição">
+          <div class="tuff-trilha-trilho">
+            <div class="tuff-trilha-buffer" style="width:72%"></div>
+            <div class="tuff-trilha-tocado" style="width:38%"></div>
+            <div class="tuff-trilha-marca" style="left:22%"></div>
+            <div class="tuff-trilha-marca" style="left:55%"></div>
+          </div>
+          <div class="tuff-trilha-polegar" style="left:38%"></div>
+          <div class="tuff-trilha-previa" style="left:38%">15:47</div>
+        </div>
+        <span class="tuff-tempo"><b>15:47</b> / 41:37</span>
+        <div class="tuff-volume">
+          <button class="tuff-btn" data-tuff-mudo aria-label="Silenciar">🔊</button>
+          <div class="tuff-volume-trilha">
+            <div class="tuff-volume-trilho"><div class="tuff-volume-nivel" style="width:70%"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="tuff-dica">
+        O chrome some sozinho depois de 2,5&nbsp;s sem ponteiro — mas <strong>nunca</strong> com o
+        foco do teclado dentro dele, nem com o vídeo pausado. Sumir ali deixaria quem navega por
+        teclado sem controle e sem caminho de volta.
+      </div>
+    </section>
+
+    <section class="tuff-painel">
+      <div class="tuff-sec">
+        <div class="tuff-sec-titulo">Grade virtualizada</div>
+        <div class="tuff-sec-desc">
+          10&nbsp;000 itens, e só as fileiras visíveis existem no DOM. Setas e Home/End andam
+          dentro; a grade inteira é uma parada de Tab só.
+        </div>
+      </div>
+      <div id="cat-grade" style="height:230px"></div>
+      <div class="tuff-tira" id="cat-tira"></div>
+    </section>
+
+    <section class="tuff-painel">
+      <div class="tuff-sec">
+        <div class="tuff-sec-titulo">Visor</div>
+        <div class="tuff-sec-desc">
+          Roda para ampliar no ponteiro, arraste para mover, duplo-clique alterna entre caber na
+          janela e 1:1. Sem inércia, de propósito — ferramenta de trabalho não desliza depois que a
+          mão parou.
+        </div>
+      </div>
+      <!-- Chrome SOBREPOSTO: a variante para quando a imagem manda e a barra não pode comer
+           espaço — tela cheia, ou um visualizador de fotos. Continua opaco: o que muda é onde ele
+           mora, não do que é feito. -->
+      <div class="tuff-palco" style="height:230px; display:block">
+        <div id="cat-visor" style="height:100%"></div>
+        <div class="tuff-chrome tuff-chrome--sobreposto">
+          <span class="tuff-tempo">900 × 640</span>
+          <span class="tuff-barra-espaco"></span>
+          <button class="tuff-btn" id="cat-ajustar">ajustar</button>
+          <button class="tuff-btn" id="cat-cem">1:1</button>
+        </div>
+      </div>
+    </section>
+
+  </div>
 </div>
+
+<script>
+  // Imagens procedurais: nada de binário no repositório, e a página continua abrindo de `file://`.
+  function ladrilho(i, w, h) {
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const g = c.getContext('2d');
+    const grad = g.createLinearGradient(0, 0, w, h);
+    grad.addColorStop(0, `hsl(${(i * 37) % 360} 45% 32%)`);
+    grad.addColorStop(1, `hsl(${(i * 37 + 40) % 360} 40% 16%)`);
+    g.fillStyle = grad; g.fillRect(0, 0, w, h);
+    g.fillStyle = 'rgba(255,255,255,.75)';
+    g.font = '600 13px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText('#' + i, w / 2, h / 2);
+    return c.toDataURL();
+  }
+
+  addEventListener('DOMContentLoaded', () => {
+    ladrilho(0, 480, 270);
+    const q = document.getElementById('cat-quadro').getContext('2d');
+    const grad = q.createLinearGradient(0, 0, 480, 270);
+    grad.addColorStop(0, '#243447'); grad.addColorStop(1, '#12161c');
+    q.fillStyle = grad; q.fillRect(0, 0, 480, 270);
+    q.fillStyle = 'rgba(255,255,255,.35)';
+    q.font = '600 15px system-ui'; q.textAlign = 'center';
+    q.fillText('um quadro qualquer', 240, 140);
+
+    TuffMidia.grade(document.getElementById('cat-grade'), {
+      total: 10000, largura: 96, altura: 68, gap: 6,
+      montar(i, no) { no.innerHTML = `<img alt="item ${i}" src="${ladrilho(i, 96, 68)}">`; },
+    });
+
+    const tira = document.getElementById('cat-tira');
+    for (let i = 0; i < 12; i++) {
+      const it = document.createElement('div');
+      it.className = 'tuff-tira-item';
+      it.setAttribute('aria-selected', String(i === 3));
+      it.innerHTML = `<img alt="quadro ${i}" src="${ladrilho(i * 5, 64, 44)}">`;
+      tira.appendChild(it);
+    }
+
+    const alvo = document.getElementById('cat-visor');
+    const img = new Image();
+    img.alt = 'imagem de exemplo';
+    img.src = ladrilho(7, 900, 640);
+    alvo.appendChild(img);
+    const v = TuffMidia.visor(alvo);
+    img.onload = () => v.ajustar();
+    document.getElementById('cat-ajustar').onclick = () => v.ajustar();
+    document.getElementById('cat-cem').onclick = () => v.cem();
+  });
+</script>
 </body>
 </html>

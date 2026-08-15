@@ -1,0 +1,331 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Tuff — as peças de mídia.
+
+   Opt-in: um app de formulário não deve pagar o download nem o parse disto. O
+   comportamento mora em `tuff-midia.js`, que também é opt-in.
+
+   ─── Onde o Tuff é silencioso ───────────────────────────────────────────────
+
+   O shell não tem player, não tem grade de fotos e não tem visor com zoom — os
+   únicos parentes são o slider dos diálogos e as linhas do mixer de volume. Então
+   aqui a biblioteca deixa de ser um port e passa a acrescentar, e vale dizer com
+   que régua.
+
+   ─── A tese ─────────────────────────────────────────────────────────────────
+
+   Todo player de vídeo na web tem a mesma cara: uma barra de VIDRO sobre um
+   degradê escuro, flutuando por cima da imagem. Este não. O sistema declara
+   `--ds-blur: none`, e isso é decisão de produto registrada no arquivo de tokens
+   do shell — então o chrome aqui é **o material do ambiente**: `--ds-bg2` opaco,
+   com uma divisa de 1px em `--ds-border`, a mesma da barra de tarefas. O vídeo faz
+   letterbox contra `--ds-bg`.
+
+   O efeito é o ponto: a janela lê como aplicativo do ambiente, e não como uma
+   página web com um vídeo dentro.
+
+   ─── A assinatura ───────────────────────────────────────────────────────────
+
+   **O destaque do usuário é o playhead.** `--ds-accent` é a única coisa que a
+   pessoa escolhe neste ambiente; ela vira a porção reproduzida da trilha e o anel
+   de seleção da grade. Trocar a cor nas Configurações repinta o pixel que os olhos
+   mais seguem — e as janelas do ambiente passam a ser, literalmente, dela.
+
+   A trilha tem 3px em repouso e 6px sob o ponteiro. O 6 não é arbitrário: é
+   `--tuff-sb-w`, a medida de trilho fino do ambiente, a mesma da scrollbar.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@layer vssh {
+
+  /* ── O palco ────────────────────────────────────────────────────────────────
+     Letterbox contra o fundo da janela, e não contra preto. Preto puro ao lado de
+     `#1e1e1e` vira uma moldura que ninguém pediu; o mesmo fundo desaparece, e o que
+     sobra é a imagem. */
+
+  .tuff-palco {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--ds-bg);
+    overflow: hidden;
+    min-height: 0;
+  }
+  .tuff-palco > video,
+  .tuff-palco > img {
+    max-width: 100%;
+    max-height: 100%;
+    display: block;
+  }
+  /* Enquanto o chrome está oculto, o ponteiro some junto: um cursor parado sobre um
+     filme é a única coisa em movimento na tela. */
+  .tuff-palco--limpo { cursor: none; }
+
+  /* ── O chrome ───────────────────────────────────────────────────────────────
+     Opaco, com o material da barra de tarefas. Ele SOME sozinho — ver a regra de
+     foco em `tuff-midia.js`, que é o que separa isto de uma armadilha para quem
+     navega por teclado. */
+
+  .tuff-chrome {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-gap-lg);
+    padding: var(--ds-gap-md) var(--ds-gap-lg);
+    background: var(--ds-bg2);
+    border-top: 1px solid var(--ds-border);
+    transition: opacity var(--ds-dur) var(--ds-ease),
+                transform var(--ds-dur) var(--ds-ease);
+  }
+  /* Volta em `--ds-dur-fast` e sai em `--ds-dur`: chegar devagar parece quebrado,
+     sair rápido parece nervoso. */
+  .tuff-chrome:not(.tuff-chrome--oculto) { transition-duration: var(--ds-dur-fast); }
+  .tuff-chrome--oculto {
+    opacity: 0;
+    transform: translateY(100%);
+    pointer-events: none;
+  }
+  /* Sobreposto, para o app que quer o chrome POR CIMA da imagem em vez de abaixo
+     dela. Continua opaco — a diferença é onde ele mora, não do que é feito. */
+  .tuff-chrome--sobreposto {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+  }
+
+  /* ── A trilha ───────────────────────────────────────────────────────────────
+     Quatro camadas empilhadas no mesmo trilho: o fundo, o que já baixou, o que já
+     tocou, e as marcas de capítulo. As marcas são FALHAS de 1px na cor do fundo —
+     espaço negativo, e não pontinhos somados por cima. */
+
+  .tuff-trilha {
+    position: relative;
+    flex: 1;
+    height: 14px;                 /* área de clique; o trilho pintado é menor */
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    touch-action: none;           /* o arraste é nosso, não do scroll da página */
+    min-width: 4rem;
+  }
+  .tuff-trilha-trilho {
+    position: relative;
+    width: 100%;
+    height: 3px;
+    background: var(--ds-bg-input);
+    border-radius: 999px;
+    overflow: hidden;
+    transition: height var(--ds-dur-fast) var(--ds-ease);
+  }
+  .tuff-trilha:hover .tuff-trilha-trilho,
+  .tuff-trilha:focus-visible .tuff-trilha-trilho,
+  .tuff-trilha--arrastando .tuff-trilha-trilho { height: var(--tuff-sb-w); }
+
+  .tuff-trilha-buffer {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 0;
+    background: var(--ds-border);
+  }
+  .tuff-trilha-tocado {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 0;
+    background: var(--ds-accent);
+  }
+  .tuff-trilha-marca {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--ds-bg);
+  }
+
+  /* O polegar só aparece quando há a quem servir: sob o ponteiro, ou com foco de
+     teclado. Um ponto permanente sobre uma linha de 3px é ruído em toda a duração
+     do filme. */
+  .tuff-trilha-polegar {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 11px;
+    height: 11px;
+    margin: -5.5px 0 0 -5.5px;
+    border-radius: 50%;
+    background: var(--ds-accent);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--ds-dur-fast) var(--ds-ease);
+  }
+  .tuff-trilha:hover .tuff-trilha-polegar,
+  .tuff-trilha:focus-visible .tuff-trilha-polegar,
+  .tuff-trilha--arrastando .tuff-trilha-polegar { opacity: 1; }
+
+  /* A prévia do ponto sob o ponteiro: o timecode, e um quadro se o app tiver um. */
+  .tuff-trilha-previa {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    transform: translateX(-50%);
+    padding: 2px var(--ds-gap-md);
+    background: var(--ds-bg3);
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-sm);
+    box-shadow: var(--ds-shadow-md);
+    font: var(--tuff-weight-n) var(--tuff-size-xs)/1.4 var(--ds-font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--ds-text);
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity var(--ds-dur-fast) var(--ds-ease);
+  }
+  .tuff-trilha:hover .tuff-trilha-previa,
+  .tuff-trilha--arrastando .tuff-trilha-previa { opacity: 1; }
+
+  /* ── Timecode ───────────────────────────────────────────────────────────────
+     ⚠ `tabular-nums` não é refinamento. Numa fonte proporcional o "1" é mais
+     estreito que o "8", então cada segundo que passa mexe a largura do número e o
+     texto TREME — no único elemento que o olho acompanha continuamente. É
+     exatamente o tipo de tremor que o critério 3.3 chama de "feito às pressas". */
+
+  .tuff-tempo {
+    flex: none;
+    font: var(--tuff-weight-n) var(--tuff-size-sm) var(--ds-font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--ds-text-dim);
+    white-space: nowrap;
+  }
+  .tuff-tempo b { font-weight: var(--tuff-weight-n); color: var(--ds-text); }
+
+  /* ── Volume ─────────────────────────────────────────────────────────────────
+     Desce do slider dos diálogos e das linhas do mixer, que são os parentes reais
+     desta peça no ambiente. Estreito de propósito: volume não é a informação
+     principal de um player, e um trilho longo aqui compete com a trilha do tempo. */
+
+  .tuff-volume {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-gap-md);
+    flex: none;
+  }
+  .tuff-volume-trilha {
+    position: relative;
+    width: 64px;
+    height: 14px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    touch-action: none;
+  }
+  .tuff-volume-trilho {
+    width: 100%;
+    height: 3px;
+    background: var(--ds-bg-input);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .tuff-volume-nivel {
+    height: 100%;
+    width: 100%;
+    background: var(--ds-text-dim);
+  }
+  /* Mudo não é volume zero: é um estado, e ele tem de ser distinguível de "abaixei
+     tudo". A barra fica, esmaecida, guardando o valor para o qual se volta. */
+  .tuff-volume--mudo .tuff-volume-nivel { background: var(--ds-border); }
+
+  /* ── A grade de miniaturas ──────────────────────────────────────────────────
+     ⚠ **Virtualizada**, e é o motivo de esta peça existir. Uma pasta de fotos tem
+     dezenas de milhares de arquivos; montar um `<img>` para cada um trava a aba na
+     abertura e nunca se recupera. `tuff-midia.js` mantém no DOM só o que está
+     visível, e o fuso abaixo dá ao contêiner a altura que a rolagem precisa ter. */
+
+  .tuff-grade {
+    position: relative;
+    overflow: auto;
+    min-height: 0;
+    background: var(--ds-bg);
+  }
+  /* Um bloco vazio com a altura do conteúdo inteiro. É ele que faz a barra de
+     rolagem ter o tamanho certo enquanto existem 40 elementos no DOM. */
+  .tuff-grade-fuso { position: relative; width: 100%; }
+
+  .tuff-miniatura {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--ds-bg2);
+    border-radius: var(--ds-radius-md);
+    overflow: hidden;
+    cursor: default;
+    outline: 2px solid transparent;   /* reserva o espaço do anel: selecionar não pode mover nada */
+    outline-offset: -2px;
+    transition: outline-color var(--ds-dur-fast) var(--ds-ease);
+  }
+  .tuff-miniatura img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .tuff-miniatura:hover { outline-color: var(--ds-border); }
+  .tuff-miniatura[aria-selected="true"] { outline-color: var(--ds-accent); }
+  .tuff-miniatura:focus-visible { outline-color: var(--ds-border-focus); }
+
+  /* ── A tira ─────────────────────────────────────────────────────────────────
+     A fita horizontal ao pé do visor. Mesma seleção da grade, para as duas peças
+     não ensinarem coisas diferentes sobre "o que está aberto". */
+
+  .tuff-tira {
+    display: flex;
+    gap: var(--ds-gap-sm);
+    overflow-x: auto;
+    padding: var(--ds-gap-sm);
+    background: var(--ds-bg2);
+    border-top: 1px solid var(--ds-border);
+    scroll-snap-type: x proximity;
+  }
+  .tuff-tira-item {
+    flex: none;
+    width: 64px;
+    height: 44px;
+    border-radius: var(--ds-radius-sm);
+    overflow: hidden;
+    background: var(--ds-bg3);
+    scroll-snap-align: center;
+    outline: 2px solid transparent;
+    outline-offset: -2px;
+    cursor: default;
+  }
+  .tuff-tira-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .tuff-tira-item[aria-selected="true"] { outline-color: var(--ds-accent); }
+
+  /* ── O visor ────────────────────────────────────────────────────────────────
+     Zoom e arraste. O conteúdo é transformado, e não redimensionado: `transform`
+     roda no compositor, e uma imagem de 60 megapixels reflowada a cada roda do
+     mouse não acompanha o gesto. */
+
+  .tuff-visor {
+    position: relative;
+    overflow: hidden;
+    background: var(--ds-bg);
+    touch-action: none;
+    cursor: grab;
+    min-height: 0;
+  }
+  .tuff-visor--arrastando { cursor: grabbing; }
+  .tuff-visor-conteudo {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+  }
+  .tuff-visor-conteudo img { display: block; max-width: none; }
+
+  /* Sem transição durante o gesto: interpolar enquanto o dedo se move produz um
+     atraso constante entre o ponteiro e a imagem, que se lê como travamento. A
+     transição só entra nos saltos (duplo-clique, "ajustar à janela"). */
+  .tuff-visor--suave .tuff-visor-conteudo {
+    transition: transform var(--ds-dur) var(--ds-ease-out);
+  }
+}

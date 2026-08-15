@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import os
 
-__all__ = ["DIRETORIO_WEB", "SHIMS", "ESTILOS"]
+__all__ = ["DIRETORIO_WEB", "SHIMS", "ESTILOS", "ESTILOS_MIDIA", "SCRIPTS_MIDIA"]
 
 _AQUI = os.path.dirname(os.path.abspath(__file__))
 # Instalado: os `.js` viajam DENTRO do pacote, postos ali pelo `force-include` do pyproject.
@@ -51,3 +51,10 @@ SHIMS = ["vssh-app-shim.js", "fsa-polyfill.js"]
 #: de estilo ali dentro reestilizaria os apps já publicados no próximo `pip install`. Adotar a
 #: aparência do ambiente é ato explícito do backend do app.
 ESTILOS = ["tuff/tuff-tokens.css", "tuff/tuff-base.css", "tuff/tuff.css"]
+
+#: As peças de mídia — trilha, volume, chrome que some, grade virtualizada, visor com zoom.
+#:
+#: Listas próprias porque a maioria dos apps não tem mídia, e nesse caso isto é download e parse
+#: pagos por nada. Quem tem, acrescenta as duas ao `inject_styles` e ao `inject_scripts`.
+ESTILOS_MIDIA = ["tuff/tuff-midia.css"]
+SCRIPTS_MIDIA = ["tuff/tuff-midia.js"]

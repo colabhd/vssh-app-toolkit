@@ -33,7 +33,20 @@ const ler = (p) => fs.readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
 const semComentarios = (css) => css.replace(/\/\*[\s\S]*?\*\//g, '');
 
 /** As folhas de componente — os tokens não declaram classe nenhuma. */
-const FOLHAS = ['tuff-base.css', 'tuff.css'];
+const FOLHAS = ['tuff-base.css', 'tuff.css', 'tuff-midia.css'];
+
+/**
+ * As classes que a própria biblioteca APLICA por JavaScript.
+ *
+ * Sem isto, metade das peças de mídia seria acusada de morta: `.tuff-miniatura`, `.tuff-grade-fuso`
+ * e os estados de gesto (`--arrastando`, `--suave`) nunca aparecem num `class=` do catálogo porque
+ * quem os põe é `tuff-midia.js`. "Estar em uso" é aparecer na marcação **ou** ser aplicado pelo
+ * comportamento — as duas são uso, e só uma delas é visível no HTML.
+ */
+function classesDoJs() {
+  const js = ler(path.join(TUFF, 'tuff-midia.js')).replace(/\/\/[^\n]*/g, '');
+  return new Set([...js.matchAll(/['"`]([\w-]*tuff-[\w-]+)['"`]/g)].map((m) => m[1]));
+}
 
 /** Toda classe `.tuff-*` que a biblioteca DECLARA. */
 function classesDeclaradas() {
@@ -58,12 +71,16 @@ function classesUsadas(html) {
   for (const m of html.matchAll(/class="([^"]+)"/g)) {
     for (const c of m[1].split(/\s+/)) if (c) fora.add(c);
   }
+  // O `<script>` do próprio catálogo também demonstra: as peças geradas em laço (a tira, os
+  // ladrilhos) recebem a classe por `className`, e exigir que tudo esteja num `class=` estático
+  // obrigaria a escrever à mão o que existe justamente para ser gerado.
+  for (const m of html.matchAll(/['"`]([\w-]*tuff-[\w-]+)['"`]/g)) fora.add(m[1]);
   return fora;
 }
 
 test('toda classe da biblioteca aparece no catálogo', () => {
   const declaradas = classesDeclaradas();
-  const usadas = classesUsadas(ler(CATALOGO));
+  const usadas = new Set([...classesUsadas(ler(CATALOGO)), ...classesDoJs()]);
 
   assert.ok(declaradas.size >= 30,
     `só ${declaradas.size} classes lidas das folhas — o parser parou de enxergar o CSS`);

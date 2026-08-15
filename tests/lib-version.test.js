@@ -194,9 +194,17 @@ test('os dois runtimes listam as MESMAS libs de navegador', () => {
     return m[1].split(',').map((x) => x.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
   };
 
-  const { SHIMS, ESTILOS } = require('../lib/node/web-assets');
-  assert.deepEqual(listaPy('SHIMS'), SHIMS,
-    'SHIMS divergiu entre os runtimes: um app de um dos dois carrega libs que o outro não');
-  assert.deepEqual(listaPy('ESTILOS'), ESTILOS,
-    'ESTILOS divergiu entre os runtimes: os dois templates deixariam de ser o mesmo app');
+  const doNode = require('../lib/node/web-assets');
+  for (const nome of ['SHIMS', 'ESTILOS', 'ESTILOS_MIDIA', 'SCRIPTS_MIDIA']) {
+    assert.deepEqual(listaPy(nome), doNode[nome],
+      `${nome} divergiu entre os runtimes: um app de um dos dois carrega peças que o outro não, e `
+      + 'o sintoma aparece só naquele servidor');
+  }
+
+  // Toda peça listada existe em disco. Uma entrada com o caminho errado vira 404 na tag injetada, e
+  // o navegador não diz nada — a página carrega, a folha não, e o app fica sem estilo.
+  const ausentes = [...doNode.ESTILOS, ...doNode.ESTILOS_MIDIA, ...doNode.SCRIPTS_MIDIA]
+    .filter((f) => !fs.existsSync(path.join(doNode.WEB_DIR, f)));
+  assert.deepEqual(ausentes, [],
+    'estas peças são declaradas e não existem em lib/web/: a tag injetada vira 404 silencioso');
 });
