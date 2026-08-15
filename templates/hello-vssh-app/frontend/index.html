@@ -5,55 +5,86 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Hello World (Python)</title>
   <style>
-    :root { color-scheme: light dark; --linha: rgba(127,127,127,.35); --fundo: rgba(127,127,127,.12); }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0; padding: 1.5rem;
-      font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
-      display: flex; flex-direction: column; gap: 1.25rem;
-    }
-    header h1 { margin: 0 0 .25rem; font-size: 1.35rem; }
-    header p  { margin: 0; opacity: .8; max-width: 70ch; }
+    /* ── O que é DESTE app, e só ────────────────────────────────────────────────
+       Cor, tipografia, botão, campo, painel, ícone e scrollbar vêm da biblioteca Tuff, que o
+       backend injeta (ver `injectStyles` lá). O que sobra aqui é o que nenhuma biblioteca podia
+       adivinhar: o arranjo desta página e as duas peças que só existem nela.
 
-    /* Uma peça por funcionalidade. O que importa na leitura é a linha `.porque`: ela diz o que
-       aquele botão PROVA, não o que ele faz. */
-    .galeria { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); }
-    section {
-      border: 1px solid var(--linha); border-radius: 10px; padding: 1rem;
-      display: flex; flex-direction: column; gap: .6rem; min-width: 0;
+       ⚠ **Estas regras estão FORA de `@layer`, e é por isso que elas vencem as da biblioteca.**
+       A folha injetada entra depois desta no `<head>`, então sem a camada ela ganharia todo empate
+       e um app não conseguiria sobrescrever nada sem `!important`. A hierarquia é:
+       padrão da biblioteca < escolha do app < escolha do ambiente. */
+
+    /* Quem rola é o CORPO da gaveta, e não o `<body>` — senão a lateral rolaria junto e deixaria
+       de responder "onde eu estou", que é a única coisa que ela faz. */
+    html, body { height: 100%; }
+    body { margin: 0; padding: 0; overflow: hidden; }
+    /* A gaveta ocupa a janela inteira, e quem rola é o corpo dela. Sem esta altura ela cresce com o
+       conteúdo, a lateral acompanha e sai da tela — e aí ela deixa de responder "onde eu estou",
+       que é a única coisa que ela faz. */
+    #gaveta { height: 100%; }
+    .topo { position: sticky; top: 0; z-index: 1; }
+    .conteudo {
+      padding: var(--ds-gap-xl);
+      display: flex; flex-direction: column; gap: var(--ds-gap-xl);
     }
-    section h2 { margin: 0; font-size: 1.05rem; }
-    section p  { margin: 0; }
-    .porque { opacity: .75; font-size: .92em; }
-    .acoes { display: flex; flex-wrap: wrap; gap: .5rem; }
-    button {
-      font: inherit; padding: .4rem .8rem; border-radius: 6px;
-      border: 1px solid currentColor; background: transparent; color: inherit; cursor: pointer;
+    header { display: flex; flex-direction: column; gap: var(--ds-gap-sm); }
+    header p { color: var(--ds-text-dim); max-width: 70ch; }
+
+    /* `align-items: start` para cada peça medir o próprio conteúdo. Sem isto a grade estica a
+       linha inteira até a peça mais alta, e a página enche de vazios. */
+    .galeria {
+      display: grid; gap: var(--ds-gap-lg); align-items: start;
+      grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
     }
-    button:disabled { opacity: .45; cursor: default; }
-    pre {
-      margin: 0; padding: .6rem .8rem; border-radius: 6px; background: var(--fundo);
-      overflow-x: auto; min-height: 1.55em; white-space: pre-wrap; word-break: break-word;
-      font-size: .88em;
-    }
-    code { background: var(--fundo); padding: .05em .3em; border-radius: 4px; }
     .larga { grid-column: 1 / -1; }
-    a { color: inherit; }
+
+    /* A resposta de cada peça. Fundo mais escuro que o painel, e não mais claro: é saída de
+       máquina, e ela recua em vez de competir com o texto que a explica. */
+    .saida {
+      margin: 0; padding: var(--ds-gap-md) var(--ds-gap-lg);
+      background: var(--ds-bg); color: var(--ds-text-mid);
+      border-radius: var(--ds-radius-md); overflow-x: auto;
+      min-height: 1.5em; white-space: pre-wrap; word-break: break-word;
+    }
+    code { background: var(--ds-bg3); padding: .05em .3em; border-radius: var(--ds-radius-sm); }
 
     /* As duas pontas do arraste. `#solte` precisa de área para se acertar, e `#arraste` precisa
        parecer agarrável — um alvo de soltura invisível é indistinguível de um que não funciona. */
     #solte, #arraste {
-      border: 1px dashed var(--linha); border-radius: 6px; padding: .6rem .8rem;
-      min-width: 14rem; text-align: center; opacity: .8;
+      border: 1px dashed var(--ds-border); border-radius: var(--ds-radius-md);
+      padding: var(--ds-gap-md) var(--ds-gap-lg); min-width: 14rem;
+      text-align: center; color: var(--ds-text-dim);
     }
-    #solte.sobre { border-style: solid; background: var(--fundo); opacity: 1; }
+    #solte.sobre { border-style: solid; background: var(--ds-bg-hover); color: var(--ds-text); }
     #arraste { cursor: grab; border-style: solid; }
-    #fs-imagem img { max-width: 100%; max-height: 12rem; border-radius: 6px; }
+    #fs-imagem img { max-width: 100%; max-height: 12rem; border-radius: var(--ds-radius-md); }
+    #cor-amostras { display: flex; flex-wrap: wrap; }
   </style>
 </head>
 <body>
+<!-- A gaveta: lateral com as peças + o corpo que rola. A lista da lateral é montada por
+     `galeria.js` a partir das próprias seções — escrevê-la aqui criaria uma segunda lista, e o
+     sintoma de esquecer seria uma peça que existe na página e não existe na navegação. -->
+<div class="tuff-gaveta" id="gaveta">
+  <div class="tuff-gaveta-veu"></div>
+  <nav class="tuff-gaveta-lateral" id="gaveta-nav" aria-label="Peças da galeria"></nav>
+  <div class="tuff-gaveta-corpo">
+
+    <div class="tuff-barra topo">
+      <button class="tuff-btn tuff-btn--icone tuff-gaveta-abrir" data-tuff-gaveta-abrir
+              aria-label="Peças da galeria">
+        <svg class="tuff-ico"><use href="#ico-menu"></use></svg>
+      </button>
+      <!-- O `<h1>` mora AQUI, e não no cabeçalho da página: a barra é fixa, então o título
+           continua na tela enquanto se rola — e uma página precisa de um `<h1>` só. -->
+      <h1 class="tuff-sec-titulo">Hello World — vssh-app (Python)</h1>
+      <span class="tuff-barra-espaco"></span>
+      <span class="tuff-tag">galeria do ambiente</span>
+    </div>
+
+    <div class="conteudo">
   <header>
-    <h1>Hello World — vssh-app (Python)</h1>
     <p>
       Template de partida <strong>e</strong> galeria: cada peça abaixo exercita uma capacidade real
       do ambiente. Frontend servido pelo próprio backend, através do proxy do portal.
@@ -62,25 +93,25 @@
 
   <div class="galeria">
 
-    <section id="c-ambiente" class="larga">
+    <section id="c-ambiente" class="tuff-painel larga">
       <h2>Ambiente</h2>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         <strong>Leia esta peça primeiro</strong> — ela explica todas as outras. Shell e apps são
         publicados à parte, então <em>versão dessincronizada é a regra</em>: um app instalado hoje
         roda contra o shim vendorizado nele e contra o shell que estiver no servidor. Quando algo
         aqui embaixo não existir, é aqui que se vê por quê.
       </p>
-      <pre id="ambiente">—</pre>
+      <pre class="saida" id="ambiente">—</pre>
     </section>
 
-    <section id="c-runtime" class="larga">
+    <section id="c-runtime" class="tuff-painel larga">
       <h2>O que o ambiente decidiu por este app</h2>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         Três coisas o app <strong>declara</strong> no manifesto e quem <strong>aplica</strong> é o
         ambiente — então o manifesto diz o que se pediu, e só de dentro do processo se vê o que se
         recebeu. É a diferença que esta peça existe para mostrar.
       </p>
-      <ul class="porque">
+      <ul class="tuff-sec-desc">
         <li><strong>Limite de recurso</strong> — este template declara
           <code>memoryMax: "512M"</code>, mas o número abaixo vem do <em>cgroup</em>, não do
           manifesto. Num servidor sem gerenciador systemd do usuário
@@ -102,15 +133,15 @@
           <em>seu</em> servidor, não no portal. Depois de guardar,
           <strong>reinicie o app</strong>: o ambiente de um processo é fixado no start.</li>
       </ul>
-      <div class="acoes">
-        <button id="runtime">ler api/runtime</button>
-        <button id="bench">medir GPU × CPU (leva alguns segundos)</button>
-        <button id="segredo">guardar HELLO_SEGREDO</button>
-        <button id="segredo-listar">listar os nomes guardados</button>
-        <button id="segredo-apagar">apagar HELLO_SEGREDO</button>
+      <div class="tuff-acoes">
+        <button class="tuff-btn" id="runtime">ler api/runtime</button>
+        <button class="tuff-btn" id="bench">medir GPU × CPU (leva alguns segundos)</button>
+        <button class="tuff-btn" id="segredo">guardar HELLO_SEGREDO</button>
+        <button class="tuff-btn" id="segredo-listar">listar os nomes guardados</button>
+        <button class="tuff-btn" id="segredo-apagar">apagar HELLO_SEGREDO</button>
       </div>
-      <pre id="runtimeout">—</pre>
-      <p class="porque">
+      <pre class="saida" id="runtimeout">—</pre>
+      <p class="tuff-sec-desc">
         <strong>O benchmark é o que separa "tem placa" de "a placa serve".</strong> Ele codifica o
         mesmo vídeo duas vezes — uma em CPU (<code>libx264</code>), outra pela GPU
         (<code>VAAPI</code>, que atravessa Intel, AMD e NVIDIA pelo mesmo render node do DRM) — e o
@@ -121,7 +152,7 @@
         — então o instalador já recusou o servidor que não o tem, e as três metades da onda se
         encontram aqui.
       </p>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         <strong>O segredo se guarda AQUI, no app</strong> — não em Configurações. É o app que sabe
         que falta credencial, e sabe na hora exata em que ela falta. O botão chama
         <code>vssh.secrets.set()</code>: o campo é do desktop, o valor vai direto para o seu
@@ -130,36 +161,36 @@
       </p>
     </section>
 
-    <section>
+    <section class="tuff-painel">
       <h2>Backend próprio</h2>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         O app é um processo seu no servidor Linux. <code>fetch('api/ping')</code> — relativo,
         sempre: uma barra no começo apontaria para a raiz do portal, não para o app.
       </p>
-      <div class="acoes"><button id="ping">chamar api/ping</button></div>
-      <pre id="out">—</pre>
+      <div class="tuff-acoes"><button class="tuff-btn" id="ping">chamar api/ping</button></div>
+      <pre class="saida" id="out">—</pre>
     </section>
 
-    <section>
+    <section class="tuff-painel">
       <h2>SSE</h2>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         Eventos empurrados pelo backend, com os cabeçalhos que sobrevivem ao proxy e ao CDN. Se
         chegassem em lote em vez de um a um, o problema seria bufferização na borda.
       </p>
-      <div class="acoes"><button id="sub">assinar api/events</button></div>
-      <pre id="events">—</pre>
+      <div class="tuff-acoes"><button class="tuff-btn" id="sub">assinar api/events</button></div>
+      <pre class="saida" id="events">—</pre>
     </section>
 
-    <section class="larga">
+    <section class="tuff-painel larga">
       <h2>Duas janelas, um backend</h2>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         Abra a <strong>segunda janela</strong> pelo menu de contexto da janela (clique direito no
         cabeçalho → <em>Nova janela</em>) e clique em somar numa delas: o número muda nas duas.
         Elas não são duas instâncias — são duas visões do mesmo processo, com a mesma porta, o
         mesmo token e o mesmo <code>VSSH_APP_DATA_DIR</code>. É a consequência que vale para quem
         escreve o app: estado de UI guardado no backend passa a ter mais de um cliente.
       </p>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         O app também pode <strong>pedir</strong> a janela, e aí ele escolhe o que vai dentro:
         <code>vssh.window.abrir('?painel=1', …)</code> abre uma janela <strong>extra</strong> — um
         painel, uma prévia, um segundo documento — e não uma cópia desta página. O botão abaixo
@@ -167,7 +198,7 @@
         <code>javascript:</code> são recusados pelo shell: a janela leva o título e o ícone do seu
         app, e servir outra coisa ali seria material de tela falsa.
       </p>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         E há um caminho que <strong>não passa pelo backend</strong>: <code>BroadcastChannel</code>.
         Shell e apps compartilham uma origem só, então ele funciona entre duas janelas do mesmo
         app, entre dois apps diferentes e entre o app e o shell — sem ponte nossa, porque embrulhar
@@ -175,35 +206,35 @@
         junto: <strong>outro app da mesma sessão escuta os seus canais.</strong> Não mande por aqui
         o que você não mandaria por um mural.
       </p>
-      <div class="acoes">
-        <button id="somar">somar 1 no backend</button>
-        <button id="reler">reler api/estado</button>
-        <button id="extra">abrir uma janela extra (painel)</button>
-        <button id="canal">mandar um oi pelo BroadcastChannel</button>
+      <div class="tuff-acoes">
+        <button class="tuff-btn" id="somar">somar 1 no backend</button>
+        <button class="tuff-btn" id="reler">reler api/estado</button>
+        <button class="tuff-btn" id="extra">abrir uma janela extra (painel)</button>
+        <button class="tuff-btn" id="canal">mandar um oi pelo BroadcastChannel</button>
       </div>
-      <pre id="estado">— (assine o SSE acima para receber as mudanças da outra janela)</pre>
-      <pre id="canalout">—</pre>
+      <pre class="saida" id="estado">— (assine o SSE acima para receber as mudanças da outra janela)</pre>
+      <pre class="saida" id="canalout">—</pre>
     </section>
 
-    <section class="larga">
+    <section class="tuff-painel larga">
       <h2>Avisar, notificar, ou mostrar o que está acontecendo</h2>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         Três superfícies com três tempos de vida, e escolher errado custa a atenção de quem usa o
         ambiente — não a sua. Clique os dois primeiros lado a lado e olhe o sino: <strong>só um
         deles deixa rastro.</strong>
       </p>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         <code>toast</code> é a frase que se lê e se esquece (&ldquo;copiado&rdquo;, &ldquo;salvo&rdquo;).
         <code>notify</code> é um <em>fato</em> que a pessoa vai querer reencontrar — um caminho,
         um id, um erro. <code>live</code> é uma <em>condição</em> que ainda é verdade, e some
         quando deixa de ser. A regra: <strong>um aviso é para o que não deixa rastro na tela.</strong>
       </p>
-      <div class="acoes">
-        <button id="toast">vssh.toast — some sem deixar nada</button>
-        <button id="notify">vssh.notify — fica no sino</button>
-        <button id="notify-acao">notify com ação e prioridade alta</button>
+      <div class="tuff-acoes">
+        <button class="tuff-btn" id="toast">vssh.toast — some sem deixar nada</button>
+        <button class="tuff-btn" id="notify">vssh.notify — fica no sino</button>
+        <button class="tuff-btn" id="notify-acao">notify com ação e prioridade alta</button>
       </div>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         Os cinco diálogos <strong>bloqueiam e devolvem valor</strong> — é a diferença entre eles e
         um aviso. <code>alert</code> e <code>error</code> só informam (o segundo com a cor de
         erro); <code>confirm</code> devolve booleano; <code>prompt</code> e <code>password</code>
@@ -211,61 +242,61 @@
         não falha. Fora do desktop os cinco degradam para o equivalente do navegador em vez de
         lançar, então o app não precisa de <code>if</code> nenhum.
       </p>
-      <div class="acoes">
-        <button id="dialog-alert">alert</button>
-        <button id="dialog-error">error</button>
-        <button id="confirm">confirm</button>
-        <button id="dialog-prompt">prompt</button>
-        <button id="dialog-password">password</button>
+      <div class="tuff-acoes">
+        <button class="tuff-btn" id="dialog-alert">alert</button>
+        <button class="tuff-btn" id="dialog-error">error</button>
+        <button class="tuff-btn" id="confirm">confirm</button>
+        <button class="tuff-btn" id="dialog-prompt">prompt</button>
+        <button class="tuff-btn" id="dialog-password">password</button>
       </div>
-      <pre id="bridge">—</pre>
+      <pre class="saida" id="bridge">—</pre>
     </section>
 
-    <section>
+    <section class="tuff-painel">
       <h2>Menu de contexto do ambiente</h2>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         O menu é <strong>do desktop</strong>, desenhado por cima da janela — o app manda só
         <em>dados</em> (nunca HTML, nunca função) e recebe de volta o <code>id</code> do item
         escolhido, ou <code>null</code> se a pessoa fechou sem escolher. As coordenadas são as do
         <em>seu</em> viewport; quem soma a posição da janela é o shell. Submenu vai
         <strong>um nível</strong> só — o segundo é ignorado, e é melhor saber disso aqui.
       </p>
-      <div class="acoes">
-        <button id="menu">clique com o botão direito nesta caixa</button>
+      <div class="tuff-acoes">
+        <button class="tuff-btn" id="menu">clique com o botão direito nesta caixa</button>
       </div>
-      <pre id="menuout">—</pre>
+      <pre class="saida" id="menuout">—</pre>
     </section>
 
-    <section>
+    <section class="tuff-painel">
       <h2>Controles da janela</h2>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         A janela é do ambiente, e o app <strong>pede</strong> — não manipula. Não existe
         <code>setSize</code> nem <code>setPosition</code>: o tamanho inicial vem do manifesto e
         depois é do usuário. Minimizar sem um jeito de voltar deixaria esta peça sem saída, então o
         botão de minimizar restaura sozinho depois de dois segundos.
       </p>
-      <div class="acoes">
-        <button id="win-min">minimize (volta em 2s)</button>
-        <button id="win-max">maximize</button>
-        <button id="win-restore">restore</button>
+      <div class="tuff-acoes">
+        <button class="tuff-btn" id="win-min">minimize (volta em 2s)</button>
+        <button class="tuff-btn" id="win-max">maximize</button>
+        <button class="tuff-btn" id="win-restore">restore</button>
       </div>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         <code>focus()</code> não tem botão aqui de propósito: pedir foco para a janela que já está
         na frente não faz nada visível. Ele é exercitado onde tem sentido — no menu da
         <em>bandeja</em>, que é o caminho de quem quer a janela de volta sem procurá-la.
       </p>
-      <pre id="janela">—</pre>
+      <pre class="saida" id="janela">—</pre>
     </section>
 
-    <section class="larga">
+    <section class="tuff-painel larga">
       <h2>O que o app está fazendo agora</h2>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         Uma tarefa longa de mentira, para ver o ciclo completo: a atividade aparece com barra na
         bandeja e no painel do sino, anda, e <strong>some</strong> ao terminar — deixando UMA
         notificação no lugar. A mesma chave reescreve no lugar, então relatar progresso vinte
         vezes não empilha vinte linhas.
       </p>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         <strong>Pelo backend há um prazo de validade</strong>, e ele existe porque um arquivo
         <code>live</code> sobrevive a um <code>kill -9</code>: o portal descarta a atividade que
         passa ~60&nbsp;s sem renovar o carimbo de tempo. Quem renova é
@@ -273,16 +304,16 @@
         <em>ver</em> isso: se a barra atravessar, a renovação está ligada; se sumir no meio, falta
         a chamada — e numa tarefa de seis segundos os dois casos são indistinguíveis.
       </p>
-      <div class="acoes">
-        <button id="live-ir">começar (10 passos)</button>
-        <button id="live-parar">desistir (some sem registrar)</button>
-        <button id="live-backend">a mesma coisa, pelo BACKEND (sem janela)</button>
-        <button id="live-backend-lento">pelo backend, 80s (atravessa o TTL)</button>
-        <button id="avisar-backend">notify do backend, com key estável</button>
-        <button id="avisar-backend-acao">notify do backend COM ação</button>
+      <div class="tuff-acoes">
+        <button class="tuff-btn" id="live-ir">começar (10 passos)</button>
+        <button class="tuff-btn" id="live-parar">desistir (some sem registrar)</button>
+        <button class="tuff-btn" id="live-backend">a mesma coisa, pelo BACKEND (sem janela)</button>
+        <button class="tuff-btn" id="live-backend-lento">pelo backend, 80s (atravessa o TTL)</button>
+        <button class="tuff-btn" id="avisar-backend">notify do backend, com key estável</button>
+        <button class="tuff-btn" id="avisar-backend-acao">notify do backend COM ação</button>
       </div>
-      <pre id="live">—</pre>
-      <p class="porque">
+      <pre class="saida" id="live">—</pre>
+      <p class="tuff-sec-desc">
         A notificação do backend também aceita <strong>ação</strong>, e aí a resposta precisa de
         um lugar para chegar: o app pode estar sem janela quando alguém clicar. Por isso o journal
         carrega <code>onAction: { path }</code> — o desktop faz um <code>POST</code> nessa rota do
@@ -291,19 +322,19 @@
       </p>
     </section>
 
-    <section>
+    <section class="tuff-painel">
       <h2>Bandeja do sistema</h2>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         Um ícone do app ao lado do relógio, com badge e menu. Chamar <code>set</code> de novo
         <em>atualiza</em> o mesmo ícone — o badge muda e ele não pula de lugar.
       </p>
-      <div class="acoes">
-        <button id="tray-on">vssh.tray.set</button>
-        <button id="tray-bump">badge +1</button>
-        <button id="tray-off">remover</button>
+      <div class="tuff-acoes">
+        <button class="tuff-btn" id="tray-on">vssh.tray.set</button>
+        <button class="tuff-btn" id="tray-bump">badge +1</button>
+        <button class="tuff-btn" id="tray-off">remover</button>
       </div>
-      <pre id="tray">—</pre>
-      <p class="porque">
+      <pre class="saida" id="tray">—</pre>
+      <p class="tuff-sec-desc">
         <strong>Há dois caminhos até o mesmo ícone, e eles não são alternativas.</strong> Os botões
         acima usam <code>vssh.tray.*</code>, que é síncrono e só existe com uma janela aberta. O de
         baixo usa a lib do <em>backend</em> (<code>vssh-app-toolkit/tray</code>), que escreve um
@@ -311,93 +342,93 @@
         caminho de um <code>kind:"service"</code>. O clique volta como um <code>POST</code> no seu
         próprio backend, e não como uma função: função não atravessa arquivo.
       </p>
-      <div class="acoes">
-        <button id="tray-backend">pela lib do backend (sem janela)</button>
-        <button id="tray-backend-off">remover a do backend</button>
+      <div class="tuff-acoes">
+        <button class="tuff-btn" id="tray-backend">pela lib do backend (sem janela)</button>
+        <button class="tuff-btn" id="tray-backend-off">remover a do backend</button>
       </div>
-      <pre id="tray-back">—</pre>
+      <pre class="saida" id="tray-back">—</pre>
     </section>
 
-    <section class="larga">
+    <section class="tuff-painel larga">
       <h2>Armazenamento privado do app</h2>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         <code>vssh-app-toolkit/fs</code> dá ao app um filesystem <strong>próprio</strong> por HTTP:
         uma raiz confinada com <code>realpath</code> (um <code>..</code> não sai dela), gate do
         <code>X-Vssh-App-Token</code>, e <code>errno</code> classificado — um caminho que não existe
         é 404, e não um 500 dizendo que o servidor quebrou.
       </p>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         <strong>Não confunda com a peça de cima.</strong> Para os arquivos <em>do usuário</em> (a
         home dele) o caminho é a File System Access, onde quem concede é o seletor. Isto aqui é o
         armazém <em>do app</em>, dentro do <code>VSSH_APP_DATA_DIR</code>: índice, cache, o que o
         app gerou. São casos diferentes, e usar um pelo outro é como um app acaba pedindo acesso à
         home para guardar o próprio cache.
       </p>
-      <div class="acoes">
-        <button id="priv-escrever">gravar</button>
-        <button id="priv-listar">listar</button>
-        <button id="priv-ler">ler</button>
-        <button id="priv-apagar">apagar</button>
+      <div class="tuff-acoes">
+        <button class="tuff-btn" id="priv-escrever">gravar</button>
+        <button class="tuff-btn" id="priv-listar">listar</button>
+        <button class="tuff-btn" id="priv-ler">ler</button>
+        <button class="tuff-btn" id="priv-apagar">apagar</button>
       </div>
-      <pre id="privado">—</pre>
+      <pre class="saida" id="privado">—</pre>
     </section>
 
-    <section class="larga">
+    <section class="tuff-painel larga">
       <h2>Arquivos do usuário — File System Access</h2>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         A API padrão do W3C, servida pelo <code>fsa-polyfill</code>: um app que já usa FSA roda
         aqui <strong>sem fork</strong>. Escolher no seletor <em>é</em> o consentimento — não há
         segunda confirmação —, e o acesso <strong>sobrevive à sessão</strong>, que é o par
         necessário de guardar o handle no IndexedDB. Revogar é no menu de contexto da janela →
         <em>Permissões de arquivo</em>.
       </p>
-      <div class="acoes">
-        <button id="fsa-pick">escolher pasta</button>
-        <button id="fsa-listar" disabled>listar</button>
-        <button id="fsa-escrever" disabled>criar e escrever</button>
-        <button id="fsa-ler" disabled>ler de volta</button>
-        <button id="fsa-mover" disabled>renomear (move)</button>
-        <button id="fsa-apagar" disabled>apagar</button>
-        <button id="fsa-permissao" disabled>reautorizar</button>
+      <div class="tuff-acoes">
+        <button class="tuff-btn" id="fsa-pick">escolher pasta</button>
+        <button class="tuff-btn" id="fsa-listar" disabled>listar</button>
+        <button class="tuff-btn" id="fsa-escrever" disabled>criar e escrever</button>
+        <button class="tuff-btn" id="fsa-ler" disabled>ler de volta</button>
+        <button class="tuff-btn" id="fsa-mover" disabled>renomear (move)</button>
+        <button class="tuff-btn" id="fsa-apagar" disabled>apagar</button>
+        <button class="tuff-btn" id="fsa-permissao" disabled>reautorizar</button>
       </div>
-      <pre id="fsa">—</pre>
+      <pre class="saida" id="fsa">—</pre>
     </section>
 
-    <section class="larga">
+    <section class="tuff-painel larga">
       <h2>A ponte <code>vssh.fs</code>, por caminho</h2>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         O caminho de baixo, para quem não fala FSA. <code>exists</code> devolve três respostas em
         vez de duas: só o 404 vira <code>false</code>, e "não tenho permissão" lança em vez de
         virar "não existe". <code>watch</code> avisa quando algo muda <strong>por fora</strong> do
         app — e devolve a função que cancela, porque cada assinatura segura um vigia vivo no
         servidor.
       </p>
-      <div class="acoes">
-        <button id="fs-pick">escolher um arquivo</button>
-        <button id="fs-exists" disabled>exists</button>
-        <button id="fs-stat" disabled>stat</button>
-        <button id="fs-read" disabled>read</button>
-        <button id="fs-bytes" disabled>readBytes</button>
-        <button id="fs-copy" disabled>copy → .bak</button>
-        <button id="fs-rename" disabled>rename do .bak</button>
-        <button id="fs-watch" disabled>watch</button>
+      <div class="tuff-acoes">
+        <button class="tuff-btn" id="fs-pick">escolher um arquivo</button>
+        <button class="tuff-btn" id="fs-exists" disabled>exists</button>
+        <button class="tuff-btn" id="fs-stat" disabled>stat</button>
+        <button class="tuff-btn" id="fs-read" disabled>read</button>
+        <button class="tuff-btn" id="fs-bytes" disabled>readBytes</button>
+        <button class="tuff-btn" id="fs-copy" disabled>copy → .bak</button>
+        <button class="tuff-btn" id="fs-rename" disabled>rename do .bak</button>
+        <button class="tuff-btn" id="fs-watch" disabled>watch</button>
       </div>
-      <pre id="fs">—</pre>
-      <p class="porque">
+      <pre class="saida" id="fs">—</pre>
+      <p class="tuff-sec-desc">
         A outra metade: <strong>escrever</strong>. <code>mkdir</code> → <code>write</code> →
         <code>list</code> → <code>writeBytes</code> → <code>delete</code>, numa pasta que o próprio
         ciclo cria e apaga dentro do que você escolher. <code>write</code> é para
         <em>texto</em> e <code>writeBytes</code> para <em>binário</em> — texto-encodar bytes os
         corrompe, e é por isso que são duas funções e não um parâmetro.
       </p>
-      <div class="acoes">
-        <button id="fs-dir">escolher a pasta de trabalho</button>
-        <button id="fs-ciclo" disabled>mkdir → write → list → delete</button>
-        <button id="fs-url" disabled>urlFor num &lt;img&gt;</button>
+      <div class="tuff-acoes">
+        <button class="tuff-btn" id="fs-dir">escolher a pasta de trabalho</button>
+        <button class="tuff-btn" id="fs-ciclo" disabled>mkdir → write → list → delete</button>
+        <button class="tuff-btn" id="fs-url" disabled>urlFor num &lt;img&gt;</button>
       </div>
-      <pre id="fs-escrita">—</pre>
+      <pre class="saida" id="fs-escrita">—</pre>
       <div id="fs-imagem"></div>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         <strong>Permissão tem três respostas, e a terceira decide o oposto da segunda.</strong>
         <code>isGranted()</code> devolve <code>true</code>, <code>false</code> ou
         <code>null</code> — e <code>null</code> é <em>"não obtive resposta"</em> (shell antigo, erro,
@@ -407,15 +438,15 @@
         abrir seletor nenhum — inclusive de sessões anteriores e de outra máquina, porque o grant
         mora no usuário.
       </p>
-      <div class="acoes">
-        <button id="fs-grants">isGranted + grantedPaths</button>
+      <div class="tuff-acoes">
+        <button class="tuff-btn" id="fs-grants">isGranted + grantedPaths</button>
       </div>
-      <pre id="grants">—</pre>
+      <pre class="saida" id="grants">—</pre>
     </section>
 
-    <section>
+    <section class="tuff-painel">
       <h2>Seletores do desktop</h2>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         Três, e a diferença entre eles é o que o usuário vê: abrir, salvar (com nome sugerido) e
         escolher pasta. Todos devolvem o <strong>caminho absoluto no servidor</strong>, ou
         <code>null</code> quando a pessoa cancela — e <code>null</code> também fora do desktop, onde
@@ -423,17 +454,17 @@
         seletor que concede o acesso do <code>vssh.fs</code> àquele caminho, e não há segunda
         confirmação.
       </p>
-      <div class="acoes">
-        <button id="pick-file">pickFile</button>
-        <button id="pick-save">pickSave</button>
-        <button id="pick-dir">pickDirectory</button>
+      <div class="tuff-acoes">
+        <button class="tuff-btn" id="pick-file">pickFile</button>
+        <button class="tuff-btn" id="pick-save">pickSave</button>
+        <button class="tuff-btn" id="pick-dir">pickDirectory</button>
       </div>
-      <pre id="picks">—</pre>
+      <pre class="saida" id="picks">—</pre>
     </section>
 
-    <section>
+    <section class="tuff-painel">
       <h2>Área de transferência</h2>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         Duas coisas diferentes com o mesmo nome: o clipboard de <strong>arquivos</strong> do
         desktop (o que o gerenciador de arquivos escreve quando você copia um arquivo) e o de
         <strong>imagem</strong> do navegador. O de imagem pode ser <em>recusado</em>, e o motivo
@@ -442,45 +473,45 @@
         permissão do navegador; <code>unsupported</code> é o ambiente. Sem essa separação, os três
         viram &ldquo;falhou ao ler o clipboard&rdquo;.
       </p>
-      <div class="acoes">
-        <button id="clip-ler">ler arquivos copiados</button>
-        <button id="clip-por">copiar um arquivo</button>
-        <button id="clip-img-ler">ler imagem</button>
-        <button id="clip-img-por">copiar imagem</button>
+      <div class="tuff-acoes">
+        <button class="tuff-btn" id="clip-ler">ler arquivos copiados</button>
+        <button class="tuff-btn" id="clip-por">copiar um arquivo</button>
+        <button class="tuff-btn" id="clip-img-ler">ler imagem</button>
+        <button class="tuff-btn" id="clip-img-por">copiar imagem</button>
       </div>
-      <pre id="clip">—</pre>
+      <pre class="saida" id="clip">—</pre>
     </section>
 
-    <section class="larga">
+    <section class="tuff-painel larga">
       <h2>Arrastar arquivo, nas duas direções</h2>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         Um tipo MIME só (<code id="mime">…</code>), com caminhos absolutos separados por linha —
         e é ele que faz o arraste ser <strong>um contrato, não três integrações</strong>: do
         ambiente para o app, do app para o ambiente, e de um app para outro, que cai de graça das
         duas primeiras. Arraste um arquivo do gerenciador de arquivos até a área abaixo; depois
         arraste a linha de volta para uma pasta.
       </p>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         A armadilha que não deixa rastro: sem <code>preventDefault</code> no
         <code>dragover</code>, o navegador entende que o alvo recusa a soltura e o
         <strong><code>drop</code> nunca acontece</strong> — sem erro, sem log, só o cursor de
         proibido. Quem usa <code>vssh.onArquivosSoltos()</code> não precisa lembrar disso.
       </p>
-      <div class="acoes">
+      <div class="tuff-acoes">
         <div id="solte">solte arquivos aqui</div>
         <div id="arraste" draggable="true">◧ arraste isto para fora</div>
       </div>
-      <pre id="arrastar">—</pre>
+      <pre class="saida" id="arrastar">—</pre>
     </section>
 
-    <section class="larga">
+    <section class="tuff-painel larga">
       <h2>Abrir no ambiente</h2>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         O app não abre PDF, nem vídeo, nem pasta: ele <strong>manda o caminho</strong> e o ambiente
         escolhe o visualizador pela extensão. <code>openWith</code> devolve o rótulo que o usuário
         escolheu; os outros não devolvem nada, porque não há o que responder.
       </p>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         <code>openUrl</code> é o que mais engana: o link abre no navegador <strong>do
         ambiente</strong>, que resolve a rede a partir do servidor Linux — então
         <code>http://localhost:3000</code> ali é o loopback <em>do servidor</em>, não o da sua
@@ -489,25 +520,25 @@
         <strong>desviados sozinhos</strong> pelo shim — o app não faz nada e mesmo assim não abre
         aba no navegador hospedeiro.
       </p>
-      <div class="acoes">
-        <button id="abrir-arquivo">openFile (escolhe e abre)</button>
-        <button id="abrir-pasta">openFolder</button>
-        <button id="abrir-com">openWith</button>
-        <button id="abrir-url">openUrl</button>
+      <div class="tuff-acoes">
+        <button class="tuff-btn" id="abrir-arquivo">openFile (escolhe e abre)</button>
+        <button class="tuff-btn" id="abrir-pasta">openFolder</button>
+        <button class="tuff-btn" id="abrir-com">openWith</button>
+        <button class="tuff-btn" id="abrir-url">openUrl</button>
         <a id="link-alvo" href="https://example.org" target="_blank" rel="noreferrer">um link comum</a>
       </div>
-      <pre id="abrir">—</pre>
+      <pre class="saida" id="abrir">—</pre>
     </section>
 
-    <section class="larga">
+    <section class="tuff-painel larga">
       <h2>Voltar no lugar certo, e ser aberto com um arquivo</h2>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         <code>vssh.lembrarRota()</code> guarda <strong>uma rota, e só</strong> — um ponteiro, não um
         armazém. Quando a sessão é restaurada, a janela reabre nela, sem código de restauração
         nenhum do seu lado. O que não couber num endereço vai para o backend do seu app: o teto é
         512 caracteres, sem esquema, sem barra inicial e sem <code>..</code>.
       </p>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         <code>onOpenContext()</code> é o outro lado: <em>&ldquo;abra assim&rdquo;</em>. Chega o
         <code>path</code> de um &ldquo;Abrir Terminal Aqui&rdquo;, o arquivo que alguém abriu com
         este app (é o que <code>opens</code> declara no manifesto), ou uma <code>rota</code>, quando
@@ -516,57 +547,57 @@
         entra na URL; com ele aberto, chega por aqui. Sem tratar isto, o item da jump list funciona
         só na primeira abertura.
       </p>
-      <div class="acoes">
-        <button id="rota-lembrar">lembrar “?painel=1”</button>
-        <button id="rota-limpar">esquecer</button>
+      <div class="tuff-acoes">
+        <button class="tuff-btn" id="rota-lembrar">lembrar “?painel=1”</button>
+        <button class="tuff-btn" id="rota-limpar">esquecer</button>
       </div>
-      <pre id="rota">—</pre>
+      <pre class="saida" id="rota">—</pre>
     </section>
 
-    <section>
+    <section class="tuff-painel">
       <h2>Armazenamento privado (OPFS)</h2>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         <code>navigator.storage.getDirectory()</code> é por <em>origem</em>, e todo vssh-app vive na
         mesma. Sem isolamento, um app leria — e sobrescreveria — o banco do vizinho. O shim
         confina cada app na sua raiz; o nome dela aparece abaixo.
       </p>
-      <div class="acoes">
-        <button id="opfs-escrever">gravar</button>
-        <button id="opfs-ler">ler</button>
+      <div class="tuff-acoes">
+        <button class="tuff-btn" id="opfs-escrever">gravar</button>
+        <button class="tuff-btn" id="opfs-ler">ler</button>
       </div>
-      <pre id="opfs">—</pre>
+      <pre class="saida" id="opfs">—</pre>
     </section>
 
-    <section>
+    <section class="tuff-painel">
       <h2>Impressão</h2>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         O app <strong>não imprime</strong>: ele pede a tela, e quem escolhe o destino e confirma é o
         usuário. O destino oferecido primeiro é a fila do <em>próprio servidor</em> — ali o arquivo
         não viaja, e imprimir 200 páginas pelo navegador significa baixar 200 páginas antes.
       </p>
-      <div class="acoes"><button id="print">escolher arquivo e imprimir</button></div>
-      <pre id="printout">—</pre>
+      <div class="tuff-acoes"><button class="tuff-btn" id="print">escolher arquivo e imprimir</button></div>
+      <pre class="saida" id="printout">—</pre>
     </section>
 
-    <section class="larga">
+    <section class="tuff-painel larga">
       <h2>Som</h2>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         Este app obedece ao mixer da barra <strong>sem chamar nada</strong> — quem cuida disso é o
         shim. São dois botões porque <code>&lt;audio&gt;</code> e Web Audio não se alcançam pelo
         mesmo lugar: o desktop enxerga o primeiro de fora, e o segundo só é controlável porque o
         shim envolve <code>AudioNode.connect</code>. Um app que toca por <code>AudioContext</code>
         e não carrega o shim <em>nem aparece</em> no mixer.
       </p>
-      <div class="acoes">
-        <button id="som-media">tocar um &lt;audio&gt;</button>
-        <button id="som-wa">tocar por AudioContext</button>
+      <div class="tuff-acoes">
+        <button class="tuff-btn" id="som-media">tocar um &lt;audio&gt;</button>
+        <button class="tuff-btn" id="som-wa">tocar por AudioContext</button>
       </div>
-      <pre id="audio">—</pre>
+      <pre class="saida" id="audio">—</pre>
     </section>
 
-    <section class="larga">
+    <section class="tuff-painel larga">
       <h2>A cor do ambiente</h2>
-      <p class="porque">
+      <p class="tuff-sec-desc">
         A pessoa escolhe uma cor de destaque em Configurações → Ambiente, e ela <strong>não
         atravessa</strong> sozinha: o app é outro documento, e o shell não injeta nada aqui. Quem não
         pergunta fica com a cor de fábrica enquanto o ambiente inteiro está noutra — e a janela dele
@@ -574,9 +605,9 @@
         recarregar. Fora do ambiente a resposta é <code>null</code>, e a leitura certa é
         <em>não sobrescreva nada</em> — o padrão da folha de estilo já está certo.
       </p>
-      <div class="acoes"><button id="cor-ler">perguntar ao ambiente</button></div>
+      <div class="tuff-acoes"><button class="tuff-btn" id="cor-ler">perguntar ao ambiente</button></div>
       <div id="cor-amostras"></div>
-      <pre id="cor">—</pre>
+      <pre class="saida" id="cor">—</pre>
     </section>
 
   </div>
@@ -584,5 +615,9 @@
   <!-- O comportamento está em `galeria.js`, que NÃO tem tag aqui: ele é injetado pelo
        `static-spa` junto com o shim, para ganhar o carimbo de conteúdo na URL. Ver o cabeçalho
        do arquivo e a lista de scripts injetados no backend deste app. -->
+    </div>
+
+  </div>
+</div>
 </body>
 </html>

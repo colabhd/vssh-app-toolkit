@@ -44,6 +44,41 @@ function montarGaleria() {
   const escrever = (id, texto) => { $(id).textContent = texto; };
   const falhar = (id, err) => { $(id).textContent = 'erro: ' + (err?.message || err); };
 
+  // ── A gaveta ────────────────────────────────────────────────────────────────
+  //
+  // São 22 peças, e sem uma lateral a única forma de achar uma é rolar às cegas. A lateral é
+  // persistente numa janela larga e vira gaveta numa estreita — quem decide é a largura do
+  // CONTÊINER, não a da tela, porque um app pode estar numa janela pequena de um monitor grande.
+  //
+  // ⚠ A lista sai das PRÓPRIAS seções, e os ids também. Escrevê-la à mão criaria uma segunda lista
+  // para manter, e o sintoma de esquecer seria uma peça que existe na página e não existe na
+  // navegação — ou, pior, um item que aponta para uma seção apagada. É o mesmo argumento que fez a
+  // galeria de ícones da biblioteca sair de `TuffIcones.nomes()`.
+  (function montarGaveta() {
+    const nav = document.getElementById('gaveta-nav');
+    // Ausência não é erro: sem a biblioteca de UI a página continua inteira, só sem a lateral.
+    if (!nav || typeof TuffGaveta === 'undefined') return;
+
+    const slug = (t) => t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+    for (const secao of document.querySelectorAll('.galeria > section')) {
+      const h2 = secao.querySelector('h2');
+      if (!h2) continue;
+      const texto = h2.textContent.trim();
+      if (!secao.id) secao.id = 's-' + slug(texto);
+      const item = document.createElement('button');
+      item.className = 'tuff-gaveta-item';
+      item.dataset.alvo = secao.id;
+      item.title = texto;               // o nome inteiro, já que o rótulo trunca
+      const rotulo = document.createElement('span');
+      rotulo.textContent = texto;       // textContent, e não innerHTML: título vem do DOM, não daqui
+      item.appendChild(rotulo);
+      nav.appendChild(item);
+    }
+    TuffGaveta.ligar(document.getElementById('gaveta'));
+  })();
+
   // ── Ambiente ─────────────────────────────────────────────────────────────────
   //
   // A primeira peça, e a que responde "por que aquilo ali não funciona". `libVersion` é síncrona (é

@@ -546,6 +546,130 @@
   }
   .tuff-barra-espaco { flex: 1; }
 
+  /* ── A gaveta de navegação ──────────────────────────────────────────────────
+     Lateral com as seções + o corpo. Compilada da janela de Configurações do shell
+     (`.sw-lateral`, `.sw-nav-item`), inclusive a medida de 208px e o realce do item ativo em
+     `--ds-accent-bg` — que é o mesmo idioma, e é o que faz a lateral de um app parecer a lateral do
+     ambiente em vez de um menu que alguém desenhou.
+
+     O comentário de lá vale igual aqui, e é a razão de a lateral ser PERSISTENTE e não um menu que
+     se abre: *"é ela que responde 'onde eu estou'"*. Um menu que fecha depois de escolher devolve a
+     pessoa para uma tela sem pista de onde ela está.
+
+     ⚠ **Estreita, ela vira gaveta com `position: absolute` — nunca `fixed`.** A diferença não é
+     cosmética: `fixed` amarraria a gaveta à janela do navegador, e um app é um `<iframe>` dentro de
+     uma janela do ambiente. Com `absolute` ela pertence ao contêiner, então a mesma peça serve para
+     a janela inteira e para um painel dentro dela.
+
+     O ponto de virada é `@container`, e não `@media`: o que decide é a largura do CONTÊINER, não a
+     da tela. Um app pode ter a gaveta dentro de um painel de 400px numa tela de 4K. */
+
+  .tuff-gaveta {
+    position: relative;
+    display: flex;
+    min-height: 0;
+    overflow: hidden;
+    container-type: inline-size;
+  }
+
+  .tuff-gaveta-lateral {
+    flex: 0 0 208px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--ds-gap-md) var(--ds-gap-sm);
+    overflow-y: auto;
+    background: var(--ds-bg2);
+    border-right: 1px solid var(--ds-border);
+  }
+
+  /* A legenda de família. 10px em caixa alta com tracking: ela precisa separar sem competir, e
+     texto pequeno em caixa alta lê como rótulo em vez de como conteúdo. */
+  .tuff-gaveta-cap {
+    margin: var(--ds-gap-lg) 0 var(--ds-gap-sm) var(--ds-gap-md);
+    font-size: var(--tuff-size-2xs);
+    font-weight: var(--tuff-weight-b);
+    letter-spacing: .4px;
+    text-transform: uppercase;
+    color: var(--ds-text-dim);
+  }
+  .tuff-gaveta-lateral > .tuff-gaveta-cap:first-child { margin-top: var(--ds-gap-sm); }
+
+  .tuff-gaveta-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    padding: 7px 9px;
+    border: none;
+    border-radius: var(--ds-radius-md);
+    background: transparent;
+    color: var(--ds-text-dim);
+    font: var(--tuff-weight-n) var(--tuff-size-sm) var(--ds-font);
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--ds-dur-fast) var(--ds-ease),
+                color var(--ds-dur-fast) var(--ds-ease);
+  }
+  /* O rótulo trunca em vez de quebrar: uma lateral de largura fixa com item de duas linhas
+     desalinha a coluna inteira, e o nome inteiro continua no `title`. */
+  .tuff-gaveta-item > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tuff-gaveta-item:hover { background: var(--ds-bg-hover); color: var(--ds-text); }
+  .tuff-gaveta-item:focus-visible { outline: 2px solid var(--ds-accent); outline-offset: -2px; }
+  .tuff-gaveta-item--ativo { background: var(--ds-accent-bg); color: var(--ds-accent-h); }
+
+  .tuff-gaveta-corpo {
+    flex: 1;
+    min-width: 0;
+    overflow: auto;
+    padding: var(--ds-gap-xl);
+  }
+
+  /* O véu. Só existe estreito, e só quando a gaveta está aberta. `color-mix` em vez de um rgba
+     escrito à mão: a cor sai do fundo do ambiente, então ela acompanha se a base mudar. */
+  .tuff-gaveta-veu {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: color-mix(in srgb, var(--ds-bg) 72%, transparent);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--ds-dur) var(--ds-ease);
+  }
+
+  /* O botão que abre. Some quando a lateral é persistente — um controle que não faz nada ensina a
+     não confiar em controle nenhum, e essa lição está escrita na Onda 2.1 do roadmap. */
+  .tuff-gaveta-abrir { display: none; }
+
+  @container (max-width: 640px) {
+    .tuff-gaveta-abrir { display: inline-flex; }
+    /* ⚠ `visibility: hidden` fechada, e não só o `translateX`. Um elemento deslocado para fora da
+       tela continua NA ORDEM DE TABULAÇÃO: sem isto, quem navega por teclado cai dentro de uma
+       gaveta invisível e fica preso num menu que não está na tela. O atraso na transição da
+       `visibility` é o que deixa a animação de saída acontecer antes de ela sumir. */
+    .tuff-gaveta-lateral {
+      position: absolute;
+      inset: 0 auto 0 0;
+      z-index: 2;
+      transform: translateX(-100%);
+      visibility: hidden;
+      box-shadow: var(--ds-shadow-lg);
+      transition: transform var(--ds-dur) var(--ds-ease),
+                  visibility 0s linear var(--ds-dur);
+    }
+    .tuff-gaveta--aberta > .tuff-gaveta-lateral {
+      transform: none;
+      visibility: visible;
+      transition: transform var(--ds-dur) var(--ds-ease), visibility 0s;
+    }
+    .tuff-gaveta--aberta > .tuff-gaveta-veu { opacity: 1; pointer-events: auto; }
+    .tuff-gaveta-corpo { padding: var(--ds-gap-lg); }
+  }
+
   /* ── Busca ──────────────────────────────────────────────────────────────────
      Um `<input type="search">` com a lupa embutida. A cruz nativa do WebKit sai:
      ela é branca, quadrada e não tem nada a ver com o resto. */

@@ -15,14 +15,19 @@
 <link rel="stylesheet" href="../lib/web/tuff/tuff.css">
 <link rel="stylesheet" href="../lib/web/tuff/tuff-midia.css">
 <script src="../lib/web/tuff/tuff-icones.js" defer></script>
+<script src="../lib/web/tuff/tuff.js" defer></script>
 <script src="../lib/web/tuff/tuff-midia.js" defer></script>
 
 <style>
   /* Layout DESTA página, e nada mais — nenhuma peça abaixo é estilizada aqui. Fora de `@layer`
      de propósito: é a demonstração da hierarquia. Se uma regra daqui não vencesse a da biblioteca,
      a camada estaria errada. */
-  body { padding: var(--ds-gap-xl); }
+  /* A janela inteira é a gaveta: quem rola é o corpo dela, não o `<body>` — senão a lateral rolaria
+     junto e deixaria de responder "onde eu estou", que é a única coisa que ela faz. */
+  html, body { height: 100%; }
+  body { padding: 0; overflow: hidden; }
   .pagina { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--ds-gap-xl); }
+  .topo { position: sticky; top: 0; z-index: 1; }
   /* `align-items: start` para os painéis medirem o conteúdo deles. Sem isto a grade estica toda a
      linha até a altura do painel mais alto, e o catálogo enche de buracos — que era o que a
      primeira captura mostrou. É layout do catálogo, e não da biblioteca: num app, um painel
@@ -35,10 +40,24 @@
 </style>
 </head>
 <body>
+<div class="tuff-gaveta" id="gaveta" style="height:100%">
+  <div class="tuff-gaveta-veu"></div>
+  <!-- A lateral é montada por `tuff.js` a partir das próprias seções — ver o script no fim. -->
+  <nav class="tuff-gaveta-lateral" id="gaveta-nav" aria-label="Seções"></nav>
+  <div class="tuff-gaveta-corpo">
+
+<div class="tuff-barra topo">
+  <button class="tuff-btn tuff-btn--icone tuff-gaveta-abrir" data-tuff-gaveta-abrir aria-label="Seções">
+    <svg class="tuff-ico"><use href="#ico-menu"></use></svg>
+  </button>
+  <strong>Tuff — catálogo</strong>
+  <span class="tuff-barra-espaco"></span>
+  <span class="tuff-tag">biblioteca de UI do vssh-app-toolkit</span>
+</div>
+
 <div class="pagina">
 
   <header class="capa">
-    <h1>Tuff — catálogo</h1>
     <p>
       Todo componente da biblioteca, numa página só, sem servidor e sem build. O que se julga aqui é
       o que o critério 3.3 chama de <em>belo</em>: se uma janela montada com estas peças passa por
@@ -373,6 +392,9 @@
   </div>
 </div>
 
+  </div>
+</div>
+
 <script>
   // Imagens procedurais: nada de binário no repositório, e a página continua abrindo de `file://`.
   function ladrilho(i, w, h) {
@@ -389,7 +411,50 @@
     return c.toDataURL();
   }
 
+  /**
+   * A lateral, montada a partir das SEÇÕES da página.
+   *
+   * Escrever a lista à mão criaria uma segunda lista para esquecer de atualizar — e o sintoma seria
+   * uma peça nova que existe na página e não existe na navegação, ou pior, um item que aponta para
+   * uma seção apagada. É o mesmo argumento da galeria de ícones logo abaixo.
+   *
+   * Os grupos saem dos `<h2>` que já separam a página: a marcação continua sendo a fonte.
+   */
+  function montarNavegacao() {
+    const nav = document.getElementById('gaveta-nav');
+    const slug = (t) => t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+    const cap = (texto) => {
+      const el = document.createElement('div');
+      el.className = 'tuff-gaveta-cap';
+      el.textContent = texto;
+      nav.appendChild(el);
+    };
+    cap('Vocabulário');
+
+    for (const bloco of document.querySelectorAll('.pagina > *')) {
+      const h2 = bloco.querySelector(':scope > h2');
+      if (h2) { cap(h2.textContent.trim()); continue; }
+      for (const secao of bloco.matches('.tuff-painel') ? [bloco] : bloco.querySelectorAll('.tuff-painel')) {
+        const titulo = secao.querySelector('.tuff-sec-titulo');
+        if (!titulo) continue;
+        const texto = titulo.textContent.trim();
+        if (!secao.id) secao.id = 's-' + slug(texto);
+        const item = document.createElement('button');
+        item.className = 'tuff-gaveta-item';
+        item.dataset.alvo = secao.id;
+        item.title = texto;
+        item.innerHTML = `<span>${texto}</span>`;
+        nav.appendChild(item);
+      }
+    }
+    TuffGaveta.ligar(document.getElementById('gaveta'));
+  }
+
   addEventListener('DOMContentLoaded', () => {
+    montarNavegacao();
+
     // A galeria de ícones sai da própria lista da biblioteca: escrevê-la à mão criaria uma segunda
     // lista para esquecer de atualizar, e um ícone novo nasceria invisível.
     const caixa = document.getElementById('cat-icones');

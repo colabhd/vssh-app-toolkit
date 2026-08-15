@@ -62,7 +62,7 @@ from vssh_app_toolkit.notify import notificar  # noqa: E402
 from vssh_app_toolkit.spa import criar_spa_estatica  # noqa: E402
 from vssh_app_toolkit.sse import abrir_stream_sse  # noqa: E402
 from vssh_app_toolkit.tray import definir_bandeja, limpar_bandeja, limpar_bandeja_ao_sair  # noqa: E402
-from vssh_app_toolkit.web import DIRETORIO_WEB, SHIMS  # noqa: E402
+from vssh_app_toolkit.web import DIRETORIO_WEB, SHIMS, ESTILOS, SCRIPTS  # noqa: E402
 
 APP_ID = os.environ.get("VSSH_APP_ID") or "hello-world"
 APP_TOKEN = os.environ.get("VSSH_APP_TOKEN") or None
@@ -109,7 +109,14 @@ spa = criar_spa_estatica(
     # `galeria.js` — o código DESTE app — entra na mesma lista, e não como uma `<script src>` no
     # index, para ganhar o carimbo de conteúdo na URL: só o que é injetado é carimbado, e o carimbo
     # é o que garante que uma reinstalação não sirva a versão velha de nenhum cache do caminho.
-    inject_scripts=[f"_vssh/{s}" for s in SHIMS] + ["galeria.js"],
+    # A aparência do ambiente. Listas SEPARADAS do `SHIMS` de propósito: adotar a biblioteca de UI é
+    # escolha deste app, e não consequência de atualizar o toolkit — um app com identidade visual
+    # própria não pode ser reestilizado por um `pip install`.
+    #
+    # As folhas saem antes dos scripts no `<head>`: um `<link>` bloqueia a primeira pintura, então
+    # descobri-lo cedo é o que evita a página aparecer sem estilo por um quadro.
+    inject_styles=[f"_vssh/{f}" for f in ESTILOS],
+    inject_scripts=[f"_vssh/{s}" for s in SHIMS] + [f"_vssh/{s}" for s in SCRIPTS] + ["galeria.js"],
     # Descomente se o seu app usa roteamento HTML5 (History API) em vez de fragmento:
     # spa_fallback=True,
     missing_bundle_hint="Rode o build do frontend antes de subir o backend.",

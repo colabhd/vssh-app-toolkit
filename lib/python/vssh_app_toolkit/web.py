@@ -54,7 +54,7 @@ ESTILOS = ["tuff/tuff-tokens.css", "tuff/tuff-base.css", "tuff/tuff.css"]
 
 #: Os ícones. Script, e não folha: o sprite precisa ser INJETADO no documento do app, porque um
 #: `<use href="#ico-…">` só resolve dentro do próprio documento.
-SCRIPTS = ["tuff/tuff-icones.js"]
+SCRIPTS = ["tuff/tuff-icones.js", "tuff/tuff.js"]
 
 #: As peças de mídia — trilha, volume, chrome que some, grade virtualizada, visor com zoom.
 #:

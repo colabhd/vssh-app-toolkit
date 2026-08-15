@@ -22,7 +22,7 @@ const { createStaticSpa } = require('vssh-app-toolkit/spa');
 const { createAppLog } = require('vssh-app-toolkit/log');
 const { openSseStream } = require('vssh-app-toolkit/sse');
 const { escutar } = require('vssh-app-toolkit/listen');
-const { WEB_DIR, SHIMS } = require('vssh-app-toolkit/web');
+const { WEB_DIR, SHIMS, ESTILOS, SCRIPTS } = require('vssh-app-toolkit/web');
 // As duas vozes de um app SEM janela. Elas dizem coisas diferentes, e trocar uma pela outra é o
 // erro que enche o sino de quem usa o ambiente:
 //
@@ -115,7 +115,16 @@ const spa = createStaticSpa({
   // index, para ganhar o carimbo de conteúdo na URL: só o que é injetado é carimbado, e o carimbo
   // é o que garante que uma reinstalação não sirva a versão velha de nenhum cache do caminho.
   // Quem tem build (Vite e afins) já recebe um nome com hash e não precisa disto.
-  injectScripts: [...SHIMS.map((s) => `_vssh/${s}`), 'galeria.js'],
+  // A aparência do ambiente. Listas SEPARADAS do `SHIMS` de propósito: adotar a biblioteca de UI é
+  // escolha deste app, e não consequência de atualizar o toolkit — um app com identidade visual
+  // própria (ou que sirva conteúdo de terceiros) não pode ser reestilizado por um `npm i`.
+  //
+  // As folhas saem antes dos scripts no `<head>`, e é o `injectStyles` que garante isso: um `<link>`
+  // bloqueia a primeira pintura, então descobri-lo cedo é o que evita a página aparecer sem estilo
+  // por um quadro. Escrevê-los à mão no HTML funcionaria e perderia o carimbo de conteúdo — e uma
+  // folha velha de cache não parece cache, parece decisão de design.
+  injectStyles: ESTILOS.map((f) => `_vssh/${f}`),
+  injectScripts: [...SHIMS.map((s) => `_vssh/${s}`), ...SCRIPTS.map((s) => `_vssh/${s}`), 'galeria.js'],
 
   // Descomente se o seu app usa roteamento HTML5 (History API) em vez de fragmento:
   // spaFallback: true,

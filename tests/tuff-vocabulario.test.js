@@ -44,8 +44,12 @@ const FOLHAS = ['tuff-base.css', 'tuff.css', 'tuff-midia.css'];
  * comportamento — as duas são uso, e só uma delas é visível no HTML.
  */
 function classesDoJs() {
-  const js = ler(path.join(TUFF, 'tuff-midia.js')).replace(/\/\/[^\n]*/g, '');
-  return new Set([...js.matchAll(/['"`]([\w-]*tuff-[\w-]+)['"`]/g)].map((m) => m[1]));
+  const fora = new Set();
+  for (const nome of ['tuff.js', 'tuff-midia.js']) {
+    const js = ler(path.join(TUFF, nome)).replace(/\/\/[^\n]*/g, '');
+    for (const m of js.matchAll(/['"`]([\w-]*tuff-[\w-]+)['"`]/g)) fora.add(m[1]);
+  }
+  return fora;
 }
 
 /** Toda classe `.tuff-*` que a biblioteca DECLARA. */
