@@ -163,7 +163,9 @@ jobs:
           # essa linha faltar, a folha vira 404 e o sintoma no servidor é "o app Python é feio" —
           # que não aponta para arquivo de empacotamento nenhum. Varrer as duas é o que troca esse
           # sintoma por um job vermelho.
-          srcs=$(q -fsS http://app/             | grep -oE '<script src="[^"]*"|<link rel="stylesheet" href="[^"]*"'             | sed -E 's/.*="([^"]*)"$//')
+          srcs=$(q -fsS http://app/ \
+            | grep -oE '<script src="[^"]*"|<link rel="stylesheet" href="[^"]*"' \
+            | sed -E 's/.*="([^"]*)"$/\1/')
           test -n "$srcs"
           for s in $srcs; do
             q -fsS "http://app/${s}" >/dev/null \
@@ -239,7 +241,9 @@ jobs:
           # essa linha faltar, a folha vira 404 e o sintoma no servidor é "o app Python é feio" —
           # que não aponta para arquivo de empacotamento nenhum. Varrer as duas é o que troca esse
           # sintoma por um job vermelho.
-          srcs=$(q -fsS http://app/             | grep -oE '<script src="[^"]*"|<link rel="stylesheet" href="[^"]*"'             | sed -E 's/.*="([^"]*)"$//')
+          srcs=$(q -fsS http://app/ \
+            | grep -oE '<script src="[^"]*"|<link rel="stylesheet" href="[^"]*"' \
+            | sed -E 's/.*="([^"]*)"$/\1/')
           test -n "$srcs"
           for s in $srcs; do
             q -fsS "http://app/${s}" >/dev/null \
