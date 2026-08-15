@@ -27,7 +27,7 @@ name = "vssh-app-toolkit"
 # ESPELHA o `package.json`, e há um teste que reprova a divergência
 # (`tests/lib-version.test.js`). Uma lib com dois números de versão é uma lib cuja versão ninguém
 # sabe dizer — foi assim que dois apps publicaram libs 3.0.0 contra um toolkit 4.0.0.
-version = "4.12.0"
+version = "4.13.0"
 description = "Bibliotecas para o backend Python de um vssh-app"
 readme = "README.md"
 license = "MIT"
