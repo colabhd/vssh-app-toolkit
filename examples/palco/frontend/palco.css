@@ -1,0 +1,208 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   PALCO — um player de DESKTOP, num desktop que é HTML.
+
+   Quatro coisas separam um programa de reprodução de uma página com vídeo, e nenhuma é pintura:
+
+     1. o TRANSPORTE é permanente — ele não some ao ir à Biblioteca, porque o vídeo não parou;
+     2. existe BARRA DE MENU, e cada nome chama `vssh.contextMenu()`: quem desenha é o AMBIENTE.
+        O menu do Palco se parece com o do gerenciador de arquivos porque É o mesmo menu;
+     3. a biblioteca é TABELA densa com colunas — cartão é vitrine, tabela é ferramenta;
+     4. há BARRA DE ESTADO embaixo, em frases e sem jargão.
+
+   ⚠ Quase nada de transporte mora aqui: `.tuff-transporte` e família são da biblioteca, promovidas
+   a partir deste mesmo desenho. Este arquivo CONSUMIR a lib em vez de manter cópia é a prova de que
+   a promoção funcionou — se alguma regra tivesse ficado para trás, ela sumiria da tela.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+html, body { height: 100%; }
+body { margin: 0; overflow: hidden; }
+
+/* ⚠ `container-type` AQUI, e isto foi um defeito medido. A barra de menu e o transporte moram fora
+   de qualquer `.tuff-gaveta`, então as `@container` do fim do arquivo não tinham contêiner
+   ancestral: elas simplesmente **não se aplicavam**, sem erro e sem aviso. A 560px nada caía, o
+   nome do que está tocando era espremido a zero, e o botão de tocar saía da tela. */
+.janela {
+  height: 100%; display: flex; flex-direction: column;
+  container-type: inline-size; background: var(--ds-bg);
+}
+
+/* ── 1. A barra de menu ─────────────────────────────────────────────────────
+   Densa e discreta: existe para ser reconhecida, não para ser lida. */
+.menubar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 1px;
+  padding: 0 var(--ds-gap-xs);
+  background: var(--ds-bg2); border-bottom: 1px solid var(--ds-border);
+}
+.menubar button {
+  padding: 5px 9px; border: none; background: none; border-radius: var(--ds-radius-sm);
+  color: var(--ds-text-mid); font: var(--tuff-weight-n) var(--tuff-size-sm) var(--ds-font);
+  cursor: default;
+}
+.menubar button:hover { background: var(--ds-bg-hover); color: var(--ds-text); }
+.menubar button:focus-visible { outline: 2px solid var(--ds-accent); outline-offset: -2px; }
+.menubar .marca {
+  padding: 0 var(--ds-gap-sm) 0 var(--ds-gap-xs); color: var(--ds-text-dim);
+  font: var(--tuff-weight-b) var(--tuff-size-2xs) var(--ds-font);
+  letter-spacing: .5px; text-transform: uppercase;
+}
+
+/* ── 2. As abas ─────────────────────────────────────────────────────────────
+   O idioma do controle segmentado do ambiente, ancorado embaixo como aba: é o que separa "modo do
+   programa" de "botão que faz algo". */
+.abas {
+  flex: 0 0 auto; display: flex; align-items: stretch;
+  padding: 0 var(--ds-gap-sm);
+  background: var(--ds-bg2); border-bottom: 1px solid var(--ds-border);
+}
+.aba {
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 14px; border: none; background: none;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  color: var(--ds-text-dim); font: var(--tuff-weight-n) var(--tuff-size-sm) var(--ds-font);
+  cursor: default;
+}
+.aba:hover { color: var(--ds-text); }
+.aba:focus-visible { outline: 2px solid var(--ds-accent); outline-offset: -2px; }
+.aba--ativa { color: var(--ds-text); border-bottom-color: var(--ds-accent); }
+
+/* ── 3. O miolo ─────────────────────────────────────────────────────────────*/
+.miolo { flex: 1; min-height: 0; display: flex; }
+.conteudo { flex: 1; min-width: 0; min-height: 0; position: relative; }
+.painel { display: none; height: 100%; }
+.painel--ativo { display: flex; flex-direction: column; min-height: 0; }
+
+/* ── 4. O palco ─────────────────────────────────────────────────────────────*/
+.palco { flex: 1; min-height: 0; position: relative; }
+
+/* ⚠ `object-fit: contain` e fundo preto: é o LETTERBOX, e ele não é enfeite. Um vídeo 4:3 numa
+   janela 16:9 tem de ganhar faixas pretas em vez de esticar — esticar deforma rosto e texto, e
+   quem assiste não sabe dizer por que a imagem "parece errada". Preto (e não `--ds-bg`) porque a
+   faixa tem de sumir contra a imagem, e não formar uma moldura cinza em volta dela. */
+.palco video {
+  width: 100%; height: 100%; object-fit: contain; background: #000; display: block;
+}
+.palco video[hidden] { display: none; }
+
+.vazio-palco {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: var(--ds-gap-md);
+  padding: var(--ds-gap-xl); text-align: center; color: var(--ds-text-dim);
+}
+.vazio-palco[hidden] { display: none; }
+/* O `--lg` da lib é 20px, que é a escala de um vazio dentro de um painel. Aqui o vazio ocupa a
+   janela inteira, e 20px se perdem: o ícone é a primeira coisa que diz "não há nada tocando". */
+.vazio-palco .tuff-ico--lg { width: 30px; height: 30px; }
+
+/* A faixa de retomada: sobre o vídeo, discreta, e some sozinha. */
+.retomar {
+  position: absolute; left: 50%; top: var(--ds-gap-lg); transform: translateX(-50%);
+  display: flex; align-items: center; gap: var(--ds-gap-md);
+  padding: var(--ds-gap-sm) var(--ds-gap-md);
+  background: var(--ds-bg2); border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-md); box-shadow: var(--ds-shadow-md);
+  font-size: var(--tuff-size-sm); color: var(--ds-text-mid); white-space: nowrap;
+  transition: opacity var(--ds-dur) var(--ds-ease);
+}
+.retomar[hidden], .preparando[hidden] { display: none; }
+.retomar--saindo { opacity: 0; }
+
+/* ⚠ "Preparando" é a ÚNICA informação de modo que chega à tela, e ela está aqui porque muda o que
+   a pessoa faz: sem isso, os dois segundos até o ffmpeg abrir o primeiro fragmento parecem
+   travamento, e ela clica de novo. "remux · 1,4 Mbps" não muda nada — só informa que o programa é
+   complicado, e vai para Ferramentas → Informações do arquivo. */
+.preparando {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  display: flex; align-items: center; gap: var(--ds-gap-sm);
+  padding: var(--ds-gap-sm) var(--ds-gap-lg);
+  background: var(--ds-bg2); border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-md); box-shadow: var(--ds-shadow-md);
+  font-size: var(--tuff-size-sm); color: var(--ds-text-mid);
+}
+
+/* ── 5. O transporte ────────────────────────────────────────────────────────
+   `.tuff-transporte` e família vêm da biblioteca. O que sobra aqui é do Palco. */
+.tuff-transporte { flex: 0 0 auto; }
+
+/* Tocar é maior que os vizinhos: é o único controle que se procura sem olhar, e em todo player de
+   desktop ele domina o aglomerado. */
+#btn-play { width: 30px; height: 30px; }
+#btn-play .tuff-ico { width: 17px; height: 17px; }
+
+.agora-nome {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--tuff-size-sm); color: var(--ds-text);
+}
+
+/* A velocidade MOSTRA o valor: um botão de ajuste que não diz em que estado está obriga a abrir
+   para descobrir, e velocidade se troca dezenas de vezes por sessão.
+   Sem moldura, como os vizinhos de ícone — a lib só tira a borda de `--icone`, e este é de texto.
+   Uma caixa no meio de sete glifos soltos lê como controle de outra categoria. */
+.tuff-veloc {
+  min-width: 34px; padding: 0 6px; font-variant-numeric: tabular-nums;
+  border-color: transparent; background: none; color: var(--ds-text-dim);
+}
+.tuff-veloc:hover:not(:disabled) { background: var(--ds-bg-hover); color: var(--ds-text); }
+.tuff-veloc[data-alterada="1"] { color: var(--ds-accent-h); }
+
+/* ── 6. A barra de estado ───────────────────────────────────────────────────
+   ⚠ Sem monoespaçada e sem sigla. Mono é a tipografia de "isto é saída de máquina" — exatamente a
+   mensagem errada para quem só quer assistir. Aqui são frases. */
+.statusbar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: var(--ds-gap-lg);
+  padding: 3px var(--ds-gap-md);
+  background: var(--ds-statusbar-bg); border-top: 1px solid var(--ds-border);
+  font-size: var(--tuff-size-2xs); color: var(--ds-text-dim);
+}
+/* Cortar em vez de empurrar: numa janela estreita, um aviso comprido empurraria a origem para fora
+   da barra em vez de ser ele o cortado — e a origem é a que sempre vale. */
+.statusbar > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#st-aviso:not(:empty) { color: var(--ds-warn); }
+
+/* ── 7. A tabela da Biblioteca ──────────────────────────────────────────────
+   Densa, com colunas, seleção em `--ds-sel`: o idioma do gerenciador de arquivos do ambiente. */
+.bib-topo {
+  flex: 0 0 auto; display: flex; align-items: center; gap: var(--ds-gap-md);
+  padding: var(--ds-gap-sm) var(--ds-gap-md); border-bottom: 1px solid var(--ds-border);
+}
+/* ⚠ Sem `direction: rtl`. Ele parecia a solução para cortar o caminho pela ESQUERDA (que é onde a
+   parte descartável de um caminho mora), e o efeito medido foi outro: a barra inicial vai para o
+   fim, e `/home/ana/Vídeos` aparece como `home/ana/Vídeos/` — um caminho que não existe. Cortar
+   pela direita é feio; mentir sobre o caminho é pior. */
+.bib-pasta {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--tuff-size-xs); color: var(--ds-text-dim);
+}
+.tabela { flex: 1; min-height: 0; overflow: auto; }
+.tabela-cab, .linha-arq {
+  display: grid; align-items: center;
+  grid-template-columns: 34px 1fr 62px;
+  gap: var(--ds-gap-md); padding: 0 var(--ds-gap-md);
+}
+.tabela-cab {
+  position: sticky; top: 0; z-index: 1;
+  height: 26px; background: var(--ds-bg2); border-bottom: 1px solid var(--ds-border);
+  font-size: var(--tuff-size-2xs); color: var(--ds-text-dim);
+  font-weight: var(--tuff-weight-b); text-transform: uppercase; letter-spacing: .4px;
+}
+.linha-arq { height: 24px; font-size: var(--tuff-size-sm); color: var(--ds-text); cursor: default; }
+.linha-arq > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.linha-arq:hover { background: var(--ds-bg-hover); }
+.linha-arq[aria-selected="true"] { background: var(--ds-sel); color: var(--ds-sel-text); }
+/* A linha que toca: destaque no NÚMERO, e não na linha inteira — senão ela briga com a seleção, e
+   as duas querem dizer coisas diferentes. */
+.linha-arq--tocando .col-n { color: var(--ds-accent-h); }
+.col-n { font-family: var(--ds-font-mono); font-variant-numeric: tabular-nums;
+         color: var(--ds-text-dim); font-size: var(--tuff-size-2xs); text-align: right; }
+.col-fmt { color: var(--ds-text-dim); font-size: var(--tuff-size-2xs); }
+.bib-vazio { flex: 1; }
+.bib-vazio[hidden] { display: none; }
+
+/* ── 8. O que cai quando a janela encolhe ───────────────────────────────────
+   ⚠ Medido: a 560px o transporte não cabia e o botão de TOCAR era empurrado para fora — um player
+   sem play. Os secundários caem; o aglomerado de transporte, a trilha e o tempo nunca caem. */
+@container (max-width: 640px) {
+  .transp-sec { display: none; }
+  .menubar .item-sec { display: none; }
+  .tabela-cab, .linha-arq { grid-template-columns: 30px 1fr; }
+  .col-fmt { display: none; }
+}

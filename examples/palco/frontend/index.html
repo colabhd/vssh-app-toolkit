@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Palco</title>
+  <!--
+    ⚠ Nenhuma tag <script> ou <link> das libs aqui. Quem injeta o shim, o Tuff e o `palco.css`/`.js`
+    é `criar_spa_estatica` no backend — e por um motivo prático: só o que é injetado ganha carimbo
+    de conteúdo na URL, e é o carimbo que garante que uma reinstalação não sirva a versão velha de
+    algum cache do caminho.
+  -->
+</head>
+<body>
+
+<!-- ⚠ `container-type` aqui, e não só numa gaveta: as consultas `@container` do transporte e da
+     barra de menu precisam de um ancestral com contêiner, e sem ele elas simplesmente NÃO se
+     aplicam — sem erro e sem aviso. Foi um defeito medido no mockup: a 560px nada caía e o nome do
+     que está tocando era espremido até zero. -->
+<div class="janela">
+
+  <!-- ── A barra de menu ──────────────────────────────────────────────────────
+       Cada nome chama `vssh.contextMenu()`, e **quem desenha a lista é o AMBIENTE**. O menu do
+       Palco se parece com o menu do gerenciador de arquivos porque É o mesmo menu. -->
+  <div class="menubar" id="menubar">
+    <span class="marca">Palco</span>
+    <button data-menu="midia">Mídia</button>
+    <button data-menu="reproducao">Reprodução</button>
+    <button data-menu="video" class="item-sec">Vídeo</button>
+    <button data-menu="audio" class="item-sec">Áudio</button>
+    <button data-menu="legenda" class="item-sec">Legenda</button>
+    <button data-menu="ferramentas" class="item-sec">Ferramentas</button>
+  </div>
+
+  <div class="abas" role="tablist" aria-label="Modos do Palco">
+    <button class="aba aba--ativa" data-aba="reproduzindo" role="tab" aria-selected="true">
+      <svg class="tuff-ico"><use href="#ico-play"></use></svg>Reproduzindo
+    </button>
+    <button class="aba" data-aba="biblioteca" role="tab" aria-selected="false">
+      <svg class="tuff-ico"><use href="#ico-folder"></use></svg>Biblioteca
+    </button>
+  </div>
+
+  <div class="miolo">
+    <div class="conteudo">
+
+      <!-- ── Reproduzindo ────────────────────────────────────────────────────
+           Só o palco. Sem lateral: quem deu duplo-clique num vídeo não pediu navegação de
+           biblioteca, e o VLC abre exatamente assim — vídeo e transporte, o resto sob demanda. -->
+      <div class="painel painel--ativo" id="painel-reproduzindo" role="tabpanel">
+        <div class="tuff-palco palco" id="palco" data-tuff-palco>
+          <video id="video" playsinline preload="metadata"></video>
+
+          <!-- `.tuff-vazio` da biblioteca + o que é do Palco (cobrir o palco inteiro e centrar).
+               Refazer o vazio à mão daria um estado vazio com outra tipografia e outro respiro que
+               os do resto do ambiente — e perderia o conserto que a lib faz no `.tuff-acoes`. -->
+          <div class="tuff-vazio vazio-palco" id="vazio-palco">
+            <svg class="tuff-ico tuff-ico--lg"><use href="#ico-play"></use></svg>
+            <div class="tuff-vazio-titulo">Nada tocando</div>
+            <div class="tuff-vazio-msg">
+              Abra um vídeo ou uma música pelo gerenciador de arquivos, ou escolha um na Biblioteca.
+            </div>
+            <div class="tuff-acoes">
+              <button class="tuff-btn tuff-btn--primario" id="btn-abrir-arquivo">
+                <svg class="tuff-ico"><use href="#ico-folder"></use></svg>Abrir arquivo
+              </button>
+            </div>
+          </div>
+
+          <!-- Some sozinha. Sem ela, abrir e cair em 12:04 confunde ("por que não começou do
+               início?"), e abrir no zero perde o lugar. A faixa resolve as duas. -->
+          <div class="retomar" id="retomar" hidden>
+            <span>Continuando de <strong id="retomar-t">0:00</strong></span>
+            <button class="tuff-btn" id="btn-do-inicio">Começar do início</button>
+          </div>
+
+          <div class="preparando" id="preparando" hidden>
+            <span class="tuff-spinner"></span><span id="preparando-t">Preparando…</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Biblioteca ──────────────────────────────────────────────────────
+           A pasta do que está tocando, como TABELA densa. Cartão é vitrine; tabela é ferramenta, e
+           é o idioma do gerenciador de arquivos do ambiente. -->
+      <div class="painel" id="painel-biblioteca" role="tabpanel">
+        <div class="bib-topo">
+          <span class="bib-pasta" id="bib-pasta">—</span>
+          <span style="flex:1"></span>
+          <!-- ⚠ `.tuff-busca` vai NO `<input>`, e não num envoltório: ela já desenha a lupa como
+               imagem de fundo. Envolvê-la num `<div>` com um `<svg>` ao lado dá duas lupas e uma
+               caixa do dobro da altura. -->
+          <input class="tuff-busca" type="search" id="bib-busca" placeholder="Filtrar por nome"
+                 aria-label="Filtrar a lista por nome" style="max-width:280px">
+        </div>
+        <div class="tabela" id="tabela" role="grid" aria-label="Arquivos desta pasta">
+          <div class="tabela-cab" role="row">
+            <span class="col-n" role="columnheader">#</span>
+            <span role="columnheader">Nome</span>
+            <span class="col-fmt" role="columnheader">Tipo</span>
+          </div>
+          <div id="tabela-corpo"></div>
+        </div>
+        <div class="tuff-vazio bib-vazio" id="bib-vazio" hidden>
+          <div class="tuff-vazio-titulo">Nenhuma pasta aberta</div>
+          <div class="tuff-vazio-msg">Abra um arquivo e os vizinhos dele aparecem aqui.</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── O transporte ────────────────────────────────────────────────────────
+       PERMANENTE: ele não some quando se vai à Biblioteca, porque o vídeo não parou de tocar. É a
+       diferença entre um programa que reproduz e uma página com vídeo dentro.
+
+       Dois andares. Em cima o tempo, com a trilha ocupando toda a largura entre as duas pontas;
+       embaixo três zonas (`1fr auto 1fr`) com o aglomerado de transporte no centro óptico. -->
+  <div class="tuff-transporte" id="transporte">
+    <div class="tuff-transporte-tempo">
+      <span class="tuff-tempo" data-tuff-tempo-atual>0:00</span>
+      <div class="tuff-trilha" data-tuff-trilha aria-label="Posição no vídeo"></div>
+      <span class="tuff-tempo" data-tuff-tempo-total>--:--</span>
+    </div>
+
+    <div class="tuff-transporte-controles">
+      <div class="tuff-transporte-inicio">
+        <span class="agora-nome" id="agora-nome">Nada tocando</span>
+      </div>
+
+      <div class="tuff-transporte-meio">
+        <button class="tuff-btn tuff-btn--icone transp-sec" id="btn-anterior"
+                aria-label="Anterior" title="Anterior">
+          <svg class="tuff-ico"><use href="#ico-skip-back"></use></svg>
+        </button>
+        <button class="tuff-btn tuff-btn--icone" id="btn-voltar10"
+                aria-label="Voltar 10 segundos" title="Voltar 10 s  (←)">
+          <svg class="tuff-ico"><use href="#ico-rewind"></use></svg>
+        </button>
+        <button class="tuff-btn tuff-btn--icone" id="btn-play" data-tuff-play
+                aria-label="Reproduzir" title="Reproduzir  (espaço)">
+          <svg class="tuff-ico"><use href="#ico-play"></use></svg>
+        </button>
+        <button class="tuff-btn tuff-btn--icone" id="btn-avancar10"
+                aria-label="Avançar 10 segundos" title="Avançar 10 s  (→)">
+          <svg class="tuff-ico"><use href="#ico-forward"></use></svg>
+        </button>
+        <button class="tuff-btn tuff-btn--icone transp-sec" id="btn-proximo"
+                aria-label="Próximo" title="Próximo">
+          <svg class="tuff-ico"><use href="#ico-skip-forward"></use></svg>
+        </button>
+      </div>
+
+      <div class="tuff-transporte-fim">
+        <span style="flex:1"></span>
+        <!-- Tri-estado: desligado → a lista → só este. Cor sozinha distingue dois, não três, e por
+             isso o ícone TROCA no terceiro. -->
+        <button class="tuff-btn tuff-btn--icone transp-sec" id="btn-repetir"
+                aria-pressed="false" aria-label="Repetir" title="Repetir">
+          <svg class="tuff-ico"><use href="#ico-repeat"></use></svg>
+        </button>
+        <button class="tuff-btn tuff-btn--icone transp-sec" id="btn-aleatorio"
+                aria-pressed="false" aria-label="Aleatório" title="Aleatório">
+          <svg class="tuff-ico"><use href="#ico-shuffle"></use></svg>
+        </button>
+        <!-- Abre uma LISTA, e não cicla: ciclar exigia quatro cliques para chegar ao valor vizinho
+             e escondia quais são as opções. -->
+        <button class="tuff-btn tuff-veloc" id="btn-veloc" aria-label="Velocidade"
+                title="Velocidade">1×</button>
+        <button class="tuff-btn tuff-btn--icone" id="btn-ajustes"
+                aria-label="Faixas e legendas" title="Faixas e legendas">
+          <svg class="tuff-ico"><use href="#ico-settings"></use></svg>
+        </button>
+        <button class="tuff-btn tuff-btn--icone" id="btn-mudo" data-tuff-mudo
+                aria-label="Mudo" title="Mudo  (M)">
+          <svg class="tuff-ico"><use href="#ico-volume-on"></use></svg>
+        </button>
+        <div class="tuff-volume transp-sec" data-tuff-volume aria-label="Volume">
+          <div class="tuff-volume-trilha"><div class="tuff-volume-nivel"></div></div>
+        </div>
+        <!-- ⚠ À ESQUERDA da tela cheia, e visível: PiP é o gesto de "quero continuar vendo
+             enquanto faço outra coisa", que num desktop é a coisa mais natural do mundo. -->
+        <button class="tuff-btn tuff-btn--icone" id="btn-pip"
+                aria-label="Janela flutuante" title="Janela flutuante">
+          <svg class="tuff-ico"><use href="#ico-pip"></use></svg>
+        </button>
+        <button class="tuff-btn tuff-btn--icone" id="btn-tela"
+                aria-label="Tela cheia" title="Tela cheia  (F)">
+          <svg class="tuff-ico"><use href="#ico-maximize"></use></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ⚠ Sem fonte monoespaçada e sem sigla. Ela dizia `MKV · H.264 1080p · AAC 2.0 · 1,4 Mbps`, e
+       mono é a tipografia de "isto é saída de máquina" — a mensagem errada para quem só quer
+       assistir. O detalhe técnico mora em Ferramentas → Informações do arquivo, que é onde o VLC o
+       põe. Aqui ficam frases, e só o que muda o que a pessoa faz. -->
+  <div class="statusbar">
+    <span id="st-origem">Do seu ambiente</span>
+    <span style="flex:1"></span>
+    <span id="st-aviso"></span>
+  </div>
+
+</div>
+</body>
+</html>

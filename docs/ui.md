@@ -124,6 +124,23 @@ controle nativo** (o `<select>` tem caixa e seta próprias, e a lista aberta tam
 Windows ela herdaria o fundo branco do sistema), **scrollbar do tema** (6px, polegar em
 `--ds-border`) e **hierarquia** entre rótulo e valor.
 
+### ⚠ Em QUE elemento a classe vai
+
+O engano mais fácil desta biblioteca, e o mais difícil de ver depois: supor que uma classe pede um
+envoltório. Ela quase nunca pede. Cada linha abaixo foi errada de verdade construindo um app sobre
+a lib, e nenhuma delas dá erro — a tela só sai torta.
+
+| classe | vai em | o que acontece ao envolver |
+|---|---|---|
+| `.tuff-busca` | **no `<input>`** | a lupa é imagem de fundo dela: um `<div>` com `<svg>` ao lado dá **duas lupas** e uma caixa do dobro da altura |
+| `.tuff-seg-btn` | **no `<label>`**, com um `<input type=radio>` escondido dentro | o estado ativo é `:has(input:checked)`; num `<button aria-pressed>` ele nunca acende |
+| `.tuff-item` | **numa linha de `.tuff-lista`** | não é rótulo solto: fora da lista ele fica com o padding e o hover de uma linha que não existe |
+| `.tuff-acoes` | no rodapé de um `.tuff-painel` | ela tem `margin-top: auto` para grudar ali. Dentro de um `.tuff-vazio` isso jogava o botão para longe da frase — hoje a biblioteca desfaz o `auto` nesse caso, e é a única exceção |
+
+A regra geral: **se o componente desenha algo (ícone, seta, marcador), ele desenha no próprio
+elemento.** Um envoltório com o desenho repetido é o sintoma de que a classe foi posta no lugar
+errado.
+
 ### Botão que liga e desliga
 
 Use `aria-pressed`, e o realce sai de graça — o mesmo de `.tuff-gaveta-item--ativo`, que é como o

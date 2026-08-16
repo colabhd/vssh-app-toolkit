@@ -70,6 +70,11 @@ const NOSSOS = new Set([
   // `repeat-one` não é enfeite do `repeat`: repetir é TRI-ESTADO, e o terceiro estado precisa de
   // glifo próprio — cor sozinha distingue dois, não três.
   'pip', 'subtitles', 'speed', 'repeat', 'repeat-one', 'shuffle',
+  // ⚠ A terceira leva, e a falta era estranha o bastante para valer o registro: havia `play`,
+  // `pause`, `stop`, `skip-back` e `skip-forward`, e não havia os DOIS botões mais usados de um
+  // player depois do play. `skip-*` é "outra faixa"; `rewind`/`forward` são "dez segundos atrás",
+  // que é outro gesto — e o mais repetido de todos ao rever um trecho.
+  'rewind', 'forward',
   'zoom-in', 'zoom-out', 'fit', 'rotate-left', 'rotate-right', 'crop', 'eye', 'eye-off',
   // ⚠ Só `chevron-up`. Eu havia acrescentado `chevron-left` e `chevron-right`, e as duas eram
   // DUPLICATAS: no shell as setas horizontais se chamam `arrow-left`/`arrow-right`, e o desenho é o

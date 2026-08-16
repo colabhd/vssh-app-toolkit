@@ -456,6 +456,16 @@
   }
   .tuff-vazio-msg { font-size: var(--tuff-size-sm); max-width: 44ch; }
 
+  /* ⚠ Dentro de um estado vazio, as ações NÃO grudam no fim. `.tuff-acoes` tem `margin-top: auto`
+     porque num painel a barra de ações pertence ao rodapé — mas as duas peças são da biblioteca, e
+     compô-las dava o resultado errado: num vazio alto (o palco de um player, uma lista de tela
+     inteira) o botão ia parar a centenas de pixels da frase que o explica.
+
+     E aí ele deixa de ser o convite que o vazio existe para fazer: a pessoa lê "abra um vídeo",
+     não vê botão nenhum por perto, e conclui que não há um. Apareceu no palco do Palco — botão a
+     450px da frase — e se reproduz num `.tuff-vazio` alto qualquer; é o que a bancada mede. */
+  .tuff-vazio > .tuff-acoes { margin-top: 0; }
+
   /* ── Espera ─────────────────────────────────────────────────────────────────
      Spinner para "não sei quanto falta"; barra para "sei". Trocar os dois é o erro
      comum, e ele custa confiança: uma barra que anda até 90% e para ensina a não

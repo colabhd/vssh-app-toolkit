@@ -69,7 +69,8 @@ log("boot", {"gpu": GPU or "sem VAAPI"})
 spa = criar_spa_estatica(
     root=os.path.join(_AQUI, "..", "frontend"),
     mounts={"/_vssh/": DIRETORIO_WEB},
-    inject_styles=[f"_vssh/{f}" for f in ESTILOS] + [f"_vssh/{f}" for f in ESTILOS_MIDIA],
+    inject_styles=([f"_vssh/{f}" for f in ESTILOS] + [f"_vssh/{f}" for f in ESTILOS_MIDIA]
+                   + ["palco.css"]),
     # `SCRIPTS_MIDIA` é o que traz a `TuffMidia` — sem ela não há trilha, nem timecode, nem o
     # chrome que some. É a peça inteira deste app, e ela é opt-in de propósito.
     inject_scripts=([f"_vssh/{s}" for s in SHIMS] + [f"_vssh/{s}" for s in SCRIPTS]
@@ -229,7 +230,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._abrir(self._corpo())
 
             if caminho_url == "/api/fluxo" and self.command in ("GET", "HEAD"):
-                return self._fluxo(um("caminho"), um("t"), um("perfil"))
+                return self._fluxo(um("caminho"), um("t"), um("perfil"), um("audio"))
 
             if caminho_url == "/api/legenda" and self.command in ("GET", "HEAD"):
                 return self._legenda(um("caminho"), um("faixa"))
@@ -295,7 +296,7 @@ class Handler(BaseHTTPRequestHandler):
             "gpu": bool(GPU),
         })
 
-    def _fluxo(self, caminho, t, perfil_bruto):
+    def _fluxo(self, caminho, t, perfil_bruto, faixa_audio=None):
         caminho = _seguro(caminho)
         if not caminho:
             return self._json(404, {"erro": "arquivo não encontrado"})
@@ -305,7 +306,23 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             perfil = None
 
-        d = decidir(sondar_arquivo(caminho), perfil)
+        sonda = sondar_arquivo(caminho)
+        d = decidir(sonda, perfil)
+
+        # ⚠ A faixa escolhida à mão vence a automática — mas só se ela EXISTE neste arquivo. Um
+        # índice inventado viraria um `-map 0:99` que o ffmpeg recusa, e o sintoma seria um vídeo
+        # que não abre depois de trocar a faixa.
+        if faixa_audio is not None and re.fullmatch(r"\d{1,3}", str(faixa_audio)):
+            pedida = int(faixa_audio)
+            escolhida = next((f for f in sonda.audios if f.indice == pedida), None)
+            if escolhida is not None:
+                d.faixa_audio = pedida
+                # Trocar de faixa pode trocar de MODO: sair de uma AAC para a AC3 original obriga a
+                # recodificar o áudio, e manter `copiar` entregaria vídeo mudo.
+                toca = perfil and escolhida.codec in perfil.audio
+                d.audio = "copiar" if toca else "recodificar"
+                if d.modo == "direto":
+                    d.modo = "remux"
         argv = argv_de_fluxo(d, caminho, inicio=int(t or 0), gpu=GPU)
         if argv is None:
             # ⚠ Modo direto: pedir o cano aqui é um bug do frontend, e responder com bytes
