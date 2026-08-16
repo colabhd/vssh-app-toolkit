@@ -44,6 +44,12 @@ _POR_EXTENSAO = {
 }
 
 
+# ⚠ Legenda de IMAGEM não vira texto. PGS (Blu-ray) e VobSub (DVD) são bitmaps: converter para VTT
+# exigiria OCR, e o `ffmpeg -f webvtt` sobre elas devolve nada — sem erro. Sem esta lista, a
+# interface ofereceria faixas que, escolhidas, simplesmente não aparecem na tela.
+_LEGENDA_DE_IMAGEM = {"hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle", "xsub"}
+
+
 @dataclass
 class Faixa:
     indice: int
@@ -52,6 +58,13 @@ class Faixa:
     altura: int = 0
     canais: int = 0
     padrao: bool = False    # `disposition.default` — a que o navegador vai tocar sozinho
+    idioma: Optional[str] = None
+    titulo: Optional[str] = None
+
+    @property
+    def e_texto(self):
+        """Só vale para legenda: dá para virar VTT, ou é imagem?"""
+        return self.codec not in _LEGENDA_DE_IMAGEM
 
 
 @dataclass
@@ -60,6 +73,7 @@ class Sonda:
     duracao: Optional[float] = None
     video: Optional[Faixa] = None
     audios: List[Faixa] = field(default_factory=list)
+    legendas: List[Faixa] = field(default_factory=list)
 
 
 @dataclass
@@ -103,6 +117,23 @@ class Perfil:
 PERFIL_MINIMO = Perfil(containers={"mp4"}, video={"h264"}, audio={"aac", "mp3"})
 
 
+def perfil_de(bruto):
+    """O JSON que o cliente mandou → `Perfil`, ou `None` para "use o mínimo".
+
+    ⚠ **Perfil PARCIAL é pior que perfil nenhum**, e é por isso que os três campos são exigidos
+    juntos: um cliente que mandasse `{"containers": [...], "video": [], "audio": [...]}` por um bug
+    de sondagem receberia transcodificação de tudo, para sempre, sem nada indicando o motivo.
+    Cair no mínimo quando falta um campo é o comportamento previsível — e o mínimo toca.
+    """
+    if not isinstance(bruto, dict):
+        return None
+    try:
+        conjuntos = [set(map(str, bruto.get(k) or [])) for k in ("containers", "video", "audio")]
+    except TypeError:
+        return None
+    return Perfil(*conjuntos) if all(conjuntos) else None
+
+
 @dataclass
 class Decisao:
     modo: str                            # direto | remux | audio | transcode | desconhecido
@@ -132,25 +163,36 @@ def sondar(bruto, nome=""):
 
     video = None
     audios = []
+    legendas = []
     for s in streams:
         codec = s.get("codec_name")
         if not codec:
             continue
-        if s.get("codec_type") == "video":
+        tags = s.get("tags") or {}
+        disp = s.get("disposition") or {}
+        comum = dict(
+            indice=int(s.get("index", 0)), codec=codec, padrao=bool(disp.get("default")),
+            # O idioma e o título são o que torna o seletor utilizável: sem eles a lista diz
+            # "Faixa 1, Faixa 2", e ninguém escolhe entre original e dublagem por número.
+            idioma=tags.get("language") or None, titulo=tags.get("title") or None,
+        )
+        tipo = s.get("codec_type")
+        if tipo == "video":
             # ⚠ A capa do álbum é um stream de VÍDEO. Um MP3 com capa traz `mjpeg` com
             # `attached_pic: 1`, e sem filtrar isso toda música com capa vira "vídeo em MJPEG" e
             # cai em transcode — a 100% de CPU para tocar o que sairia direto.
-            if (s.get("disposition") or {}).get("attached_pic"):
+            if disp.get("attached_pic"):
                 continue
             if video is None:
-                video = Faixa(indice=int(s.get("index", 0)), codec=codec,
-                              largura=int(s.get("width") or 0), altura=int(s.get("height") or 0))
-        elif s.get("codec_type") == "audio":
-            audios.append(Faixa(indice=int(s.get("index", 0)), codec=codec,
-                                canais=int(s.get("channels") or 0),
-                                padrao=bool((s.get("disposition") or {}).get("default"))))
+                video = Faixa(largura=int(s.get("width") or 0), altura=int(s.get("height") or 0),
+                              **comum)
+        elif tipo == "audio":
+            audios.append(Faixa(canais=int(s.get("channels") or 0), **comum))
+        elif tipo == "subtitle":
+            legendas.append(Faixa(**comum))
 
-    return Sonda(container=container, duracao=duracao, video=video, audios=audios)
+    return Sonda(container=container, duracao=duracao, video=video, audios=audios,
+                 legendas=legendas)
 
 
 def decidir(sonda, perfil=None):

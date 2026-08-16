@@ -205,6 +205,46 @@ class TestMusica(unittest.TestCase):
             self.assertEqual(decidir(s, CHROME).modo, "remux", nome)
 
 
+class TestFaixasParaEscOLHER(unittest.TestCase):
+    """O que faz um seletor de faixa ser utilizável em vez de uma lista de números."""
+
+    def test_idioma_e_titulo_chegam(self):
+        # Sem eles a lista diz "Faixa 1, Faixa 2", e ninguém escolhe entre original e dublagem por
+        # número. Os dois vêm em `tags`, que é onde o ffprobe põe metadado de stream.
+        s = sondar(ffprobe("matroska,webm", [
+            video("h264"),
+            audio("ac3", indice=1, canais=6, tags={"language": "eng", "title": "Original 5.1"}),
+            audio("aac", indice=2, tags={"language": "por", "title": "Dublado"}),
+        ]), "filme.mkv")
+        self.assertEqual([(f.idioma, f.titulo) for f in s.audios],
+                         [("eng", "Original 5.1"), ("por", "Dublado")])
+
+    def test_faixa_sem_tags_nao_inventa_nome(self):
+        s = sondar(ffprobe("matroska,webm", [video("h264"), audio("aac")]), "filme.mkv")
+        self.assertEqual((s.audios[0].idioma, s.audios[0].titulo), (None, None))
+
+    def test_as_legendas_embutidas_aparecem(self):
+        s = sondar(ffprobe("matroska,webm", [
+            video("h264"), audio("aac"),
+            {"index": 2, "codec_type": "subtitle", "codec_name": "subrip",
+             "tags": {"language": "por"}},
+        ]), "filme.mkv")
+        self.assertEqual([(f.indice, f.idioma) for f in s.legendas], [(2, "por")])
+
+    def test_legenda_de_IMAGEM_e_marcada_como_tal(self):
+        # ⚠ PGS (Blu-ray) e VobSub (DVD) são BITMAPS. Converter para VTT exigiria OCR, e o
+        # `ffmpeg -f webvtt` sobre elas devolve nada — sem erro, sem aviso. Sem esta marca, a
+        # interface ofereceria uma faixa que, escolhida, simplesmente não aparece na tela, e quem
+        # usa conclui que o player não sabe mostrar legenda.
+        s = sondar(ffprobe("matroska,webm", [
+            video("h264"), audio("aac"),
+            {"index": 2, "codec_type": "subtitle", "codec_name": "subrip"},
+            {"index": 3, "codec_type": "subtitle", "codec_name": "hdmv_pgs_subtitle"},
+            {"index": 4, "codec_type": "subtitle", "codec_name": "ass"},
+        ]), "filme.mkv")
+        self.assertEqual([f.e_texto for f in s.legendas], [True, False, True])
+
+
 class TestSondagem(unittest.TestCase):
     def test_o_format_name_do_ffprobe_e_uma_LISTA_e_nao_um_nome(self):
         # ⚠ `matroska,webm` é o mesmo demuxer para dois containers diferentes, e `.mkv` não é
