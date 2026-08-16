@@ -137,12 +137,12 @@ body { margin: 0; overflow: hidden; }
    para descobrir, e velocidade se troca dezenas de vezes por sessão.
    Sem moldura, como os vizinhos de ícone — a lib só tira a borda de `--icone`, e este é de texto.
    Uma caixa no meio de sete glifos soltos lê como controle de outra categoria. */
-.tuff-veloc {
+.palco-veloc {
   min-width: 34px; padding: 0 6px; font-variant-numeric: tabular-nums;
   border-color: transparent; background: none; color: var(--ds-text-dim);
 }
-.tuff-veloc:hover:not(:disabled) { background: var(--ds-bg-hover); color: var(--ds-text); }
-.tuff-veloc[data-alterada="1"] { color: var(--ds-accent-h); }
+.palco-veloc:hover:not(:disabled) { background: var(--ds-bg-hover); color: var(--ds-text); }
+.palco-veloc[data-alterada="1"] { color: var(--ds-accent-h); }
 
 /* ── 6. A barra de estado ───────────────────────────────────────────────────
    ⚠ Sem monoespaçada e sem sigla. Mono é a tipografia de "isto é saída de máquina" — exatamente a
