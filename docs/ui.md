@@ -173,7 +173,7 @@ TuffIcones.svg('play')  // a marcação, como string
 Opt-in. Para quem tem player, visualizador de imagens ou grade de miniaturas.
 
 ```js
-TuffMidia.player(raiz, video)   // liga trilha, timecode, volume e o chrome que some
+TuffMidia.player(raiz, video, { tempo })   // trilha, timecode, volume e o chrome que some
 TuffMidia.grade(el, { total, largura, altura, montar, aoSelecionar, aoAbrir })   // VIRTUALIZADA
 TuffMidia.visor(el)             // zoom no ponteiro, arraste, duplo-clique alterna
 TuffMidia.tempo(segundos)       // '12:04'
@@ -191,6 +191,37 @@ Ponha o seu conteúdo num elemento dentro do nó.
 `aoAbrir(i)` dispara com **duplo-clique e com Enter** — os dois, e é intencional: uma grade em que
 só o teclado abre é uma grade que o mouse não usa, e o contrário deixa quem navega por teclado sem
 saída.
+
+### Quando o `<video>` não sabe que horas são
+
+Um vídeo que o servidor está remuxando ou mesclando chega por um **cano**: sem `Content-Length` não
+há `Accept-Ranges`, e sem ele o elemento relata `duration: Infinity` e ignora `currentTime =`. A
+trilha fica sem tamanho e o arraste não faz nada — e o app não consegue consertar por fora, porque
+quem lê `video.duration` é a peça.
+
+`opcoes.tempo` troca a régua. Três funções, todas opcionais:
+
+```js
+TuffMidia.player(raiz, video, {
+  tempo: {
+    duracao: () => 3617,                      // o ffprobe sabe, o <video> não
+    atual:   () => base + video.currentTime,  // o cano começa onde o servidor cortou
+    buscar:  (t) => trocarFonte(t),           // reinicia o ffmpeg com `-ss`
+  },
+});
+```
+
+**Sem a opção, nada muda** — os valores continuam vindo crus do elemento, inclusive o `NaN` que
+vira `--:--` antes dos metadados. Dar só `duracao` já resolve o caso de o servidor conhecer o
+tamanho e o cano não.
+
+O buffer é traduzido sozinho: `video.buffered` fala nas coordenadas do cano, e a diferença entre
+`atual()` e `video.currentTime` é o deslocamento entre as duas réguas. Sem isso, a barra de
+carregado de um filme buscado aos 30 min apareceria no começo da linha.
+
+⚠ **Com `buscar`, o relógio não anda no clique.** A busca sai pela rede e o elemento não se move —
+o tempo mostrado só avança quando o trecho novo chega. É o certo: fingir que já chegou é o que
+produz aquele playhead que pula para trás.
 
 ### O chrome e o transporte são peças diferentes
 
