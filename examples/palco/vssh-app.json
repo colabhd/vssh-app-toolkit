@@ -2,6 +2,7 @@
   "id": "palco",
   "name": "Palco",
   "version": "0.1.0",
+  "icon": "icon.svg",
   "category": "AudioVideo",
   "description": "O player do ambiente. Toca o que está no servidor — inclusive o que o navegador não abre sozinho —, decidindo por arquivo se ele sai direto, reembalado ou convertido, com base no que ESTA máquina consegue tocar. Faixas de áudio e legendas selecionáveis, retomar de onde parou, próximo da pasta, janela flutuante e as teclas de mídia do sistema.",
   "requiredPackages": [

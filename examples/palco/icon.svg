@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64"
+     role="img" aria-label="Palco">
+  <title>Palco</title>
+  <!--
+    A RIBALTA — a fileira de luzes na beira do palco, que ilumina de baixo.
+
+    Três decisões, e as três saíram de olhar o ícone no tamanho em que ele é desenhado:
+
+    1. SANGRADO até a borda, sem raio próprio. Quem arredonda os cantos é o shell
+       (`.sm-app-icon` 5px a 22px, `.launchpad-app-icon` 10px a 48px). Um raio desenhado aqui
+       apareceria por dentro do raio de lá, como uma moldura que ninguém pediu.
+    2. DUAS FORMAS e nada mais. O ambiente desenha isto a 22px no menu iniciar, e é ali que a
+       escolha se faz: qualquer terceiro elemento vira sujeira nesse tamanho.
+    3. A luz vem DE BAIXO. É o que distingue este ícone de todo player que existe — a barra
+       quente dá base ao triângulo, e por isso ele não precisa de moldura, arco nem cortina para
+       deixar de flutuar no ladrilho.
+
+    O triângulo é branco QUENTE (#f5f2ea) e não puro: sobre o brilho âmbar, o branco puro cria
+    uma borda fria que lê como recorte mal feito.
+  -->
+  <defs>
+    <linearGradient id="ribalta" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0%" stop-color="#ffbe3d" stop-opacity=".95"/>
+      <stop offset="100%" stop-color="#ffbe3d" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="64" height="64" fill="#15171c"/>
+  <rect y="30" width="64" height="34" fill="url(#ribalta)" opacity=".5"/>
+  <!--
+    O triângulo ocupa ~42% da largura, e o centro dele fica ABAIXO do centro do ladrilho: a área
+    útil termina em y=55, onde começa a ribalta, e um glifo centrado na caixa inteira pareceria
+    boiando acima da luz em vez de estar em pé sobre ela.
+  -->
+  <path d="M23 14v32l27-16z" fill="#f5f2ea"/>
+  <rect y="55" width="64" height="9" fill="#ffbe3d"/>
+</svg>

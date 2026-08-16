@@ -39,6 +39,22 @@ class TestOQueOAmbienteVaiMandar(unittest.TestCase):
         alvo = os.path.join(_AQUI, "..", MANIFESTO["backend"]["entrypoint"])
         self.assertTrue(os.path.isfile(alvo), MANIFESTO["backend"]["entrypoint"])
 
+    def test_o_icone_existe_e_ESCALA(self):
+        # ⚠ Duas coisas, e nenhuma reclama sozinha. Um `icon` apontando para arquivo que não
+        # existe publica limpo e o app aparece sem ícone — indistinguível de não ter declarado.
+        # E um SVG sem `viewBox` não escala: o ambiente o desenha a 22px, 42px e 48px, e sem a
+        # caixa ele sai cortado em dois dos três lugares.
+        rel = MANIFESTO.get("icon")
+        self.assertTrue(rel, "o manifesto não declara ícone")
+        alvo = os.path.join(_AQUI, "..", rel)
+        self.assertTrue(os.path.isfile(alvo), rel)
+        with open(alvo, encoding="utf-8") as fh:
+            svg = fh.read()
+        self.assertIn("viewBox", svg)
+        # ⚠ Sem `<text>`: a fonte depende da máquina que RENDERIZA, e o ícone de um app não pode
+        # mudar de desenho — nem sumir — porque um servidor não tem a família declarada.
+        self.assertNotIn("<text", svg)
+
     def test_o_ffmpeg_e_DECLARADO(self):
         # Sem ele instalado no servidor, tudo que não seja o modo direto falha — e falha no meio de
         # um vídeo, não na instalação. `requiredPackages` é o que move o erro para onde ele se
