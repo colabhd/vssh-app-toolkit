@@ -271,6 +271,14 @@
             "type": "string",
             "pattern": "^[a-zA-Z0-9!#$&^_.+-]+/[a-zA-Z0-9!#$&^_.+-]+$"
           }
+        },
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:\\*\\.)?(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\\.)+[A-Za-z](?:[A-Za-z0-9-]*[A-Za-z0-9])?$"
+          },
+          "description": "HOSTS cujos links este app sabe abrir — é o que faz um link do YouTube cair no seu player em vez de virar aba do navegador. Só o host, sem esquema, sem porta e sem caminho: discriminar por porta ou por rota seria regra de roteamento, e quem roteia dentro do app é o app. `youtube.com` casa o host EXATO; `*.youtube.com` casa também os subdomínios (`m.`, `www.`, `music.`) — a mesma semântica dos padrões de userscript, e ⚠ NÃO um sufixo: `evilyoutube.com` não casa com `youtube.com`, embora termine com ele. O padrão recusa, de propósito: `*` e `*.com` (curinga sobre sufixo público — um app tomaria a internet inteira), IP literal (endereço não é identidade de site) e nome de rótulo único, do qual `localhost` é o caso que importa — aqui ele é o loopback DO SERVIDOR, e reivindicá-lo sequestraria todo servidor de desenvolvimento do ambiente. ⚠ O que o padrão NÃO consegue recusar é curinga sobre sufixo público de mais de um rótulo (`*.co.uk`), que exige a Public Suffix List; essa recusa é do portal. Declarar um host não elege ninguém: com dois apps declarando o mesmo host, o usuário decide em Configurações → Sites e, até lá, o link segue para o navegador."
         }
       }
     },

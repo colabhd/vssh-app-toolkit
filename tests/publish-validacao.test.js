@@ -238,6 +238,59 @@ test('as recusas que já existiam continuam recusando', seNaoTem, () => {
 // barata de errar: o portal repassa o objeto inteiro, o cliente lê quatro chaves, e `widht: 900`
 // deixa a janela no tamanho padrão sem uma linha de log em lugar nenhum.
 
+// ─── `opens.urls`: o campo cujo VALOR vira regra de casamento ────────────────
+//
+// Ele não se parece com `extensions`, e a diferença é de consequência. Uma extensão errada faz o
+// app não aparecer no "Abrir com"; um host errado faz o app **capturar links que não são dele** —
+// e o link é o gesto em que a pessoa menos espera ser levada para outro lugar. Por isso a recusa
+// mora no gate de publicação, e não só no portal: aqui é onde ainda dá para não publicar.
+//
+// A recusa que mais importa é a do rótulo único, e ela não é óbvia. `localhost` neste ambiente é o
+// loopback DO SERVIDOR — o servidor de desenvolvimento de quem está usando. Um app que o
+// reivindicasse passaria a receber todo `http://localhost:3000` de todo mundo.
+
+test('opens.urls aceita o que é host de verdade', seNaoTem, () => {
+  for (const bom of [
+    'youtube.com', 'youtu.be', 'www.youtube.com', '*.youtube.com',
+    'xn--80ak6aa92e.com',                 // IDN em punycode é host como qualquer outro
+    'arquivo.gov.br', 'a.b',
+  ]) {
+    assert.match(validar({ ...BASE, opens: { urls: [bom] } }), /^ID=x$/m, `recusou: ${bom}`);
+  }
+});
+
+test('opens.urls recusa o que sequestraria mais do que um site', seNaoTem, () => {
+  for (const [ruim, porque] of [
+    ['*',                'tomaria a internet inteira'],
+    ['*.com',            'curinga sobre sufixo público'],
+    ['localhost',        'aqui é o loopback DO SERVIDOR'],
+    ['intranet',         'rótulo único: nome de rede interna, não site'],
+    ['192.168.1.10',     'endereço não é identidade de site'],
+    ['*.localhost',      'curinga sobre rótulo único'],
+    ['https://youtube.com', 'esquema junto — o campo é só o host'],
+    ['youtube.com/watch',   'caminho junto — quem roteia dentro do app é o app'],
+    ['youtube.com:443',     'porta junto'],
+    ['-youtube.com',        'rótulo não começa com hífen'],
+    ['youtube.com.',        'ponto final solto'],
+  ]) {
+    assert.match(validar({ ...BASE, opens: { urls: [ruim] } }),
+      /^ERROR=schema:opens\.urls\[0\]: /m, `passou (${porque}): ${ruim}`);
+  }
+});
+
+test('opens.urls NÃO é casamento por sufixo', seNaoTem, () => {
+  // `'evilyoutube.com'.endsWith('youtube.com')` é `true`, e é assim que se escreve este casamento
+  // errado na primeira tentativa. Aqui os dois são hosts distintos e cada um se declara sozinho —
+  // o schema não tem como impedir o engano, então ele documenta e o teste registra a intenção.
+  const saida = validar({ ...BASE, opens: { urls: ['youtube.com', 'evilyoutube.com'] } });
+  assert.match(saida, /^ID=x$/m, 'os dois são hosts válidos e independentes');
+
+  const schema = JSON.parse(fs.readFileSync(SCHEMA, 'utf8'));
+  const re = new RegExp(schema.properties.opens.properties.urls.items.pattern);
+  assert.ok(re.test('*.youtube.com'), 'o curinga de subdomínio precisa passar');
+  assert.ok(!re.test('*.com'), 'curinga sobre sufixo público não pode passar');
+});
+
 test('a raiz recusa campo desconhecido — era por onde o typo passava', seNaoTem, () => {
   for (const [campo, valor] of [
     ['requiredPackage', ['ffmpeg']],   // o `s` que faltou: publicaria sem verificar pacote nenhum

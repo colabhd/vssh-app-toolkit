@@ -40,6 +40,7 @@ no-op. Você desenvolve fora do VSSH sem `if` nenhum.
 | Deixar o usuário escolher com que abrir | `vssh.openWith()` |
 | Abrir um LINK no navegador do ambiente | `vssh.openUrl()` |
 | Receber um arquivo que abriram com o meu app | `vssh.onOpenContext()` |
+| Ser o app que abre os links de um site | `opens.urls` no manifesto |
 | Receber arquivo **arrastado** para dentro do app | `vssh.onArquivosSoltos()` |
 | Arrastar um arquivo **para fora** do app | `vssh.arrastarArquivos()` no `dragstart` |
 | Abas no cabeçalho da janela | `vssh.tabs.*` (exige `richChrome`) |
@@ -824,6 +825,27 @@ encaminhamento de porta próprio: o caminho já existe.
 Só `http` e `https`. O ambiente recusa o resto com motivo — um `javascript:` seria script executado
 no ambiente sob o nome de "abrir um link", e arquivo tem porta própria (`vssh.openFile`).
 
+#### Quando o link tem DONO
+
+Um app pode declarar hosts em `opens.urls` (duas seções abaixo) e passar a receber os links deles.
+A partir daí, `openUrl` quer dizer **"abra onde este link pertence"** — o que é o certo, e o que
+quase todo chamador quer: um link do YouTube abre no player do ambiente em vez de virar aba.
+
+Sobra o caso em que o app **sabe** que quer o navegador — a política de privacidade, a ajuda do
+serviço, o "ver no site original" que existe justamente para escapar do cliente customizado:
+
+```js
+await vssh.openUrl('https://youtube.com/watch?v=x', { destino: 'navegador' });
+```
+
+⚠ **Se o app do host é você, esta é a saída do laço.** Sem a palavra, o botão "ver no site original"
+manda o link para o ambiente, o ambiente devolve para o app que declarou o host — que é o próprio —
+e não há como sair. `'navegador'` é o único valor; qualquer outro vira `console.warn` e é ignorado.
+
+O desvio automático da seção acima **nunca** fixa destino, e isso é de propósito: um `<a
+target="_blank">` no fundo de uma biblioteca, ou um link dentro de uma página proxiada, é
+exatamente onde roteamento por host vale mais. Quem quer o navegador escreve a palavra.
+
 ### Ser um dos alvos de "Abrir com"
 
 Declare no `vssh-app.json`:
@@ -855,10 +877,61 @@ todo mundo. A única precedência que não é palpite nosso nem disputa entre ap
 vssh.onOpenContext(({ path, tipo, rota }) => { if (path) abrir(path); });
 ```
 
-`open-context` também chega com o diretório de origem quando o app é aberto por "Abrir Terminal
-Aqui" e afins. `tipo` (`'arquivo'` | `'pasta'`) acompanha o `path` quando o ambiente sabe qual dos
-dois é; `rota` chega quando alguém usa a **jump list** do ícone com a janela já aberta. Apps que não
-tratam simplesmente ignoram.
+#### O que chega em `open-context`
+
+| campo | quando chega |
+|---|---|
+| `path` | o arquivo que abriram com este app — ou o **diretório de origem**, quando o app é aberto por "Abrir Terminal Aqui" e afins. Caminho absoluto no SERVIDOR |
+| `url` | o **link** que o ambiente roteou para cá, porque o app declarou o host em `opens.urls` (a seção seguinte) |
+| `tipo` | `'arquivo'`, `'pasta'` ou `'url'` — qual dos três, quando o ambiente sabe |
+| `rota` | alguém usou a **jump list** do ícone com a janela já aberta |
+
+`path` e `url` **nunca chegam juntos**: são as duas formas de dizer *o que abrir*, e o ambiente sabe
+qual delas tem na mão. Apps que não tratam um campo simplesmente o ignoram.
+
+### Ser o app que abre os links de um site
+
+O irmão de `extensions`, para link em vez de arquivo. É o que faz um endereço do YouTube cair no
+player do ambiente em vez de virar uma aba do navegador embutido:
+
+```json
+{ "opens": { "urls": ["youtube.com", "*.youtube.com", "youtu.be"] } }
+```
+
+O link chega pelo mesmo `open-context` da seção acima, com `url` no lugar de `path`:
+
+```js
+vssh.onOpenContext(({ url }) => { if (url) tocar(url); });
+```
+
+**Só o host** — sem esquema, sem porta e sem caminho. Discriminar por rota seria roteamento, e quem
+roteia dentro do app é o app: se você declara `youtube.com`, recebe `/watch`, `/playlist`, `/@canal`
+e o resto, e decide o que fazer com cada um.
+
+| forma | casa |
+|---|---|
+| `youtube.com` | o host **exato**, e mais nada |
+| `*.youtube.com` | os subdomínios: `m.`, `www.`, `music.` — a mesma semântica dos padrões de userscript |
+
+⚠ **Não é casamento por sufixo.** `evilyoutube.com` termina com `youtube.com` e **não** casa com
+ele. É o engano que se escreve na primeira tentativa (`host.endsWith(padrao)`), e por isso vale
+dizer que aqui ele não existe.
+
+O gate de publicação recusa, cada um por um motivo: `*` e `*.com` (um app tomaria a internet
+inteira), IP literal (endereço não é identidade de site), e nome de rótulo único — do qual
+**`localhost` é o caso que importa**, porque aqui ele é o loopback *do servidor*, e reivindicá-lo
+sequestraria todo servidor de desenvolvimento do ambiente.
+
+**Declarar não elege.** O app entra na lista de quem sabe abrir aquele host; quem escolhe é o
+usuário, em Configurações → Sites. Quando **um único** app declara um host, o ambiente o elege
+sozinho — é a diferença entre um recurso que funciona e um que exige configuração antes de
+funcionar uma vez. Com dois candidatos ninguém é eleito e o link segue para o navegador, que é o
+que impede uma instalação nova de capturar links em silêncio.
+
+> ⚠ **Um app que declara um host precisa dar conta de TODO endereço dele.** Se alguém clica numa
+> playlist e recebe "isto não é um vídeo", o roteamento ficou *pior* do que não existir: a pessoa
+> clicou num link e chegou num beco. Quando o app não trata uma forma, o caminho honesto é
+> `vssh.openUrl(url, { destino: 'navegador' })` — devolver o link, e não uma tela de erro.
 
 ### Ter item PRÓPRIO no menu de contexto do ambiente
 

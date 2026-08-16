@@ -434,9 +434,29 @@ interface VsshCofre {
   remove(nome: string): Promise<{ names: string[]; requerReinicio?: boolean } | null>;
 }
 
+/**
+ * "Abra assim" — a mensagem que o ambiente manda quando alguém abre algo COM este app.
+ *
+ * ⚠ A assinatura de índice no fim não é preguiça: o shell pode ganhar um campo antes deste arquivo,
+ * e sem ela um campo novo faria o TypeScript recusar código que funciona. O preço é que errar o
+ * nome de um campo não dá erro — por isso os que existem estão declarados um a um, e há um teste
+ * que os cobra contra a tabela de `docs/api.md`.
+ */
 interface VsshContextoDeAbertura {
   type: 'open-context';
+  /** O arquivo aberto com este app, ou o diretório de origem de "Abrir Terminal Aqui". No SERVIDOR. */
   path?: string;
+  /**
+   * O link que o ambiente roteou para cá, porque o app declarou o host em `opens.urls`.
+   *
+   * Nunca chega junto com `path`: são as duas formas de dizer *o que abrir*, e o ambiente sabe qual
+   * delas tem na mão.
+   */
+  url?: string;
+  /** Qual dos três o ambiente mandou abrir, quando ele sabe. */
+  tipo?: 'arquivo' | 'pasta' | 'url';
+  /** Alguém usou a jump list do ícone com a janela já aberta. */
+  rota?: string;
   [k: string]: unknown;
 }
 
@@ -478,8 +498,12 @@ interface Vssh {
    *
    * Aquele navegador resolve a rede a partir do servidor Linux, então `http://localhost:3000` aqui
    * é o loopback **do servidor**. Só `http`/`https`; o ambiente recusa o resto.
+   *
+   * `{ destino: 'navegador' }` é "no navegador MESMO ASSIM": sem ele, um link cujo host pertença a
+   * algum app (`opens.urls`) abre naquele app. Use no "ver no site original" e afins — inclusive
+   * para não fechar um laço quando o app do host é você.
    */
-  openUrl(url: string): Promise<null>;
+  openUrl(url: string, opcoes?: { destino?: 'navegador' }): Promise<null>;
 
   fs: VsshFs;
 
