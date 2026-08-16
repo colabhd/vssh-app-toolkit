@@ -67,7 +67,9 @@ const NOSSOS = new Set([
   // A segunda leva, para o player completo do Palco. `cast` foi considerado e RECUSADO: não há
   // Chromecast neste ambiente, e ícone sem consumidor é a mesma dívida da classe que não estiliza
   // nada — a lição que `chevron-left`/`chevron-right` já custaram logo abaixo.
-  'pip', 'subtitles', 'speed', 'repeat', 'shuffle',
+  // `repeat-one` não é enfeite do `repeat`: repetir é TRI-ESTADO, e o terceiro estado precisa de
+  // glifo próprio — cor sozinha distingue dois, não três.
+  'pip', 'subtitles', 'speed', 'repeat', 'repeat-one', 'shuffle',
   'zoom-in', 'zoom-out', 'fit', 'rotate-left', 'rotate-right', 'crop', 'eye', 'eye-off',
   // ⚠ Só `chevron-up`. Eu havia acrescentado `chevron-left` e `chevron-right`, e as duas eram
   // DUPLICATAS: no shell as setas horizontais se chamam `arrow-left`/`arrow-right`, e o desenho é o
