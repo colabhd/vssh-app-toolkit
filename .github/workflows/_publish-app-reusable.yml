@@ -43,7 +43,7 @@ on:
         # `v2`: uma tag, e não um branch. Puxar de `main` fazia a validação do seu CI mudar
         # debaixo de você a cada commit deste repositório — inclusive num push que você não viu.
         # Bumps compatíveis movem a `v2`; uma mudança incompatível cria a `v3`.
-        default: 'v2'
+        default: 'v4'
     secrets:
       publish_token:
         description: 'Token de publicação escopado (app:<id> ou kind:app)'
@@ -55,12 +55,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout do app (repo chamador)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: app
 
       - name: Checkout das ferramentas (vssh-app-toolkit/scripts)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: colabhd/vssh-app-toolkit
           ref: ${{ inputs.tools_ref }}
