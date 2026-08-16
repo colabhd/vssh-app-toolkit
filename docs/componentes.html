@@ -390,7 +390,9 @@
         <div class="tuff-transporte-controles">
           <div class="tuff-transporte-inicio">
             <svg class="tuff-ico tuff-ico--sm"><use href="#ico-video"></use></svg>
-            <span class="tuff-item">entrevista-final.mkv</span>
+            <!-- ⚠ Um `<span>` simples, e NÃO `.tuff-item`: aquela é linha de lista (ver "Listas"
+                 acima, com `role="option"`), e usá-la como rótulo solto ensinaria o contrário. -->
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">entrevista-final.mkv</span>
           </div>
 
           <div class="tuff-transporte-meio">
