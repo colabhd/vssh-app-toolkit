@@ -36,7 +36,7 @@
     "//engines": "O >=22 é do RUNNER DE TESTE (o glob abaixo só existe a partir dessa versão). As libs de lib/ rodam em Node >=20 — o CI prova isso rodando o template em 20, e é essa a versão que importa, porque é a do servidor-alvo.",
     "//test": "Glob entre aspas: quem expande é o Node, não o shell — sem isso quebra no cmd.exe do Windows, que é metade da matriz do CI. `tests/` é para o que não é de uma lib só (hoje: a conferência das cópias vendorizadas nos templates).",
     "test": "node --test \"lib/**/*.test.js\" \"tests/**/*.test.js\"",
-    "//test:py": "As libs Python e o template que as usa. NÃO entra no `test` porque `node --test` não sabe rodá-lo e porque a ausência de `python3` não pode reprovar quem só mexeu em JavaScript — é a mesma regra dos testes de navegador, que se pulam sem Chrome. O CI roda os dois.",
-    "test:py": "python3 -m unittest discover -s lib/python/test && python3 -m unittest discover -s tests/python"
+    "//test:py": "As libs Python, o template que as usa, e os apps Python de `examples/`. NÃO entra no `test` porque `node --test` não sabe rodá-lo e porque a ausência de `python3` não pode reprovar quem só mexeu em JavaScript — é a mesma regra dos testes de navegador, que se pulam sem Chrome. O CI roda os dois. ⚠ Um diretório novo de teste tem de ser ACRESCENTADO aqui: `discover` não desce sozinho por `examples/*/test`, e um app cujos testes ninguém roda é pior que um app sem testes.",
+    "test:py": "python3 -m unittest discover -s lib/python/test && python3 -m unittest discover -s tests/python && python3 -m unittest discover -s examples/palco/test"
   }
 }
