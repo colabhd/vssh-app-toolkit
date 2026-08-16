@@ -356,6 +356,75 @@
       </div>
     </section>
 
+    <section class="tuff-painel" style="grid-column: 1 / -1">
+      <div class="tuff-sec">
+        <div class="tuff-sec-titulo">Transporte</div>
+        <div class="tuff-sec-desc">
+          O chrome acima fica <em>sobre</em> o vídeo e some sozinho. Isto é a outra peça: a barra que
+          <strong>não some</strong>, embaixo da janela inteira, enquanto a pessoa navega a
+          biblioteca — porque o vídeo não parou de tocar só porque ela foi olhar outra coisa. É o que
+          separa um player de desktop de uma página com vídeo dentro.
+          <br><br>
+          Dois andares, e não uma fila: em cima, <em>onde estou no tempo</em>; embaixo, <em>o que eu
+          faço</em>. O aglomerado de transporte fica no centro óptico por <code>1fr auto 1fr</code> —
+          com <code>flex</code> ele andaria conforme o nome da faixa fosse curto ou comprido, e o
+          botão que se procura sem olhar mudaria de lugar a cada vídeo.
+        </div>
+      </div>
+
+      <div class="tuff-transporte">
+        <div class="tuff-transporte-tempo">
+          <span class="tuff-tempo">12:04</span>
+          <div class="tuff-trilha" aria-label="Posição">
+            <div class="tuff-trilha-trilho">
+              <div class="tuff-trilha-buffer" style="width:43%"></div>
+              <div class="tuff-trilha-tocado" style="width:29%"></div>
+              <div class="tuff-trilha-marca" style="left:18%"></div>
+              <div class="tuff-trilha-marca" style="left:71%"></div>
+            </div>
+            <div class="tuff-trilha-polegar" style="left:29%"></div>
+          </div>
+          <span class="tuff-tempo">41:37</span>
+        </div>
+
+        <div class="tuff-transporte-controles">
+          <div class="tuff-transporte-inicio">
+            <svg class="tuff-ico tuff-ico--sm"><use href="#ico-video"></use></svg>
+            <span class="tuff-item">entrevista-final.mkv</span>
+          </div>
+
+          <div class="tuff-transporte-meio">
+            <button class="tuff-btn tuff-btn--icone" aria-label="Anterior"><svg class="tuff-ico"><use href="#ico-skip-back"></use></svg></button>
+            <button class="tuff-btn tuff-btn--icone" aria-label="Pausar"><svg class="tuff-ico"><use href="#ico-pause"></use></svg></button>
+            <button class="tuff-btn tuff-btn--icone" aria-label="Parar"><svg class="tuff-ico"><use href="#ico-stop"></use></svg></button>
+            <button class="tuff-btn tuff-btn--icone" aria-label="Próximo"><svg class="tuff-ico"><use href="#ico-skip-forward"></use></svg></button>
+          </div>
+
+          <div class="tuff-transporte-fim">
+            <!-- Os dois alternadores, um LIGADO e outro desligado, lado a lado de propósito: é a
+                 única forma de conferir olhando que `aria-pressed` pinta alguma coisa. -->
+            <button class="tuff-btn tuff-btn--icone" aria-pressed="true" aria-label="Repetir: só esta"><svg class="tuff-ico"><use href="#ico-repeat-one"></use></svg></button>
+            <button class="tuff-btn tuff-btn--icone" aria-pressed="false" aria-label="Aleatório"><svg class="tuff-ico"><use href="#ico-shuffle"></use></svg></button>
+            <button class="tuff-btn tuff-btn--icone" aria-label="Ajustes"><svg class="tuff-ico"><use href="#ico-settings"></use></svg></button>
+            <div class="tuff-volume">
+              <button class="tuff-btn tuff-btn--icone" aria-label="Silenciar"><svg class="tuff-ico"><use href="#ico-volume-on"></use></svg></button>
+              <div class="tuff-volume-trilha">
+                <div class="tuff-volume-trilho"><div class="tuff-volume-nivel" style="width:68%"></div></div>
+              </div>
+            </div>
+            <button class="tuff-btn tuff-btn--icone" aria-label="Tela cheia"><svg class="tuff-ico"><use href="#ico-fullscreen"></use></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="tuff-dica">
+        O botão de <strong>repetir</strong> acima está ligado, e o de <strong>aleatório</strong> não.
+        A diferença vem de <code>aria-pressed="true"</code> — que até agora não pintava nada nesta
+        biblioteca, e por isso todo alternador ficava idêntico nos dois estados. O sintoma não é um
+        botão feio: é a fila fazendo algo que ninguém pediu.
+      </div>
+    </section>
+
     <section class="tuff-painel">
       <div class="tuff-sec">
         <div class="tuff-sec-titulo">Grade virtualizada</div>

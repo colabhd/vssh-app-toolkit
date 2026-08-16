@@ -138,15 +138,42 @@
      com borda vira uma grade de retângulos, e o que se quer ver são os símbolos. A borda volta no
      hover, que é quando ela informa algo. */
   .tuff-barra .tuff-btn--icone,
-  .tuff-chrome .tuff-btn--icone {
+  .tuff-chrome .tuff-btn--icone,
+  .tuff-transporte .tuff-btn--icone {
     background: transparent;
     border-color: transparent;
     color: var(--ds-text-dim);
   }
   .tuff-barra .tuff-btn--icone:hover:not(:disabled),
-  .tuff-chrome .tuff-btn--icone:hover:not(:disabled) {
+  .tuff-chrome .tuff-btn--icone:hover:not(:disabled),
+  .tuff-transporte .tuff-btn--icone:hover:not(:disabled) {
     background: var(--ds-bg-hover);
     color: var(--ds-text);
+  }
+
+  /* ⚠ **O ALTERNADOR, e ele simplesmente não existia.**
+     `aria-pressed` não aparecia em uma linha desta biblioteca — nem no CSS, nem na documentação. O
+     efeito é que um botão que LIGA e DESLIGA alguma coisa ficava idêntico nos dois estados.
+
+     Foi achado montando um player sobre a lib: repetir e aleatório ligados eram indistinguíveis de
+     desligados. O sintoma que chega ao usuário não é "o botão está feio" — é a fila fazendo algo
+     que ninguém pediu, sem nada na tela explicando por quê. Um controle que não mostra o próprio
+     estado mente sobre ele.
+
+     O realce é o MESMO de `.tuff-gaveta-item--ativo`, que é como o ambiente já diz "este aqui está
+     valendo". Inventar um segundo jeito daria dois "ligado" diferentes na mesma janela.
+
+     ⚠ Depois das regras de barra/chrome/transporte de propósito: elas têm a mesma especificidade
+     (0,2,0), então quem vem por último ganha. Escrito antes, o estado ligado seria apagado
+     exatamente nos lugares onde ele mais aparece. */
+  .tuff-btn[aria-pressed="true"] {
+    background: var(--ds-accent-bg);
+    border-color: transparent;
+    color: var(--ds-accent-h);
+  }
+  .tuff-btn[aria-pressed="true"]:hover:not(:disabled) {
+    background: var(--ds-accent-bg);
+    color: var(--ds-accent);
   }
 
   /* ⚠ A barra de ações GRUDA no fim do painel, e isso é item da tabela do 3.3:
@@ -386,14 +413,25 @@
      caixa inteira: ela pertence ao que está acima, e uma caixa a transformaria
      numa peça independente. */
 
+  /* ⚠ **`flow-root`, e não `flex`** — e isto é a correção de um defeito que já estava publicado.
+     Ela era `display: flex`, o que quebra a forma MAIS NATURAL de usar o componente: escrever texto
+     com um `<strong>` ou um `<code>` no meio. Em flex, cada elemento inline vira um item, cada
+     pedaço de texto solto vira um item anônimo, e o parágrafo se parte numa fileira de colunas
+     estreitas. Não é hipótese: as duas dicas do próprio catálogo estavam assim, e ninguém viu.
+     Um componente cuja API mais óbvia produz lixo é um componente com a API errada.
+     Com `flow-root` o texto corre; o ícone, quando existe, flutua para fora da linha e o parágrafo
+     o contorna — as duas formas de uso passam a funcionar. */
   .tuff-dica {
-    display: flex;
-    gap: var(--ds-gap-md);
+    display: flow-root;
     padding: var(--ds-gap-sm) 0 var(--ds-gap-sm) var(--ds-gap-lg);
     border-left: 2px solid var(--ds-border);
     font-size: var(--tuff-size-xs);
     color: var(--ds-text-dim);
     max-width: 70ch;
+  }
+  .tuff-dica > svg:first-child {
+    float: left;
+    margin: 1px var(--ds-gap-md) 0 0;
   }
   .tuff-dica--aviso { border-left-color: var(--ds-warn); color: var(--ds-warn); }
   .tuff-dica--erro { border-left-color: var(--ds-danger); color: var(--ds-danger); }

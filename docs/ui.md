@@ -124,6 +124,23 @@ controle nativo** (o `<select>` tem caixa e seta próprias, e a lista aberta tam
 Windows ela herdaria o fundo branco do sistema), **scrollbar do tema** (6px, polegar em
 `--ds-border`) e **hierarquia** entre rótulo e valor.
 
+### Botão que liga e desliga
+
+Use `aria-pressed`, e o realce sai de graça — o mesmo de `.tuff-gaveta-item--ativo`, que é como o
+ambiente diz "este aqui está valendo".
+
+```html
+<button class="tuff-btn tuff-btn--icone" aria-pressed="true" aria-label="Repetir: só esta">…</button>
+```
+
+> ⚠ Isto não existia até um app precisar. **Um alternador sem estado visível não parece um botão
+> feio: ele faz a interface fazer coisas que ninguém pediu**, sem nada na tela explicando por quê. E
+> `aria-pressed` não é enfeite de acessibilidade aqui — é o próprio seletor, então o leitor de tela
+> e o olho não têm como divergir.
+>
+> Para **três** estados (repetir: desligado / a fila toda / só esta), cor não basta: troque também o
+> glifo — `ico-repeat` e `ico-repeat-one` existem para isso.
+
 ## Os ícones
 
 87 símbolos, 16×16, traço único, `currentColor`. O sprite é injetado no seu documento por
@@ -157,7 +174,7 @@ Opt-in. Para quem tem player, visualizador de imagens ou grade de miniaturas.
 
 ```js
 TuffMidia.player(raiz, video)   // liga trilha, timecode, volume e o chrome que some
-TuffMidia.grade(el, { total, largura, altura, montar })   // VIRTUALIZADA
+TuffMidia.grade(el, { total, largura, altura, montar, aoSelecionar, aoAbrir })   // VIRTUALIZADA
 TuffMidia.visor(el)             // zoom no ponteiro, arraste, duplo-clique alterna
 TuffMidia.tempo(segundos)       // '12:04'
 ```
@@ -166,6 +183,44 @@ TuffMidia.tempo(segundos)       // '12:04'
 `<img>` por arquivo trava a aba na abertura sem se recuperar — um defeito que você só encontra no
 diretório de outra pessoa. Ela mantém no DOM só o que está visível: medido, 10 000 itens em menos de
 200 elementos.
+
+`montar(i, no)` preenche uma célula. ⚠ **Não escreva em `no.style` ali**: a grade já pôs `width`,
+`height` e `transform` no nó antes de chamar, e sobrescrevê-los empilha todas as células na origem.
+Ponha o seu conteúdo num elemento dentro do nó.
+
+`aoAbrir(i)` dispara com **duplo-clique e com Enter** — os dois, e é intencional: uma grade em que
+só o teclado abre é uma grade que o mouse não usa, e o contrário deixa quem navega por teclado sem
+saída.
+
+### O chrome e o transporte são peças diferentes
+
+| | |
+|---|---|
+| `.tuff-chrome` | fica **sobre** o vídeo e **some sozinho** depois de 2,5 s sem ponteiro |
+| `.tuff-transporte` | fica embaixo da janela inteira e **não some** |
+
+O transporte é o que faz um app parecer um player de desktop em vez de uma página com vídeo dentro:
+a pessoa vai à biblioteca e a música não parou, então a barra também não pode sumir. Ele tem **dois
+andares**, e cada um responde uma pergunta:
+
+```html
+<div class="tuff-transporte">
+  <div class="tuff-transporte-tempo">      <!-- onde estou no tempo -->
+    <span class="tuff-tempo">12:04</span>
+    <div class="tuff-trilha">…</div>
+    <span class="tuff-tempo">41:37</span>
+  </div>
+  <div class="tuff-transporte-controles">  <!-- o que eu faço -->
+    <div class="tuff-transporte-inicio">…o que está tocando…</div>
+    <div class="tuff-transporte-meio">…anterior, tocar, parar, próximo…</div>
+    <div class="tuff-transporte-fim">…repetir, ajustes, volume, tela cheia…</div>
+  </div>
+</div>
+```
+
+O meio é `1fr auto 1fr`, e não flex, para o aglomerado ficar no **centro óptico da janela** e
+continuar lá com um nome de faixa curto ou comprido — com flex, o botão que a pessoa procura sem
+olhar muda de lugar a cada vídeo.
 
 **O chrome nunca some com o foco do teclado dentro dele**, nem com o vídeo pausado. Sumir ali deixa
 quem navega por teclado com o foco num botão que saiu da tela.

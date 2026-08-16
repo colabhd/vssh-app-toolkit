@@ -92,6 +92,61 @@
     bottom: 0;
   }
 
+  /* ── O transporte ───────────────────────────────────────────────────────────
+     O chrome acima é o que fica SOBRE o vídeo. Isto é a outra peça, e ela é o que faz um app
+     parecer um player de desktop em vez de uma página com vídeo: a barra que **não some**, embaixo
+     da janela inteira, enquanto a pessoa navega a biblioteca. O vídeo não parou de tocar só porque
+     ela foi olhar outra coisa.
+
+     ─── Dois andares, e não uma linha ────────────────────────────────────────
+
+     A primeira versão disto (num app, antes de virar peça) punha nove controles em fila da esquerda
+     para a direita e lia como **barra de ferramentas**: nada distinguia comando de reprodução de
+     ajuste. Dois andares resolvem porque separam duas perguntas diferentes:
+
+       andar 1   onde estou no tempo  →  decorrido ─── trilha ─── total
+       andar 2   o que eu faço        →  o que toca | transporte | ajustes
+
+     O tempo LADEIA a trilha, como no VLC, em vez de virar mais um item na fileira de botões: os
+     dois números falam da mesma coisa que a trilha, e juntá-los deixa o andar de baixo só com
+     comandos.
+
+     ─── Por que `1fr auto 1fr` e não `flex` ──────────────────────────────────
+
+     Para o aglomerado de transporte cair no CENTRO ÓPTICO da janela, e continuar lá quando o nome
+     do que está tocando for curto ou comprido. Com `flex` ele anda conforme o texto ao lado cresce,
+     e o botão que a pessoa procura sem olhar muda de lugar a cada faixa. */
+
+  .tuff-transporte {
+    background: var(--ds-bg2);
+    border-top: 1px solid var(--ds-border);
+  }
+
+  .tuff-transporte-tempo {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-gap-md);
+    padding: var(--ds-gap-sm) var(--ds-gap-md) 0;
+  }
+  .tuff-transporte-tempo > .tuff-trilha { flex: 1; }
+
+  .tuff-transporte-controles {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: var(--ds-gap-md);
+    padding: 2px var(--ds-gap-md) var(--ds-gap-sm);
+  }
+  /* `min-width: 0` nas pontas: sem ele, um nome comprido de faixa empurra o aglomerado do meio para
+     fora do centro — que é justamente o que a grade existia para impedir. */
+  .tuff-transporte-inicio,
+  .tuff-transporte-fim { display: flex; align-items: center; min-width: 0; }
+  .tuff-transporte-inicio { gap: var(--ds-gap-sm); }
+  .tuff-transporte-fim { gap: 2px; justify-content: flex-end; }
+  /* Sem espaço entre os botões de transporte: eles são UM grupo. Separá-los faria cada um parecer
+     um comando independente, e é assim que "parar" vira vizinho de "tela cheia". */
+  .tuff-transporte-meio { display: flex; align-items: center; gap: 1px; }
+
   /* ── A trilha ───────────────────────────────────────────────────────────────
      Quatro camadas empilhadas no mesmo trilho: o fundo, o que já baixou, o que já
      tocou, e as marcas de capítulo. As marcas são FALHAS de 1px na cor do fundo —
