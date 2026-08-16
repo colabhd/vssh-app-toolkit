@@ -1,0 +1,40 @@
+{
+  "id": "palco",
+  "name": "Palco",
+  "version": "0.1.0",
+  "category": "AudioVideo",
+  "description": "O player do ambiente. Toca o que está no servidor — inclusive o que o navegador não abre sozinho —, decidindo por arquivo se ele sai direto, reembalado ou convertido, com base no que ESTA máquina consegue tocar. Faixas de áudio e legendas selecionáveis, retomar de onde parou, próximo da pasta, janela flutuante e as teclas de mídia do sistema.",
+  "requiredPackages": [
+    "ffmpeg"
+  ],
+  "resources": {
+    "memoryMax": "1G",
+    "tasksMax": "128"
+  },
+  "opens": {
+    "extensions": [
+      "mp4", "m4v", "mkv", "webm", "avi", "mov", "wmv", "flv", "ts", "mpg", "mpeg", "ogv",
+      "mp3", "m4a", "flac", "wav", "ogg", "opus", "aac", "wma", "mka"
+    ],
+    "mimeTypes": [
+      "video/mp4", "video/x-matroska", "video/webm", "video/quicktime", "video/x-msvideo",
+      "video/mpeg", "video/ogg", "video/x-ms-wmv", "video/x-flv", "video/mp2t",
+      "audio/mpeg", "audio/mp4", "audio/flac", "audio/wav", "audio/ogg", "audio/aac",
+      "audio/x-ms-wma", "audio/x-matroska"
+    ]
+  },
+  "minShellVersion": "4.1.0",
+  "backend": {
+    "runtime": "python3",
+    "transport": "socket",
+    "entrypoint": "backend/main.py",
+    "installCommand": "( [ \"${VSSH_APP_REBUILD:-}\" != 1 ] && test -d vendor/py ) || python3 -m pip install --no-cache-dir --target vendor/py \"https://github.com/colabhd/vssh-app-toolkit/archive/refs/tags/v4.tar.gz\"",
+    "healthcheckPath": "/healthz",
+    "aoFechar": "encerrar"
+  },
+  "window": {
+    "title": "Palco",
+    "width": 1000,
+    "height": 660
+  }
+}

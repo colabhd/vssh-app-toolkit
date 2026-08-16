@@ -365,6 +365,16 @@ test('os manifestos que existem de verdade continuam publicáveis', seNaoTem, ()
     const saida = validar(JSON.parse(fs.readFileSync(mf, 'utf8')));
     assert.match(saida, /^ID=/m, `o template ${t} deixou de publicar: ${saida}`);
   }
+
+  // ⚠ E os de `examples/` também, porque `publish-apps.yml:99` varre `examples/*/` a cada push em
+  // main. Um manifesto que o schema recusa aqui vira job vermelho lá — e a mensagem chega no CI, e
+  // não no editor de quem escreveu.
+  for (const dir of fs.readdirSync(path.join(ROOT, 'examples'))) {
+    const mf = path.join(ROOT, 'examples', dir, 'vssh-app.json');
+    if (!fs.existsSync(mf)) continue;
+    const saida = validar(JSON.parse(fs.readFileSync(mf, 'utf8')));
+    assert.match(saida, /^ID=/m, `o exemplo ${dir} deixou de publicar: ${saida}`);
+  }
 });
 
 // ─── `provides` e `minShellVersion`: os dois campos de CONTRATO ───────────────
