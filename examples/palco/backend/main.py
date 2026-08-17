@@ -50,6 +50,7 @@ from vssh_app_toolkit.tray import limpar_bandeja_ao_sair  # noqa: E402
 from vssh_app_toolkit.web import DIRETORIO_WEB, ESTILOS, ESTILOS_MIDIA, SCRIPTS, SCRIPTS_MIDIA, SHIMS  # noqa: E402
 
 from decisao import decidir, perfil_de  # noqa: E402
+from fluxo import enquadrar, terminador  # noqa: E402
 from midia import achar_gpu, argv_de_fluxo, argv_de_legenda, sondar_arquivo  # noqa: E402
 from pasta import vizinhanca  # noqa: E402
 from retomar import assinatura_de, esquecer, lembrar, retomada  # noqa: E402
@@ -145,7 +146,27 @@ class Handler(BaseHTTPRequestHandler):
 
         A codificação é `chunked` e não "escreva e feche": entre o app e o navegador há o portal, e
         um corpo delimitado por fechamento de conexão é o que um intermediário reenquadra errado.
+
+        ⚠ **E o terminador `0\\r\\n\\r\\n` é CONDICIONAL, que é o conserto mais importante deste
+        método.** Escrevê-lo sempre — como estava — significa que um ffmpeg que morreu no primeiro
+        quadro produz um corpo *bem formado e curto*, byte a byte indistinguível de um filme que
+        acabou. O navegador não tem como saber a diferença: ele dispara `ended`, e o player conclui
+        que a mídia terminou. Foi assim que um `.avi` que falhou apareceu como "tocou um quadro e
+        pulou para o próximo vídeo" — a falha não tinha nenhum canal para chegar até a tela.
+
+        Deixar o corpo INCOMPLETO é o canal. Um chunked sem terminador é erro de rede para o
+        navegador, `error` no `<video>`, e a interface pode dizer o que houve.
         """
+        if self.command == "HEAD":
+            # ⚠ Um corpo numa resposta a HEAD desalinha o enquadramento da conexão — e aqui custaria
+            # ainda um ffmpeg inteiro sobre o filme para bytes que ninguém lê.
+            self.send_response(200)
+            self.send_header("Content-Type", tipo)
+            self.send_header("Accept-Ranges", "none")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            return
+
         try:
             proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         except OSError as e:
@@ -166,29 +187,52 @@ class Handler(BaseHTTPRequestHandler):
         # ⚠ O `stderr` é lido numa thread, e não ignorado. Um cano de stderr cheio BLOQUEIA o
         # ffmpeg: ele para de escrever vídeo e o player congela sem nada aparecer em lugar nenhum.
         erros = []
-        threading.Thread(target=lambda: erros.append(proc.stderr.read()), daemon=True).start()
+        leitor = threading.Thread(target=lambda: erros.append(proc.stderr.read()), daemon=True)
+        leitor.start()
 
+        bytes_enviados = 0
+        abortado = False
         try:
             while True:
                 bloco = proc.stdout.read(64 * 1024)
                 if not bloco:
                     break
-                self.wfile.write(b"%X\r\n" % len(bloco) + bloco + b"\r\n")
-            self.wfile.write(b"0\r\n\r\n")
-            self.wfile.flush()
+                self.wfile.write(enquadrar(bloco))
+                bytes_enviados += len(bloco)
         except OSError:
             # ⚠ A pessoa buscou, e o navegador abortou a requisição. Sem MATAR o processo aqui,
             # cada arraste na linha do tempo deixa um ffmpeg vivo mastigando o filme inteiro — e
             # três arrastes ocupam o servidor de todo mundo.
-            log("cano-abortado", {"rotulo": rotulo})
+            abortado = True
+            log("cano-abortado", {"rotulo": rotulo, "bytes": bytes_enviados})
         finally:
             if proc.poll() is None:
                 proc.kill()
             proc.wait()
             self.close_connection = True
-            saida = (erros[0] if erros else b"") or b""
-            if proc.returncode not in (0, None) and saida:
-                log("ffmpeg-erro", {"rotulo": rotulo, "saida": saida.decode("utf-8", "replace")[-800:]})
+
+        if abortado:
+            return
+
+        # ⚠ Esperar o leitor: sem isto, `erros` costuma estar VAZIO no instante em que se lê — e o
+        # log da falha sairia sem a única linha que diz o que o ffmpeg não conseguiu fazer. O prazo
+        # existe porque um `stderr` que não fecha não pode segurar a resposta.
+        leitor.join(timeout=2)
+        saida = ((erros[0] if erros else b"") or b"").decode("utf-8", "replace")
+        fim = terminador(proc.returncode, bytes_enviados)
+        if not fim:
+            log("ffmpeg-erro", {"rotulo": rotulo, "status": proc.returncode,
+                                "bytes": bytes_enviados, "saida": saida[-800:]})
+        elif saida:
+            # Saiu com zero e escreveu no stderr: avisos de timestamp, faixa ignorada. Não é falha,
+            # mas é exatamente o rastro que se procura quando alguém diz "tocou torto".
+            log("ffmpeg-avisou", {"rotulo": rotulo, "bytes": bytes_enviados, "saida": saida[-800:]})
+
+        try:
+            self.wfile.write(fim)
+            self.wfile.flush()
+        except OSError:
+            log("cano-abortado", {"rotulo": rotulo, "bytes": bytes_enviados})
 
     # ── roteamento ───────────────────────────────────────────────────────────
 

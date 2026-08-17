@@ -107,8 +107,9 @@ function servir(req, res) {
   }
 
   if (p === '/api/abrir') {
+    aberturas += 1;
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify(ABERTURA));
+    res.end(JSON.stringify(respostaDeAbrir));
     return true;
   }
   if (p === '/api/vizinhos') {
@@ -131,6 +132,13 @@ function servir(req, res) {
   res.end(fs.readFileSync(alvo));
   return true;
 }
+
+// O que `/api/abrir` responde. É variável porque o modo e a DURAÇÃO mudam o comportamento do
+// player, e a duração é a régua que separa "o filme acabou" de "o cano morreu".
+let respostaDeAbrir = ABERTURA;
+// ⚠ Quantas vezes o app pediu para abrir. É o que mede "ele avançou de arquivo" sem ambiguidade: a
+// bancada responde sempre o mesmo `nome`, então ler a tela não distingue avançar de ficar parado.
+let aberturas = 0;
 
 let nav = null;
 let origem = null;
@@ -155,6 +163,51 @@ async function comArquivoAberto(largura) {
   })()`);
   return p;
 }
+
+// ── Um `ended` não quer dizer que o arquivo acabou ──────────────────────────
+//
+// ⚠ O defeito que este bloco existe para impedir, e ele já aconteceu na tela: um `.avi` tocou UM
+// QUADRO e o player pôs de volta o vídeo anterior. O cano tinha morrido, o corpo `chunked` fechou
+// limpo, o navegador disparou `ended`, e o avanço automático fez o resto — transformando uma falha
+// em outra coisa tocando. É o pior formato de defeito que existe: o sintoma não parece erro, parece
+// o programa funcionando.
+
+/** Dispara um `ended` na página e devolve quantas aberturas ele provocou. */
+async function comEndedApos(resposta) {
+  respostaDeAbrir = resposta;
+  const p = await comArquivoAberto();
+  const antes = aberturas;
+  const aviso = await p.avaliar(`(async () => {
+    document.getElementById('video').dispatchEvent(new Event('ended'));
+    await new Promise((r) => setTimeout(r, 300));
+    return document.getElementById('st-aviso').textContent;
+  })()`);
+  respostaDeAbrir = ABERTURA;
+  return { avancou: aberturas - antes, aviso };
+}
+
+test('um `ended` LONGE do fim é falha, e não motivo para avançar', seNaoTem, async () => {
+  // Duração de uma hora, e o `<video>` nem chegou a tocar: `agoraReal()` é zero. É o `.avi` que
+  // morreu no primeiro quadro, reproduzido.
+  const r = await comEndedApos(ABERTURA);
+  assert.equal(r.avancou, 0,
+    'o player abriu outro arquivo por causa de um fluxo truncado — é o defeito do `.avi` inteiro');
+  assert.match(r.aviso, /parou em .*antes do fim/i,
+    'e quem estava assistindo não ficou sabendo que o fluxo caiu');
+});
+
+test('sem régua verdadeira, o `ended` continua avançando', seNaoTem, async () => {
+  // ⚠ A outra metade, e sem ela a guarda viraria um desligamento do recurso: quando o `ffprobe` não
+  // soube a duração não há de que desconfiar, e recusar o avanço ali deixaria uma pasta parando a
+  // cada arquivo — trocando um defeito raro por um constante.
+  const r = await comEndedApos({ ...ABERTURA, duracao: null });
+  assert.equal(r.avancou, 1, 'sem duração conhecida o fim de arquivo tinha de avançar normalmente');
+  // ⚠ Não se afirma que o aviso está VAZIO: a bancada responde 204 no cano, então o `<video>` erra
+  // de verdade e a barra diz isso com razão. O que não pode aparecer é o diagnóstico de truncamento,
+  // que aqui seria falso.
+  assert.doesNotMatch(r.aviso, /antes do fim/,
+    'acusou fluxo truncado sem ter régua para saber disso');
+});
 
 // ── A lista de injeção, contra o backend ────────────────────────────────────
 

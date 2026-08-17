@@ -1,6 +1,8 @@
-"""O cabeçalho `Range`, resolvido — a aritmética que transforma um arquivo servido em vídeo.
+"""Como uma resposta de mídia é enquadrada — o `Range` do arquivo, e o `chunked` do cano.
 
     resolver(cabecalho, tamanho) -> Resposta(status, inicio, fim, comprimento, cabecalhos)
+    enquadrar(dados)             -> um bloco `chunked`
+    terminador(status, enviados) -> o fim do corpo, ou `b""` para deixá-lo INCOMPLETO
 
 Sem Range não há busca: o `<video>` toca do começo e arrastar a linha do tempo baixa tudo de novo.
 Com Range errado é pior, porque *parece* funcionar — o vídeo corrompe a partir do ponto em que a
@@ -103,3 +105,38 @@ def resolver(cabecalho, tamanho):
             "Content-Length": str(comprimento),
         },
     )
+
+
+# ── O cano: o enquadramento `chunked`, e onde a falha vira sinal ─────────────
+#
+# ⚠ **Esta é a regra que um defeito medido escreveu**, e ela é contraintuitiva o bastante para morar
+# num lugar com teste em vez de dentro de um `finally`.
+#
+# Um cano não tem `Content-Length`: quem diz onde o corpo acaba é o terminador `0\r\n\r\n`. Escrevê-lo
+# sempre — que é o reflexo, e era o que estava aqui — significa que um ffmpeg morto no primeiro
+# quadro produz um corpo **bem formado e curto**. Do lado do navegador isso é byte a byte igual a um
+# filme que acabou: ele dispara `ended`, o player avança para o próximo arquivo, e a falha não tem
+# por onde chegar à tela. Foi assim que um `.avi` quebrado apareceu como "tocou um quadro e voltou
+# para o vídeo anterior" — um sintoma que não se parece com erro nenhum.
+#
+# Omitir o terminador é o canal que faltava: um corpo `chunked` incompleto é erro de rede para o
+# navegador, `error` no `<video>`, e uma frase que a pessoa pode ler.
+
+_TERMINADOR = b"0\r\n\r\n"
+
+
+def enquadrar(dados):
+    """Um bloco no enquadramento `chunked`. Bloco vazio não existe: ele É o terminador."""
+    if not dados:
+        return b""
+    return b"%X\r\n" % len(dados) + bytes(dados) + b"\r\n"
+
+
+def terminador(status, enviados):
+    """O fim do corpo — ou `b""` quando a resposta tem de ficar incompleta de propósito.
+
+    Duas condições, e a segunda não é redundante: um ffmpeg que sai com zero **sem escrever byte
+    nenhum** também é falha. Ele acontece (entrada sem faixa mapeável, filtro que não casa), e um
+    corpo vazio bem terminado é um vídeo de duração zero — que o navegador aceita em silêncio.
+    """
+    return _TERMINADOR if status == 0 and enviados > 0 else b""

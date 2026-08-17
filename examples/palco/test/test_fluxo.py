@@ -18,7 +18,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend"))
 
-from fluxo import resolver  # noqa: E402
+from fluxo import enquadrar, resolver, terminador  # noqa: E402
 
 TAM = 1000
 
@@ -144,6 +144,60 @@ class TestReconstrucao(unittest.TestCase):
         dados = bytes(range(256))
         r = resolver("bytes=-10", len(dados))
         self.assertEqual(dados[r.inicio:r.fim + 1], dados[-10:])
+
+
+class TestOCanoDizQuandoFalhou(unittest.TestCase):
+    """O defeito que este bloco existe para impedir, e ele já aconteceu.
+
+    Um `.avi` tocou UM QUADRO e o player pulou para o vídeo anterior. Nada no console, nada na tela,
+    e a suíte inteira verde. A causa: o corpo `chunked` era sempre fechado com o terminador, então
+    um ffmpeg que morreu no primeiro quadro produzia um corpo bem formado e curto — indistinguível,
+    do lado do navegador, de um filme que acabou. Ele disparava `ended`, e o `ended` avançava a
+    pasta. A falha não tinha por onde chegar até quem estava assistindo.
+    """
+
+    def test_saindo_bem_o_corpo_e_FECHADO(self):
+        self.assertEqual(terminador(0, 4096), b"0\r\n\r\n")
+
+    def test_saindo_MAL_o_corpo_fica_incompleto(self):
+        # É o sinal inteiro: um `chunked` sem terminador é erro de rede para o navegador, `error` no
+        # `<video>`, e uma frase legível. Fechá-lo aqui é o que apagava a falha.
+        for status in (1, 127, -9, 255):
+            self.assertEqual(terminador(status, 4096), b"",
+                             f"status {status} tinha de deixar o corpo incompleto")
+
+    def test_zero_byte_com_status_zero_TAMBEM_e_falha(self):
+        # ⚠ Não é redundante com o teste acima, e foi o caso que quase escapou: um ffmpeg pode sair
+        # com zero sem escrever nada (entrada sem faixa mapeável, filtro que não casa). Um corpo
+        # vazio bem terminado é um vídeo de duração zero — que o navegador aceita EM SILÊNCIO, que é
+        # a pior das respostas possíveis.
+        self.assertEqual(terminador(0, 0), b"")
+
+    def test_o_bloco_declara_o_tamanho_em_HEXA(self):
+        # O enquadramento `chunked` é em base 16, e escrevê-lo em decimal produz um corpo que só
+        # quebra em blocos maiores que nove bytes — ou seja, passa em qualquer teste pequeno demais.
+        self.assertEqual(enquadrar(b"x" * 255), b"FF\r\n" + b"x" * 255 + b"\r\n")
+        self.assertEqual(enquadrar(b"abc"), b"3\r\nabc\r\n")
+
+    def test_bloco_vazio_nao_e_escrito(self):
+        # ⚠ `0\r\n\r\n` É o terminador. Um bloco de tamanho zero no meio do corpo encerra a resposta
+        # ali — entregando meio filme com cara de filme inteiro.
+        self.assertEqual(enquadrar(b""), b"")
+
+    def test_o_corpo_completo_remonta_os_bytes(self):
+        dados = bytes(i % 251 for i in range(5000))
+        corpo = b"".join(enquadrar(dados[i:i + 1024]) for i in range(0, len(dados), 1024))
+        corpo += terminador(0, len(dados))
+        # Desenquadrar de volta é a única asserção que pega um `\r\n` a mais ou a menos.
+        fora, resto = bytearray(), corpo
+        while True:
+            cabeca, _, resto = resto.partition(b"\r\n")
+            n = int(cabeca, 16)
+            if n == 0:
+                break
+            fora += resto[:n]
+            resto = resto[n + 2:]
+        self.assertEqual(bytes(fora), dados)
 
 
 if __name__ == "__main__":

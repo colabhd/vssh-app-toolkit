@@ -90,6 +90,10 @@ function montarPalco() {
   let base = 0;          // onde o cano foi cortado: `atual()` = base + video.currentTime
   let vizinhos = [];     // os irmãos de pasta
   let indice = -1;
+  // ⚠ Toda abertura ganha um número, e as respostas assíncronas dela conferem o seu antes de tocar
+  // no estado. Sem isso, abrir B enquanto A ainda carrega faz a resposta de A — que chega depois —
+  // sobrescrever a lista de B, e o "próximo" passa a apontar para a pasta errada.
+  let geracao = 0;
   let repetir = 'nao';   // nao | lista | uma
   let aleatorio = false;
   let filtro = '';
@@ -144,7 +148,13 @@ function montarPalco() {
 
   async function abrir(caminho, opcoes) {
     const o = opcoes || {};
+    const minha = ++geracao;
     $('st-aviso').textContent = '';
+    // ⚠ A lista some ANTES do `await`. Ela é dos vizinhos do arquivo ANTERIOR até `api/vizinhos`
+    // responder, e nesse intervalo qualquer `ended` avançaria pela pasta errada — que é como uma
+    // falha no primeiro quadro conseguiu pôr o vídeo anterior de volta na tela.
+    vizinhos = [];
+    indice = -1;
     mostrarPreparando(true, 'Abrindo…');
     let r;
     try {
@@ -154,10 +164,12 @@ function montarPalco() {
         body: JSON.stringify({ caminho, perfil: PERFIL }),
       });
     } catch (e) {
+      if (minha !== geracao) return;
       mostrarPreparando(false);
       $('st-aviso').textContent = 'Não consegui abrir este arquivo.';
       return;
     }
+    if (minha !== geracao) return;   // alguém abriu outra coisa enquanto isto voltava
 
     atual = r;
     base = 0;
@@ -177,11 +189,18 @@ function montarPalco() {
 
     if (noCano()) {
       base = de;
-      // ⚠ O cano leva um instante até o primeiro fragmento. Sem dizer isso, esses segundos parecem
+      // ⚠ `preload` muda com o modo, e a diferença é grande no cano. `metadata` manda o navegador
+      // pegar o cabeçalho e SUSPENDER a rede — mas um cano não tem Range, então retomar de onde
+      // parou é impossível: reatar significa um ffmpeg NOVO, do zero, sobre o mesmo filme. No
+      // caminho direto `metadata` continua certo, porque ali suspender é de graça e retomar é um
+      // Range.
+      video.preload = 'auto';
+      // O cano leva um instante até o primeiro fragmento. Sem dizer isso, esses segundos parecem
       // travamento e a pessoa clica de novo — que reinicia o ffmpeg e piora.
       mostrarPreparando(true, 'Preparando o vídeo…');
       video.src = urlDoCano(de);
     } else {
+      video.preload = 'metadata';
       mostrarPreparando(false);
       video.src = vssh.fs.urlFor(caminho);
       if (de) video.addEventListener('loadedmetadata', () => { video.currentTime = de; },
@@ -192,7 +211,7 @@ function montarPalco() {
 
     mostrarRetomar(o.doInicio ? 0 : r.retomarEm);
     aplicarLegendas(r);
-    carregarVizinhos(caminho);
+    carregarVizinhos(caminho, minha);
     porMediaSession(r);
   }
 
@@ -261,7 +280,12 @@ function montarPalco() {
   video.addEventListener('playing', () => mostrarPreparando(false));
   video.addEventListener('error', () => {
     mostrarPreparando(false);
-    if (atual) $('st-aviso').textContent = 'A reprodução falhou. Tente abrir de novo.';
+    if (!atual) return;
+    $('st-aviso').textContent = noCano()
+      ? 'A conversão no servidor falhou. O registro do aplicativo diz o motivo.'
+      : 'A reprodução falhou. Tente abrir de novo.';
+    console.warn('[palco] erro de mídia', { modo: atual.modo, fonte: video.currentSrc,
+                                            codigo: video.error && video.error.code });
   });
 
   const trocarIcone = (botao, nome) =>
@@ -277,8 +301,32 @@ function montarPalco() {
   // `textContent`, que apagava o `<svg>`. Foi este app que revelou, e o conserto subiu para a lib.)
 
   // ── Fim de arquivo: repetir, aleatório, próximo ──────────────────────────
+  //
+  // ⚠ **`ended` não quer dizer que o arquivo acabou** — quer dizer que os bytes acabaram, e no cano
+  // as duas coisas se separam. Um ffmpeg que morre no primeiro quadro fecha o corpo, o navegador
+  // dispara `ended`, e o avanço automático põe OUTRO vídeo tocando. Foi exatamente o que se viu com
+  // um `.avi`: um quadro, e o vídeo anterior de volta. O defeito ficou invisível porque o sintoma
+  // não parece falha — parece o player fazendo o que se espera dele.
+  //
+  // Quem desempata é a régua do `ffprobe`, que é a única coisa aqui que sabe o tamanho do filme.
+
+  function chegouAoFim() {
+    const dur = duracaoReal();
+    if (!dur || !isFinite(dur)) return true;   // sem régua verdadeira, não há de que desconfiar
+    // A tolerância é relativa porque o erro é: o cano termina alguns décimos antes ou depois da
+    // duração do contêiner de origem, e um limite fixo reprovaria o fim legítimo de um clipe curto.
+    return agoraReal() >= dur - Math.max(3, dur * 0.02);
+  }
 
   video.addEventListener('ended', () => {
+    if (!chegouAoFim()) {
+      $('st-aviso').textContent =
+        `A transmissão parou em ${tempoDe(agoraReal())}, antes do fim. O registro do aplicativo `
+        + 'diz o motivo.';
+      console.warn('[palco] fluxo truncado', { modo: atual && atual.modo, em: agoraReal(),
+                                               duracao: duracaoReal() });
+      return;
+    }
     if (repetir === 'uma') { buscar(0); video.play().catch(() => {}); return; }
     if (!vizinhos.length) return;
     if (aleatorio && vizinhos.length > 1) {
@@ -593,9 +641,10 @@ function montarPalco() {
 
   // ── A Biblioteca ────────────────────────────────────────────────────────
 
-  async function carregarVizinhos(caminho) {
+  async function carregarVizinhos(caminho, minha) {
     try {
       const r = await api(`api/vizinhos?caminho=${encodeURIComponent(caminho)}`);
+      if (minha !== undefined && minha !== geracao) return;   // é a pasta de um arquivo já trocado
       vizinhos = r.itens;
       indice = r.atual;
       $('bib-pasta').textContent = r.pasta;
