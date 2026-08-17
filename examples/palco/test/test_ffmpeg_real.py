@@ -41,18 +41,37 @@ PULAR = unittest.skipUnless(TEM_FFMPEG, "sem ffmpeg/ffprobe neste ambiente")
 MAGRO = Perfil(containers={"mp4"}, video={"h264"}, audio={"aac"})
 
 
-def caixas_de(dados):
-    """Os nomes das caixas de topo de um MP4, contados."""
-    fora = {}
+def _caixas(dados):
+    """As caixas de topo de um MP4, como `(nome, tamanho, deslocamento)`."""
+    fora = []
     i = 0
     while i + 8 <= len(dados):
-        n = struct.unpack(">I", dados[i:i + 8][:4])[0]
-        nome = dados[i + 4:i + 8].decode("latin1", "replace")
-        fora[nome] = fora.get(nome, 0) + 1
+        n = struct.unpack(">I", dados[i:i + 4])[0]
+        fora.append((dados[i + 4:i + 8].decode("latin1", "replace"), n, i))
         if n < 8:
             break
         i += n
     return fora
+
+
+def caixas_de(dados):
+    """Os nomes das caixas de topo de um MP4, contados."""
+    fora = {}
+    for nome, _, _ in _caixas(dados):
+        fora[nome] = fora.get(nome, 0) + 1
+    return fora
+
+
+def _ate_o_primeiro_fragmento(dados):
+    """Quantos bytes têm de chegar antes de o primeiro quadro poder ser desenhado.
+
+    É onde termina o par `moof`+`mdat` inicial: antes disso o demuxer tem cabeçalho e nenhuma
+    amostra completa. É a medida que corresponde ao que a pessoa sente.
+    """
+    cx = _caixas(dados)
+    i = next(k for k, (n, _, _) in enumerate(cx) if n == "moof")
+    _, tam, desloc = cx[i + 1]
+    return desloc + tam
 
 
 @unittest.skipUnless(TEM_FFMPEG, "sem ffmpeg/ffprobe neste ambiente")
@@ -137,10 +156,16 @@ class TestComArquivoDeVerdade(unittest.TestCase):
         self.assertEqual(codigo, 0)
         self.assertIn("moof", caixas_de(nosso), "a saída não está fragmentada")
 
-        sem_flags = [a for a in argv_de_fluxo(d, self.arquivo) if a != "-movflags"]
-        sem_flags = [a for a in sem_flags if not a.startswith("+frag_keyframe")]
+        # ⚠ A refutação tira `-frag_duration` TAMBÉM, e a correção veio de o teste falhar: ele
+        # sozinho já é um gatilho de fragmentação, então com ele no argv o ffmpeg não recusa mais
+        # nada e a medição não mediria o que diz medir. Quem pede um cano tem de pedir explicitamente
+        # — por qualquer um dos dois caminhos —, e é essa a propriedade sob teste.
+        argv = argv_de_fluxo(d, self.arquivo)
+        i = argv.index("-frag_duration")
+        sem_flags = [a for k, a in enumerate(argv)
+                     if k not in (i, i + 1) and a != "-movflags" and not a.startswith("+frag_keyframe")]
         vazio, erro, codigo = self._canalizar(sem_flags)
-        self.assertNotEqual(codigo, 0, "sem os movflags o ffmpeg tinha de recusar")
+        self.assertNotEqual(codigo, 0, "sem pedido nenhum de fragmentação o ffmpeg tinha de recusar")
         self.assertEqual(len(vazio), 0, "e não escrever byte nenhum")
         self.assertIn("non seekable", erro)
 
@@ -242,6 +267,62 @@ class TestComArquivoDeVerdade(unittest.TestCase):
         quebrado, _, codigo = self._canalizar(argv[:i] + ["-bsf:a", "aac_adtstoasc"] + argv[i:])
         self.assertNotEqual(codigo, 0, "aplicar o filtro sobre MP3 tinha de matar o ffmpeg")
         self.assertEqual(len(quebrado), 0)
+
+    def test_o_fragmento_tem_TETO_DE_TEMPO_e_nao_o_tamanho_do_GOP(self):
+        """A reprodução aos trancos, medida em bytes de espera.
+
+        O player não desenha nada antes de o fragmento FECHAR. Com `frag_keyframe` sozinho o
+        fragmento tem o tamanho do GOP — num encode de acervo, oito segundos —, e o resultado é
+        tocar um pedaço, parar, tocar outro. Foi o que se viu depois de o `.avi` finalmente abrir.
+
+        ⚠ A medida é **onde termina o primeiro par `moof`+`mdat`**, e não o número de fragmentos:
+        é literalmente quantos bytes têm de chegar antes do primeiro quadro aparecer.
+        """
+        origem = os.path.join(self.dir, "gop-longo.avi")
+        subprocess.run([
+            "ffmpeg", "-hide_banner", "-loglevel", "error",
+            "-f", "lavfi", "-i", "testsrc=size=640x360:rate=30:duration=12",
+            "-f", "lavfi", "-i", "sine=frequency=440:duration=12",
+            # ⚠ `-g 250` não é exagero de teste: é o padrão do x264 e o que há em quase todo arquivo
+            # de acervo. Um GOP curto esconderia o defeito exatamente como ele se escondeu de mim.
+            "-c:v", "libx264", "-preset", "ultrafast", "-g", "250", "-c:a", "aac",
+            "-y", origem,
+        ], check=True, capture_output=True)
+
+        argv = argv_de_fluxo(decidir(sondar_arquivo(origem), MAGRO), origem)
+        self.assertIn("-frag_duration", argv)
+
+        com, erro, codigo = self._canalizar(argv)
+        self.assertEqual(codigo, 0, erro)
+        sem, _, codigo = self._canalizar(
+            [a for a in argv if a not in ("-frag_duration", argv[argv.index("-frag_duration") + 1])])
+        self.assertEqual(codigo, 0)
+
+        espera_com = _ate_o_primeiro_fragmento(com)
+        espera_sem = _ate_o_primeiro_fragmento(sem)
+        self.assertLess(espera_com * 3, espera_sem,
+                        f"o teto de tempo não encurtou a espera ({espera_com} contra {espera_sem} "
+                        "bytes até o primeiro quadro poder ser desenhado)")
+        # E o preço tem de continuar sendo só cabeçalho: se isto disparar, o teto ficou curto demais.
+        self.assertLess(len(com), len(sem) * 1.02, "fragmentar assim custou mais que 2% de bytes")
+
+    def test_fragmentar_mais_NAO_estraga_os_timestamps(self):
+        # ⚠ A outra metade: cortar fragmento fora de keyframe é legítimo, mas se produzisse tempo
+        # torto o conserto teria trocado travamento por dessincronia — que é pior, porque a pessoa
+        # não sabe dizer o que está errado.
+        d = decidir(sondar_arquivo(self.arquivo), MAGRO)
+        dados, erro, codigo = self._canalizar(argv_de_fluxo(d, self.arquivo))
+        self.assertEqual(codigo, 0, erro)
+        saida = os.path.join(self.dir, "fragmentado.mp4")
+        with open(saida, "wb") as fh:
+            fh.write(dados)
+        pacotes = json.loads(subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "packet=dts_time",
+             "-print_format", "json", saida], capture_output=True, check=True).stdout)["packets"]
+        dts = [float(p["dts_time"]) for p in pacotes]
+        self.assertGreater(len(dts), 10)
+        fora = [(a, b) for a, b in zip(dts, dts[1:]) if b <= a]
+        self.assertEqual(fora, [], "os timestamps saíram fora de ordem depois de fragmentar")
 
     def test_a_legenda_embutida_vira_VTT(self):
         s = sondar_arquivo(self.arquivo)

@@ -40,11 +40,9 @@ body { margin: 0; overflow: hidden; }
 }
 .menubar button:hover { background: var(--ds-bg-hover); color: var(--ds-text); }
 .menubar button:focus-visible { outline: 2px solid var(--ds-accent); outline-offset: -2px; }
-.menubar .marca {
-  padding: 0 var(--ds-gap-sm) 0 var(--ds-gap-xs); color: var(--ds-text-dim);
-  font: var(--tuff-weight-b) var(--tuff-size-2xs) var(--ds-font);
-  letter-spacing: .5px; text-transform: uppercase;
-}
+/* A marca "PALCO" saiu da barra: a janela já tem o nome do app no título, e repeti-lo ali gastava
+   a única linha em que os menus competem por espaço a 560px. A regra sai junto — CSS sem consumidor
+   é o que faz alguém, meses depois, procurar um elemento que não existe. */
 
 /* ── 2. As abas ─────────────────────────────────────────────────────────────
    O idioma do controle segmentado do ambiente, ancorado embaixo como aba: é o que separa "modo do

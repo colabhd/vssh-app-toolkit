@@ -194,7 +194,11 @@ class Handler(BaseHTTPRequestHandler):
         abortado = False
         try:
             while True:
-                bloco = proc.stdout.read(64 * 1024)
+                # ⚠ `read1` e não `read`: `read(65536)` num `BufferedReader` fica SEGURANDO os bytes
+                # até juntar os 65536 ou o processo morrer. Num cano isso é latência inventada — os
+                # primeiros quadros ficam parados no buffer do servidor esperando companhia. O
+                # `read1` devolve o que já chegou, que é o que um repassador tem de fazer.
+                bloco = proc.stdout.read1(64 * 1024)
                 if not bloco:
                     break
                 self.wfile.write(enquadrar(bloco))

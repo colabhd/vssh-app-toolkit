@@ -34,6 +34,28 @@ from decisao import sondar
 #   default_base_moof   offsets relativos ao fragmento, que é a forma que o MSE espera ler.
 _MOVFLAGS = "+frag_keyframe+empty_moov+default_base_moof"
 
+# ⚠ **O teto de tempo do fragmento, e ele é o que separa "toca" de "toca aos trancos".**
+#
+# `frag_keyframe` sozinho corta só em keyframe, então o fragmento tem o tamanho do GOP — e o player
+# não desenha nada antes de o fragmento FECHAR. Num encode de acervo (GOP de 250 quadros, ~8 s) isso
+# significa esperar o GOP inteiro para o primeiro quadro, e esperar de novo a cada trecho. Num filme
+# a 5 Mbps são ~6 MB de espera por trecho: o vídeo toca um pedaço, para, toca outro.
+#
+# Medido sobre um AVI 1280x720 de 20 s com GOP de 250:
+#
+#     sem frag_duration    1º quadro após 318 KB   ·   maior lacuna 317 KB
+#     2 s                             95 KB        ·                97 KB   (+0,16%)
+#     1 s                             60 KB        ·                62 KB   (+0,43%)
+#     0,5 s                           43 KB        ·                44 KB   (+0,96%)
+#
+# 1 s é onde a curva vira: metade da espera de 2 s por menos de meio por cento de bytes, e daí para
+# baixo o retorno cai. Os timestamps não mudam em nenhum dos casos — 600 pacotes, nenhum fora de
+# ordem, mesma duração —, ou seja, o preço é só cabeçalho de fragmento.
+#
+# `frag_keyframe` FICA: os dois juntos cortam no que vier primeiro, e manter o corte alinhado com
+# keyframe é o que a Fase 7 (dash.js sobre MSE) vai precisar.
+_FRAG_DURACAO = "1000000"   # microssegundos
+
 # O `-preset veryfast` não é preguiça: transcodificar em CPU é o último recurso da lista, e ali o
 # que importa é o vídeo começar. `crf 23` é o padrão visualmente transparente do x264.
 _X264 = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23"]
@@ -122,7 +144,7 @@ def argv_de_fluxo(decisao, caminho, inicio=0, gpu=None):
     # ⚠ Nada de `-copyts`: os timestamps saem começando em zero, e é o frontend que soma o
     # deslocamento (`opcoes.tempo` da TuffMidia). Com `-copyts` o tempo mostrado ficaria dobrado, e
     # o sintoma — a linha do tempo andando rápido demais — não apontaria para cá.
-    argv += ["-movflags", _MOVFLAGS, "-f", "mp4", "pipe:1"]
+    argv += ["-frag_duration", _FRAG_DURACAO, "-movflags", _MOVFLAGS, "-f", "mp4", "pipe:1"]
     return argv
 
 
