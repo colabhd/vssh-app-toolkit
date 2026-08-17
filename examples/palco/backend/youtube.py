@@ -180,10 +180,15 @@ def resposta_de_abertura(alvo, resolucao=None):
     if alvo.tipo != "video":
         return {"tipo": "nao-e-nosso", "porque": alvo.tipo}
     if resolucao is None:
-        return {"tipo": "video", "id": alvo.id, "t": alvo.t}
+        return {"tipo": "video", "id": alvo.id, "t": alvo.t, "lista": alvo.lista}
     return {
         "tipo": "video",
         "id": resolucao.id,
+        # ⚠ A lista viaja com o VÍDEO, e é o que transforma `watch?v=…&list=…` numa fila em vez de
+        # um vídeo solto. É a forma mais comum de link de playlist que circula — quem compartilha
+        # "o vídeo 4 da lista" manda exatamente isto —, e sem este campo o próximo/anterior ficaria
+        # apontando para a pasta do último arquivo local aberto.
+        "lista": alvo.lista,
         "titulo": resolucao.titulo,
         "canal": resolucao.canal,
         "duracao": resolucao.duracao,

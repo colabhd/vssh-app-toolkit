@@ -135,7 +135,16 @@ function servir(req, res) {
     // `TypeError` ao ler um campo. Foi assim que a primeira versão deste teste mediu nada.
     if (respostaDeYt === 'FALHAR') { res.writeHead(502); res.end('{}'); return true; }
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify(respostaDeYt));
+    // ⚠ A resposta reflete o `v=` PEDIDO quando ele é conhecido. Devolver sempre o mesmo id fazia
+    // a fila parecer travada — o player andava, o servidor de mentira respondia o vídeo anterior,
+    // e o teste acusava um defeito que era dele. Um duble que ignora o pedido mede o duble.
+    let corpo = respostaDeYt;
+    if (corpo && corpo.tipo === 'video' && !respostaDeYtFixa) {
+      const pedido = new URL(u.searchParams.get('url') || 'http://x', 'http://x')
+        .searchParams.get('v');
+      if (pedido) corpo = { ...corpo, id: pedido, titulo: `Vídeo ${pedido}` };
+    }
+    res.end(JSON.stringify(corpo));
     return true;
   }
   if (p === '/api/yt/mpd') {
@@ -202,6 +211,8 @@ function servir(req, res) {
 let respostaDeAbrir = ABERTURA;
 // O que `/api/yt/abrir` responde, e o contador de quem pediu o dash.js.
 let respostaDeYt = null;
+// Quando o teste quer um título estável, e não o que o `v=` pedido produziria.
+let respostaDeYtFixa = false;
 let pedidosDoDash = 0;
 let respostaDeListar = null;
 let listagens = [];
@@ -848,6 +859,7 @@ test('uma busca nova NÃO deixa os cartões da anterior na tela', seNaoTem, asyn
 
 test('abrir um cartão toca no MESMO player e volta para Reproduzindo', seNaoTemMidia, async () => {
   respostaDeListar = LISTAGEM;
+  respostaDeYtFixa = true;
   respostaDeYt = {
     tipo: 'video', id: 'aaaaaaaaaaa', titulo: 'Vídeo escolhido', canal: 'Canal 0',
     duracao: dashDeTeste.DURACAO, mpd: 'api/yt/mpd?v=aaaaaaaaaaa', legendas: [], qualidades: [90],
@@ -948,4 +960,146 @@ test('um canal sem vídeos DIZ o que houve, e não manda atualizar o yt-dlp', se
   assert.equal(r.vazio, false, 'o estado vazio não apareceu');
   assert.match(r.titulo, /não tem vídeos/);
   assert.doesNotMatch(r.msg, /yt-dlp/i, 'mandou atualizar o yt-dlp por um canal vazio');
+});
+
+// ── A fila ──────────────────────────────────────────────────────────────────
+//
+// ⚠ **A fila é UMA**, e é o que faz próximo/anterior, `ended`, repetir e os botões da central de
+// mídia funcionarem para a pasta e para o YouTube sem nenhum deles saber que existem duas origens.
+// Uma segunda lista, só para o YouTube, seria seis lugares para as duas divergirem.
+
+/** Toca um vídeo do YouTube já com uma fila, e espera a imagem. */
+async function comFila(itens, atual) {
+  // ⚠ Dinâmico de propósito: andar na fila é justamente pedir vídeos DIFERENTES, e um duble que
+  // devolvesse sempre o mesmo faria a fila parecer travada quando o travado seria o duble.
+  respostaDeYtFixa = false;
+  respostaDeListar = { tipo: 'busca', titulo: 'gatos', itens };
+  respostaDeYt = {
+    tipo: 'video', id: atual, titulo: `Vídeo ${atual}`, canal: 'C',
+    duracao: dashDeTeste.DURACAO, mpd: 'api/yt/mpd?v=aaaaaaaaaaa', legendas: [], qualidades: [90],
+  };
+  const p = await comAbaAberta();
+  await p.avaliar(BUSCAR('gatos', "document.querySelector('.tuff-miniatura')"));
+  const posicao = itens.findIndex((i) => i.id === atual);
+  await p.avaliar(`(async () => {
+    document.querySelectorAll('.tuff-miniatura')[${posicao}]
+      .dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    const v = document.getElementById('video');
+    const prazo = Date.now() + 15000;
+    while (Date.now() < prazo && v.currentTime < 0.5) await new Promise((r) => setTimeout(r, 100));
+  })()`);
+  return p;
+}
+
+test('abrir um resultado faz a LISTA virar a fila', seNaoTemMidia, async () => {
+  // ⚠ Sem isto, apertar "próximo" depois de abrir o quarto resultado de uma busca daria o próximo
+  // arquivo da última pasta local aberta — que é uma resposta absurda e perfeitamente silenciosa.
+  const p = await comFila(LISTAGEM.itens, LISTAGEM.itens[3].id);
+  const r = await p.avaliar(`(() => {
+    const linhas = [...document.querySelectorAll('.linha-arq')];
+    return {
+      naFila: linhas.length,
+      tocando: linhas.findIndex((l) => l.classList.contains('linha-arq--tocando')),
+      anterior: !document.getElementById('btn-anterior').disabled,
+      proximo: !document.getElementById('btn-proximo').disabled,
+    };
+  })()`);
+  assert.equal(r.naFila, LISTAGEM.itens.length, 'a fila não assumiu a Biblioteca');
+  assert.equal(r.tocando, 3, 'o vídeo em reprodução não foi localizado dentro da fila');
+});
+
+test('a fila SOBREVIVE a um passo — o próximo do próximo existe', seNaoTemMidia, async () => {
+  // ⚠ **O defeito que este teste existe para impedir tinha exatamente um passo de vida.**
+  // `abrirYoutube` limpa `vizinhos` na entrada, o que é certo: senão a lista do vídeo anterior
+  // sobreviveria e o "próximo" apontaria para outra coisa. Mas ao ANDAR na fila é a mesma lista, e
+  // sem repassá-la o segundo item viraria o último — "próximo" funcionaria uma vez e depois não
+  // faria nada, sem erro nenhum.
+  const p = await comFila(LISTAGEM.itens, LISTAGEM.itens[0].id);
+  const passo = `(async () => {
+    document.getElementById('btn-proximo').click();
+    const prazo = Date.now() + 15000;
+    while (Date.now() < prazo && document.getElementById('preparando').hidden === false) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    await new Promise((r) => setTimeout(r, 400));
+    const linhas = [...document.querySelectorAll('.linha-arq')];
+    return {
+      naFila: linhas.length,
+      tocando: linhas.findIndex((l) => l.classList.contains('linha-arq--tocando')),
+    };
+  })()`;
+
+  const um = await p.avaliar(passo);
+  assert.equal(um.naFila, LISTAGEM.itens.length, 'a fila sumiu depois do primeiro passo');
+  assert.equal(um.tocando, 1, `o primeiro "próximo" não andou: ${JSON.stringify(um)}`);
+
+  const dois = await p.avaliar(passo);
+  assert.equal(dois.naFila, LISTAGEM.itens.length,
+    'a fila sumiu no segundo passo — ela viveu exatamente um');
+  assert.equal(dois.tocando, 2, `o segundo "próximo" não andou: ${JSON.stringify(dois)}`);
+});
+
+test('um link com &list= vira fila, e o vídeo pedido é o que toca', seNaoTemMidia, async () => {
+  // A forma mais comum de link de playlist que circula: quem compartilha "o vídeo 4 da lista"
+  // manda exatamente `watch?v=…&list=…`.
+  respostaDeListar = { tipo: 'playlist', titulo: 'Minha lista', itens: LISTAGEM.itens };
+  respostaDeYtFixa = true;
+  respostaDeYt = {
+    tipo: 'video', id: LISTAGEM.itens[2].id, titulo: 'O terceiro', canal: 'C',
+    lista: 'PLabc123',
+    duracao: dashDeTeste.DURACAO, mpd: 'api/yt/mpd?v=aaaaaaaaaaa', legendas: [], qualidades: [90],
+  };
+  const p = await nav.novaPagina(origem.url);
+  const r = await p.avaliar(`(async () => {
+    window.__abrirContexto({ type: 'open-context', tipo: 'url',
+      url: 'https://www.youtube.com/watch?v=aaaaaaaaaa2&list=PLabc123' });
+    const v = document.getElementById('video');
+    let prazo = Date.now() + 15000;
+    while (Date.now() < prazo && v.currentTime < 0.5) await new Promise((r) => setTimeout(r, 100));
+    prazo = Date.now() + 8000;
+    while (Date.now() < prazo && !document.querySelector('.linha-arq')) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    const linhas = [...document.querySelectorAll('.linha-arq')];
+    return {
+      tempo: v.currentTime,
+      nome: document.getElementById('agora-nome').textContent,
+      naFila: linhas.length,
+      tocando: linhas.findIndex((l) => l.classList.contains('linha-arq--tocando')),
+      pasta: document.getElementById('bib-pasta').textContent,
+      naAba: !!document.querySelector('#painel-reproduzindo.painel--ativo'),
+    };
+  })()`);
+
+  assert.ok(r.tempo >= 0.5, `o vídeo do link não tocou: ${JSON.stringify(r)}`);
+  assert.equal(r.nome, 'O terceiro', 'tocou outro vídeo que não o pedido no link');
+  assert.equal(r.naFila, LISTAGEM.itens.length, 'o `&list=` não virou fila');
+  assert.equal(r.tocando, 2, 'o vídeo do link não foi localizado dentro da fila');
+  assert.equal(r.pasta, 'Minha lista');
+  assert.equal(r.naAba, true);
+});
+
+test('um vídeo SEM lista não herda a fila do anterior', seNaoTemMidia, async () => {
+  // ⚠ O outro lado da mesma moeda, e o mais fácil de errar ao consertar o primeiro: se `vizinhos`
+  // não fosse limpo na entrada, abrir um vídeo solto depois de uma playlist deixaria o "próximo"
+  // apontando para o item seguinte de uma lista que não tem nada a ver com o que está tocando.
+  const p = await comFila(LISTAGEM.itens, LISTAGEM.itens[0].id);
+  respostaDeYt = {
+    tipo: 'video', id: 'zzzzzzzzzzz', titulo: 'Solto', canal: 'C',
+    duracao: dashDeTeste.DURACAO, mpd: 'api/yt/mpd?v=aaaaaaaaaaa', legendas: [], qualidades: [90],
+  };
+  const r = await p.avaliar(`(async () => {
+    window.__abrirContexto({ type: 'open-context', tipo: 'url',
+      url: 'https://youtu.be/zzzzzzzzzzz' });
+    const v = document.getElementById('video');
+    const prazo = Date.now() + 15000;
+    while (Date.now() < prazo && v.currentTime < 0.5) await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 500));
+    return {
+      nome: document.getElementById('agora-nome').textContent,
+      naFila: document.querySelectorAll('.linha-arq').length,
+    };
+  })()`);
+  assert.equal(r.nome, 'Solto');
+  assert.equal(r.naFila, 0, 'o vídeo solto herdou a fila da busca anterior');
 });

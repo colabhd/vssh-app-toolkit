@@ -159,6 +159,26 @@ function montarPalco() {
     $('aviso').hidden = !texto;
   }
 
+  /**
+   * Abre um item da fila — venha ele da pasta ou de uma playlist do YouTube.
+   *
+   * ⚠ **A fila é UMA**, e é o que faz próximo/anterior, `ended`, repetir, aleatório e os botões da
+   * central de mídia funcionarem para as duas origens sem nenhum deles saber que existem duas. Uma
+   * segunda lista, só para o YouTube, seria seis lugares para as duas divergirem — e cada
+   * divergência apareceria como "o próximo não anda" num dos casos.
+   */
+  function abrirVizinho(v) {
+    if (!v) return undefined;
+    // ⚠ A fila viaja JUNTO ao andar nela. `abrirYoutube` limpa `vizinhos` na entrada — o que é
+    // certo, senão a lista do vídeo anterior sobreviveria e o "próximo" apontaria para outra
+    // coisa —, e sem repassá-la aqui o segundo item da playlist seria o último: a fila teria
+    // exatamente um passo de vida.
+    if (v.videoId) {
+      return abrirYoutube(`https://www.youtube.com/watch?v=${v.videoId}`, { fila: vizinhos });
+    }
+    return abrir(v.caminho);
+  }
+
   async function abrir(caminho, opcoes) {
     const o = opcoes || {};
     const minha = ++geracao;
@@ -292,7 +312,8 @@ function montarPalco() {
     return null;
   }
 
-  async function abrirYoutube(url) {
+  async function abrirYoutube(url, opcoes) {
+    const o = opcoes || {};
     const minha = ++geracao;
     avisar('');
     vizinhos = [];
@@ -375,6 +396,54 @@ function montarPalco() {
 
     mostrarRetomar(0);
     porMediaSession({ nome: r.titulo, origem: r.canal });
+
+    // ⚠ A fila vem DEPOIS de o vídeo já estar tocando, e nunca antes: carregar uma playlist de
+    // trinta itens é outra ida ao YouTube, e fazê-la primeiro adiaria a imagem por esse tempo para
+    // preencher uma lista que a pessoa talvez nem abra.
+    if (o.fila) {
+      // Veio da grade, ou de um passo dentro da própria fila: os itens já estão na mão, e pedi-los
+      // de novo seria uma consulta inteira para reconstruir o que acabou de ser exibido na tela.
+      porFila(o.fila, r.id, minha);
+    } else if (r.lista) {
+      carregarFila(r.lista, r.id, minha);
+    } else {
+      // ⚠ **Um vídeo solto também tem de LIMPAR a tela da fila anterior.** `vizinhos` já foi
+      // zerado na entrada, mas quem apaga as linhas da Biblioteca é `desenharTabela` — e sem
+      // chamá-la aqui a lista antiga fica na tela, com uma linha marcada como "tocando" que não
+      // está tocando nada. O defeito é de PINTURA sobre um estado correto, que é a variedade mais
+      // difícil de enxergar: o `<video>` está certo, os botões estão certos, e a tela mente.
+      porFila([], null, minha);
+    }
+  }
+
+  /**
+   * A fila do YouTube assume, com o vídeo atual localizado dentro dela.
+   *
+   * ⚠ `fila` chega SEMPRE no formato interno (`{nome, videoId}`), venha da grade, do backend ou de
+   * um passo anterior na própria fila. Aceitar dois formatos aqui — `{titulo, id}` e
+   * `{nome, videoId}` — seria uma linha hoje e um lugar para o campo errado passar em silêncio
+   * depois; quem converte é quem conhece a origem.
+   */
+  function porFila(fila, videoAtual, minha) {
+    if (minha !== undefined && minha !== geracao) return;
+    vizinhos = fila || [];
+    indice = vizinhos.findIndex((v) => v.videoId === videoAtual);
+    desenharTabela();
+    porCentralDeMidia();
+  }
+
+  async function carregarFila(lista, videoAtual, minha) {
+    const url = `https://www.youtube.com/playlist?list=${lista}`;
+    try {
+      const r = await api(`api/yt/listar?url=${encodeURIComponent(url)}`);
+      if (minha !== geracao) return;
+      $('bib-pasta').textContent = r.titulo || 'Playlist';
+      porFila((r.itens || []).map((i) => ({ nome: i.titulo, videoId: i.id })), videoAtual, minha);
+    } catch {
+      // ⚠ Silêncio de propósito, e é a mesma regra de `carregarVizinhos`: a fila é secundária, e o
+      // vídeo que a pessoa pediu está tocando. Um aviso sobre a lista por cima de um vídeo que
+      // funciona diria que algo quebrou quando nada do que ela pediu quebrou.
+    }
   }
 
   function mostrarRetomar(seg) {
@@ -493,10 +562,10 @@ function montarPalco() {
     if (aleatorio && vizinhos.length > 1) {
       let i = indice;
       while (i === indice) i = Math.floor(Math.random() * vizinhos.length);
-      return abrir(vizinhos[i].caminho);
+      return abrirVizinho(vizinhos[i]);
     }
-    if (indice + 1 < vizinhos.length) return abrir(vizinhos[indice + 1].caminho);
-    if (repetir === 'lista') return abrir(vizinhos[0].caminho);
+    if (indice + 1 < vizinhos.length) return abrirVizinho(vizinhos[indice + 1]);
+    if (repetir === 'lista') return abrirVizinho(vizinhos[0]);
   });
 
   // ── Marcar onde parou ───────────────────────────────────────────────────
@@ -597,8 +666,9 @@ function montarPalco() {
     const acoes = {
       abrir: escolherArquivo,
       fechar: () => vssh.window.close(),
-      anterior: () => indice > 0 && abrir(vizinhos[indice - 1].caminho),
-      proximo: () => indice >= 0 && indice + 1 < vizinhos.length && abrir(vizinhos[indice + 1].caminho),
+      anterior: () => indice > 0 && abrirVizinho(vizinhos[indice - 1]),
+      proximo: () => indice >= 0 && indice + 1 < vizinhos.length
+                && abrirVizinho(vizinhos[indice + 1]),
       tocar: () => (video.paused ? video.play().catch(() => {}) : video.pause()),
       parar: () => { video.pause(); buscar(0); },
       'v-10': () => buscar(agoraReal() - 10),

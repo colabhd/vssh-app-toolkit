@@ -125,7 +125,15 @@ function montarYoutube(palco) {
       montar: montarCartao,
       aoAbrir: (i) => {
         const item = itens[i];
-        if (item) palco.abrirYoutube(`https://www.youtube.com/watch?v=${item.id}`);
+        if (!item) return;
+        // ⚠ **A lista que está na tela vira a FILA.** Abrir o quarto resultado de uma busca e
+        // depois apertar "próximo" tem de dar o quinto — e não o próximo arquivo da última pasta
+        // local aberta, que é o que aconteceria se a fila não viajasse junto. Os itens vão na mão
+        // porque já estão aqui: pedi-los de novo seria uma consulta inteira ao YouTube para
+        // reconstruir o que acabou de ser exibido.
+        // A fila viaja no formato INTERNO do player — quem conhece a origem converte.
+        const fila = itens.map((x) => ({ nome: x.titulo, videoId: x.id }));
+        palco.abrirYoutube(`https://www.youtube.com/watch?v=${item.id}`, { fila });
       },
     });
     mostrar('grade');
