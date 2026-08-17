@@ -204,13 +204,18 @@ test('a deriva de espessura do sprite do shell está MEDIDA, e não corrigida no
     const chave = m ? m[1] : 'sólido (fill)';
     espessuras[chave] = (espessuras[chave] || 0) + 1;
   }
-  // Medido, não estimado: 45 ícones a 1.5, sete a 1.3, sete a 1.4 e SETE sem traço nenhum.
+  // Medido, não estimado: 45 a 1.5, NOVE a 1.3, sete a 1.4 e CINCO sem traço nenhum.
   //
-  // ⚠ Os sólidos eram um e viraram sete: os seis do transporte de mídia subiram daqui para o
-  // `index.html` do shell, e eles são `fill="currentColor"` por natureza — um triângulo de play
-  // desenhado a traço fica com um buraco no meio. A deriva é REAL e está registrada em vez de
-  // apagada, que é o ponto deste caso: número novo entra depois de ser explicado.
-  assert.deepEqual(espessuras, { 1.5: 45, 1.3: 7, 1.4: 7, 'sólido (fill)': 7 },
+  // ⚠ Duas derivas, ambas do transporte de mídia que subiu daqui para o `index.html` do shell, e
+  // ambas registradas em vez de apagadas — que é o ponto deste caso: número novo entra depois de
+  // ser explicado.
+  //
+  //   sólidos 1 → 5   play, pause, skip-back e skip-forward são `fill` por natureza: um triângulo
+  //                   de play desenhado a traço fica com um buraco no meio.
+  //   1.3     7 → 9   `voltar-10` e `avancar-10` são os únicos ícones com um NÚMERO dentro, e um
+  //                   "10" a 1.5 de espessura fecha os vazios do zero a 16px. A espessura menor é
+  //                   o preço de caber um dígito legível — não é desleixo, é o que o glifo exigiu.
+  assert.deepEqual(espessuras, { 1.5: 45, 1.3: 9, 1.4: 7, 'sólido (fill)': 5 },
     'a distribuição de espessuras do sprite do shell mudou. Reveja a cópia antes de seguir: '
     + `agora é ${JSON.stringify(espessuras)}`);
 });
