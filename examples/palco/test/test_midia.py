@@ -20,7 +20,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend"))
 
 from decisao import Decisao  # noqa: E402
-from midia import argv_de_fluxo, argv_de_legenda, argv_de_sonda  # noqa: E402
+from midia import achar_gpu, argv_de_fluxo, argv_de_legenda, argv_de_sonda, argv_de_teste_vaapi, escolher_gpu  # noqa: E402
 
 ARQ = "/home/ana/Vídeos/o filme.mkv"
 
@@ -150,6 +150,80 @@ class TestOAacQueVemEmADTS(unittest.TestCase):
         argv = argv_de_fluxo(Decisao(modo="remux", video="copiar", audio="copiar",
                                      faixa_audio=1), ARQ)
         self.assertNotIn("-bsf:a", argv)
+
+
+class TestOTesteDaPLACA(unittest.TestCase):
+    """⚠ Existir `/dev/dri/renderD*` NÃO prova que o VAAPI funciona, e a versão anterior desta
+    função perguntava exatamente isso — com um comentário ao lado dizendo que não bastava. É o
+    formato mais teimoso de dívida: o defeito escrito ao lado do código que o causa.
+
+    O que aconteceu num servidor de verdade:
+
+        libva: virtio_gpu_drv_video.so init failed
+        Failed to initialise VAAPI connection: 2 (resource allocation failed)
+        status 251, zero byte
+
+    Uma GPU **virtual** — ela existe para desenhar tela, não para codificar vídeo, nenhum pacote
+    resolve, e num ambiente virtualizado ela é o caso COMUM. Enumerar acerta onde não importa.
+    """
+
+    def test_a_linha_de_teste_SOBE_o_quadro_para_a_placa(self):
+        # ⚠ Sem `format=nv12,hwupload` o `h264_vaapi` recusa a entrada, e o teste falharia por motivo
+        # errado — declarando "não tem GPU" num servidor que tem. Um teste de capacidade que erra
+        # para o lado do "não" desliga o recurso em silêncio.
+        argv = argv_de_teste_vaapi("/dev/dri/renderD128")
+        self.assertIn("hwupload", " ".join(argv))
+        self.assertEqual(argv[argv.index("-vaapi_device") + 1], "/dev/dri/renderD128")
+        self.assertEqual(argv[argv.index("-c:v") + 1], "h264_vaapi")
+
+    def test_ele_CODIFICA_de_verdade_e_nao_escreve_arquivo(self):
+        # `-f null -` é o que torna a medida barata: o trabalho de codificar acontece, e o resultado
+        # é jogado fora. Meio segundo de vídeo, uma vez, no boot.
+        self.assertEqual(argv_de_teste_vaapi("/dev/dri/renderD128")[-3:], ["-f", "null", "-"])
+        self.assertIn("duration=0.5", " ".join(argv_de_teste_vaapi("/dev/dri/renderD128")))
+
+    # ⚠ A regra é medida com o teste INJETADO, e não rodando ffmpeg: a suíte precisa reprovar uma
+    # placa quebrada rodando numa máquina que não tem placa nenhuma. Foi por não fazer isso que a
+    # primeira versão destes testes passou verde com a função errada — no Windows não há `/dev/dri`,
+    # o laço nunca rodava, e a refutação não mordia.
+
+    def test_o_dispositivo_que_FALHA_e_recusado(self):
+        # O caso do servidor real: a virtio existe, aparece em `/dev/dri`, e não codifica.
+        recusa = lambda c: (False, "libva: virtio_gpu_drv_video.so init failed")  # noqa: E731
+        caminho, motivo = escolher_gpu(["/dev/dri/renderD128"], recusa)
+        self.assertIsNone(caminho, "uma placa que não codifica foi anunciada como GPU")
+        self.assertIn("virtio", motivo, "o motivo perdeu o que o ffmpeg disse")
+
+    def test_o_que_CODIFICA_e_escolhido(self):
+        caminho, motivo = escolher_gpu(["/dev/dri/renderD128"], lambda c: (True, "codifica"))
+        self.assertEqual(caminho, "/dev/dri/renderD128")
+
+    def test_com_varios_nodes_ele_procura_ate_achar(self):
+        # ⚠ Não é hipótese: um servidor com placa integrada mais dedicada tem dois render nodes, e
+        # costuma ser o SEGUNDO que codifica. Parar no primeiro desligaria o recurso onde ele existe.
+        tentados = []
+
+        def so_o_segundo(caminho):
+            tentados.append(caminho)
+            return (caminho.endswith("129"), "ok" if caminho.endswith("129") else "sem encoder")
+
+        caminho, _ = escolher_gpu(["/dev/dri/renderD128", "/dev/dri/renderD129"], so_o_segundo)
+        self.assertEqual(caminho, "/dev/dri/renderD129")
+        self.assertEqual(len(tentados), 2)
+
+    def test_sem_node_nenhum_a_resposta_e_None_com_MOTIVO(self):
+        # ⚠ O motivo não é enfeite: sem ele o log do boot diz "sem VAAPI" e quem lê não distingue
+        # "este servidor não tem placa" de "tem, e o driver está quebrado" — que pedem ações opostas.
+        caminho, motivo = escolher_gpu([], lambda c: (True, "nunca chamado"))
+        self.assertIsNone(caminho)
+        self.assertTrue(motivo, "devolveu None sem dizer por quê")
+
+    def test_achar_gpu_nao_LANCA_onde_nao_ha_dev_dri(self):
+        # O app roda em Linux, mas a suíte roda onde quem desenvolve estiver — e um `achar_gpu` que
+        # lançasse no boot mataria o processo antes de ele escutar.
+        caminho, motivo = achar_gpu(tempo_limite=5)
+        self.assertTrue(motivo)
+        self.assertTrue(caminho is None or isinstance(caminho, str))
 
 
 class TestFaixas(unittest.TestCase):

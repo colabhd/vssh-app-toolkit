@@ -31,6 +31,7 @@ import hmac
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -65,8 +66,8 @@ limpar_bandeja_ao_sair()
 
 # Medido uma vez no boot, e não por requisição: enumerar `/dev/dri` a cada abertura de vídeo seria
 # I/O por uma resposta que não muda enquanto o processo vive.
-GPU = achar_gpu()
-log("boot", {"gpu": GPU or "sem VAAPI"})
+GPU, GPU_MOTIVO = achar_gpu()
+log("boot", {"gpu": GPU or "sem VAAPI", "motivo": GPU_MOTIVO})
 
 spa = criar_spa_estatica(
     root=os.path.join(_AQUI, "..", "frontend"),
@@ -137,7 +138,59 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, OSError, UnicodeDecodeError):
             return {}
 
-    def _canalizar(self, argv, tipo, rotulo):
+    def _bombear(self, argv, rotulo, relogio):
+        """Roda um processo e escreve o stdout dele como blocos `chunked`.
+
+        Devolve `(status, bytes_enviados, ms_do_primeiro, stderr, abortado)`. Separado de
+        `_canalizar` para que a mesma resposta possa ser servida por um SEGUNDO processo quando o
+        primeiro morre sem escrever nada — ver a rede de segurança da GPU lá.
+        """
+        try:
+            proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except OSError as e:
+            log("ffmpeg-ausente", {"erro": str(e)})
+            return None, 0, None, str(e), False
+
+        # ⚠ O `stderr` é lido numa thread, e não ignorado. Um cano de stderr cheio BLOQUEIA o
+        # ffmpeg: ele para de escrever vídeo e o player congela sem nada aparecer em lugar nenhum.
+        erros = []
+        leitor = threading.Thread(target=lambda: erros.append(proc.stderr.read()), daemon=True)
+        leitor.start()
+
+        ms_primeiro = None
+        enviados = 0
+        abortado = False
+        try:
+            while True:
+                # ⚠ `read1` e não `read`: `read(65536)` num `BufferedReader` fica SEGURANDO os bytes
+                # até juntar os 65536 ou o processo morrer. Num cano isso é latência inventada — os
+                # primeiros quadros ficam parados no buffer do servidor esperando companhia. O
+                # `read1` devolve o que já chegou, que é o que um repassador tem de fazer.
+                bloco = proc.stdout.read1(64 * 1024)
+                if not bloco:
+                    break
+                if ms_primeiro is None:
+                    ms_primeiro = int((time.monotonic() - relogio) * 1000)
+                self.wfile.write(enquadrar(bloco))
+                enviados += len(bloco)
+        except OSError:
+            # ⚠ A pessoa buscou, e o navegador abortou a requisição. Sem MATAR o processo aqui,
+            # cada arraste na linha do tempo deixa um ffmpeg vivo mastigando o filme inteiro — e
+            # três arrastes ocupam o servidor de todo mundo.
+            abortado = True
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait()
+
+        # ⚠ Esperar o leitor: sem isto, `erros` costuma estar VAZIO no instante em que se lê — e o
+        # log da falha sairia sem a única linha que diz o que o ffmpeg não conseguiu fazer. O prazo
+        # existe porque um `stderr` que não fecha não pode segurar a resposta.
+        leitor.join(timeout=2)
+        saida = ((erros[0] if erros else b"") or b"").decode("utf-8", "replace")
+        return proc.returncode, enviados, ms_primeiro, saida, abortado
+
+    def _canalizar(self, argv, tipo, rotulo, alternativa=None):
         """Roda um processo e repassa o stdout dele como corpo da resposta.
 
         ⚠ **Sem `Content-Length` e sem Range, de propósito** — um cano não tem tamanho conhecido e
@@ -157,6 +210,11 @@ class Handler(BaseHTTPRequestHandler):
 
         Deixar o corpo INCOMPLETO é o canal. Um chunked sem terminador é erro de rede para o
         navegador, `error` no `<video>`, e a interface pode dizer o que houve.
+
+        `alternativa` é uma segunda linha de comando, tentada **só** quando a primeira morre sem ter
+        escrito byte nenhum. É o que salva o transcode quando a GPU falha em uso: como nada foi
+        enviado, o navegador não tem como perceber que houve duas tentativas — para ele é um corpo
+        só. Depois do primeiro byte não há como voltar atrás, e por isso a condição é essa.
         """
         if self.command == "HEAD":
             # ⚠ Um corpo numa resposta a HEAD desalinha o enquadramento da conexão — e aqui custaria
@@ -168,11 +226,12 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        try:
-            proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        except OSError as e:
-            log("ffmpeg-ausente", {"erro": str(e)})
-            self._json(503, {"erro": "ffmpeg não está neste servidor"})
+        # ⚠ A conferência vem ANTES dos cabeçalhos, e é a ordem que importa: depois de enviar
+        # `200 chunked` não há como responder 503 — seriam duas respostas na mesma conexão. Sem
+        # ffmpeg instalado, "o app não pode fazer isto" é uma resposta melhor que um corpo truncado.
+        if not shutil.which(argv[0]):
+            log("ffmpeg-ausente", {"programa": argv[0]})
+            self._json(503, {"erro": f"{argv[0]} não está neste servidor"})
             return
 
         self.send_response(200)
@@ -185,12 +244,6 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
 
-        # ⚠ O `stderr` é lido numa thread, e não ignorado. Um cano de stderr cheio BLOQUEIA o
-        # ffmpeg: ele para de escrever vídeo e o player congela sem nada aparecer em lugar nenhum.
-        erros = []
-        leitor = threading.Thread(target=lambda: erros.append(proc.stderr.read()), daemon=True)
-        leitor.start()
-
         # ⚠ Os dois relógios que separam "o servidor é lento" de "o caminho até o navegador é
         # lento", e eles existem porque a medição local já ELIMINOU o ffmpeg: o arquivo de teste de
         # 1,5 MB sai inteiro em 0,05 s, com o primeiro quadro possível aos 67 KB. Se ainda demora
@@ -202,48 +255,31 @@ class Handler(BaseHTTPRequestHandler):
         #            segundos, quem está segurando os bytes é o outro lado — `wfile.write` bloqueia
         #            quando o socket enche, e é exatamente essa espera que o número captura.
         relogio = time.monotonic()
-        ms_primeiro = None
-        bytes_enviados = 0
-        abortado = False
-        try:
-            while True:
-                # ⚠ `read1` e não `read`: `read(65536)` num `BufferedReader` fica SEGURANDO os bytes
-                # até juntar os 65536 ou o processo morrer. Num cano isso é latência inventada — os
-                # primeiros quadros ficam parados no buffer do servidor esperando companhia. O
-                # `read1` devolve o que já chegou, que é o que um repassador tem de fazer.
-                bloco = proc.stdout.read1(64 * 1024)
-                if not bloco:
-                    break
-                if ms_primeiro is None:
-                    ms_primeiro = int((time.monotonic() - relogio) * 1000)
-                self.wfile.write(enquadrar(bloco))
-                bytes_enviados += len(bloco)
-        except OSError:
-            # ⚠ A pessoa buscou, e o navegador abortou a requisição. Sem MATAR o processo aqui,
-            # cada arraste na linha do tempo deixa um ffmpeg vivo mastigando o filme inteiro — e
-            # três arrastes ocupam o servidor de todo mundo.
-            abortado = True
+        status, bytes_enviados, ms_primeiro, saida, abortado = self._bombear(argv, rotulo, relogio)
+
+        # A rede de segurança: nada foi enviado, então ainda dá para trocar de linha de comando sem
+        # o navegador saber. É o que salva o transcode quando a GPU do servidor falha em uso — e
+        # falha acontece mesmo depois de o teste do boot ter passado: outro usuário segurando o
+        # dispositivo, memória da placa cheia.
+        if status not in (0, None) and bytes_enviados == 0 and alternativa:
+            log("cano-alternativa", {"rotulo": rotulo, "status": status, "saida": saida[-400:]})
+            status, bytes_enviados, ms_primeiro, saida, abortado = \
+                self._bombear(alternativa, rotulo, relogio)
+
+        self.close_connection = True
+        if abortado:
             log("cano-abortado", {"rotulo": rotulo, "bytes": bytes_enviados,
                                   "ms_1o": ms_primeiro,
                                   "ms_tudo": int((time.monotonic() - relogio) * 1000)})
-        finally:
-            if proc.poll() is None:
-                proc.kill()
-            proc.wait()
-            self.close_connection = True
-
-        if abortado:
             return
 
-        # ⚠ Esperar o leitor: sem isto, `erros` costuma estar VAZIO no instante em que se lê — e o
-        # log da falha sairia sem a única linha que diz o que o ffmpeg não conseguiu fazer. O prazo
-        # existe porque um `stderr` que não fecha não pode segurar a resposta.
-        leitor.join(timeout=2)
-        saida = ((erros[0] if erros else b"") or b"").decode("utf-8", "replace")
-        fim = terminador(proc.returncode, bytes_enviados)
+        # `status` é `None` quando nem o `Popen` deu certo — o `which` acima já cobriu o caso comum,
+        # e o que sobra (permissão, fork recusado) cai no mesmo lugar que qualquer outra falha:
+        # `terminador` recusa o fecho e o navegador recebe erro em vez de um filme curto.
+        fim = terminador(status, bytes_enviados)
         tempos = {"ms_1o": ms_primeiro, "ms_tudo": int((time.monotonic() - relogio) * 1000)}
         if not fim:
-            log("ffmpeg-erro", {"rotulo": rotulo, "status": proc.returncode,
+            log("ffmpeg-erro", {"rotulo": rotulo, "status": status,
                                 "bytes": bytes_enviados, **tempos, "saida": saida[-800:]})
         elif saida:
             # Saiu com zero e escreveu no stderr: avisos de timestamp, faixa ignorada. Não é falha,
@@ -396,13 +432,18 @@ class Handler(BaseHTTPRequestHandler):
                 d.codec_audio = escolhida.codec
                 if d.modo == "direto":
                     d.modo = "remux"
-        argv = argv_de_fluxo(d, caminho, inicio=int(t or 0), gpu=GPU)
+        inicio = int(t or 0)
+        argv = argv_de_fluxo(d, caminho, inicio=inicio, gpu=GPU)
         if argv is None:
             # ⚠ Modo direto: pedir o cano aqui é um bug do frontend, e responder com bytes
             # esconderia esse bug atrás de CPU gasta em silêncio. 409 nomeia o que aconteceu.
             return self._json(409, {"erro": "este arquivo toca direto; use vssh.fs.urlFor",
                                     "modo": d.modo})
-        self._canalizar(argv, "video/mp4", f"fluxo:{os.path.basename(caminho)}")
+        # A mesma linha sem a placa. Só é USADA se a primeira morrer sem escrever nada — e o teste
+        # do boot já reprovou as placas que nunca funcionam, então isto cobre o que sobra: falhar em
+        # uso. Uma GPU compartilhada com outro usuário responde bem no boot e recusa às 20h.
+        cpu = argv_de_fluxo(d, caminho, inicio=inicio, gpu=None) if GPU else None
+        self._canalizar(argv, "video/mp4", f"fluxo:{os.path.basename(caminho)}", alternativa=cpu)
 
     def _legenda(self, caminho, faixa):
         caminho = _seguro(caminho)

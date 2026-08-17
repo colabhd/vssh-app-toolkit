@@ -213,15 +213,78 @@ def sondar_arquivo(caminho, tempo_limite=20):
     return sonda
 
 
-def achar_gpu():
-    """O nó de render da placa, ou `None`.
+def argv_de_teste_vaapi(dispositivo):
+    """Codificar meio segundo de nada. É o menor trabalho que prova a placa."""
+    return [
+        "ffmpeg", "-hide_banner", "-loglevel", "error",
+        "-vaapi_device", dispositivo,
+        "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=0.5",
+        # `format=nv12,hwupload` é obrigatório: sem subir o quadro para a placa, o `h264_vaapi`
+        # recusa a entrada e o teste falharia por motivo errado — dizendo "não tem GPU" onde tem.
+        "-vf", "format=nv12,hwupload", "-c:v", "h264_vaapi",
+        "-f", "null", "-",
+    ]
 
-    ⚠ Existir `/dev/dri/renderD*` não prova que o VAAPI funciona — prova que há um dispositivo. O
-    template mede de verdade codificando um `testsrc`, e é essa a medida que vale antes de prometer
-    transcodificação barata a alguém.
+
+def achar_gpu(tempo_limite=20):
+    """O nó de render que CODIFICA — e `(None, motivo)` quando não há nenhum.
+
+    ⚠ **A versão anterior perguntava se o dispositivo EXISTE, e essa é a pergunta errada.** O
+    comentário dela já dizia isso e mesmo assim a listagem ficou, o que é o formato mais teimoso de
+    dívida: o defeito estava escrito ao lado do código que o causava.
+
+    O que aconteceu num servidor de verdade: `/dev/dri/renderD128` existia, o app anunciou GPU, e
+    todo transcode morreu na largada com
+
+        libva: virtio_gpu_drv_video.so init failed
+        Failed to initialise VAAPI connection: 2 (resource allocation failed)
+
+    Uma **GPU virtual** — ela existe para desenhar tela, não para codificar vídeo. Nenhum pacote
+    resolve, e num ambiente virtualizado ela é o caso comum, não a exceção. Ou seja: enumerar
+    `/dev/dri` acerta justamente onde não importa e erra onde dói.
+
+    Medir custa meio segundo, uma vez, no boot. É o mesmo método do `benchmark_gpu` do template, e
+    pela mesma razão que está escrita lá: um inventário não diz se a placa serve para alguma coisa.
     """
     try:
-        nos = sorted(n for n in os.listdir("/dev/dri") if n.startswith("renderD"))
+        nos = sorted(os.path.join("/dev/dri", n)
+                     for n in os.listdir("/dev/dri") if n.startswith("renderD"))
     except OSError:
-        return None
-    return os.path.join("/dev/dri", nos[0]) if nos else None
+        nos = []
+    return escolher_gpu(nos, _codifica_mesmo(tempo_limite))
+
+
+def _codifica_mesmo(tempo_limite):
+    """A prova de fogo de um render node: `(ok, motivo)`."""
+    def testar(caminho):
+        try:
+            p = subprocess.run(argv_de_teste_vaapi(caminho), capture_output=True,
+                               timeout=tempo_limite)
+        except (OSError, subprocess.SubprocessError) as e:
+            return False, str(e)
+        if p.returncode == 0:
+            return True, "codifica em VAAPI"
+        return False, p.stderr.decode("utf-8", "replace").strip()[-300:]
+    return testar
+
+
+def escolher_gpu(nos, testar):
+    """O primeiro render node que passa no teste, ou `(None, motivo)`.
+
+    Separada de `achar_gpu` porque a REGRA — "só vale se codificar" — é o que precisa de teste, e
+    ela não pode depender de a máquina que roda a suíte ter uma placa. É o mesmo arranjo de
+    `decisao.py` e `fluxo.py`: entra dado, sai decisão, nada abre o sistema.
+    """
+    if not nos:
+        return None, "nenhum render node em /dev/dri"
+
+    ultimo = None
+    for caminho in nos:
+        ok, motivo = testar(caminho)
+        if ok:
+            return caminho, f"{os.path.basename(caminho)}: {motivo}"
+        ultimo = f"{os.path.basename(caminho)}: {motivo}"
+
+    # ⚠ Falhar aqui é NORMAL e não é erro — é a resposta certa para a maioria dos servidores. O
+    # transcode cai na CPU, que é o último degrau da lista e sempre existiu.
+    return None, ultimo or "nenhum render node respondeu"
