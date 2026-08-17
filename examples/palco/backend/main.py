@@ -34,6 +34,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlsplit
 
@@ -190,6 +191,18 @@ class Handler(BaseHTTPRequestHandler):
         leitor = threading.Thread(target=lambda: erros.append(proc.stderr.read()), daemon=True)
         leitor.start()
 
+        # ⚠ Os dois relógios que separam "o servidor é lento" de "o caminho até o navegador é
+        # lento", e eles existem porque a medição local já ELIMINOU o ffmpeg: o arquivo de teste de
+        # 1,5 MB sai inteiro em 0,05 s, com o primeiro quadro possível aos 67 KB. Se ainda demora
+        # na tela, o tempo está depois daqui — no portal, no proxy ou no navegador — e adivinhar
+        # qual dos três é o que se estava fazendo até agora.
+        #
+        #   ms_1o    do `Popen` ao primeiro bloco: é o ffmpeg abrindo o arquivo e produzindo.
+        #   ms_tudo  até o último: como o cano ESVAZIA. Se o ffmpeg termina em 50 ms e isto dá
+        #            segundos, quem está segurando os bytes é o outro lado — `wfile.write` bloqueia
+        #            quando o socket enche, e é exatamente essa espera que o número captura.
+        relogio = time.monotonic()
+        ms_primeiro = None
         bytes_enviados = 0
         abortado = False
         try:
@@ -201,6 +214,8 @@ class Handler(BaseHTTPRequestHandler):
                 bloco = proc.stdout.read1(64 * 1024)
                 if not bloco:
                     break
+                if ms_primeiro is None:
+                    ms_primeiro = int((time.monotonic() - relogio) * 1000)
                 self.wfile.write(enquadrar(bloco))
                 bytes_enviados += len(bloco)
         except OSError:
@@ -208,7 +223,9 @@ class Handler(BaseHTTPRequestHandler):
             # cada arraste na linha do tempo deixa um ffmpeg vivo mastigando o filme inteiro — e
             # três arrastes ocupam o servidor de todo mundo.
             abortado = True
-            log("cano-abortado", {"rotulo": rotulo, "bytes": bytes_enviados})
+            log("cano-abortado", {"rotulo": rotulo, "bytes": bytes_enviados,
+                                  "ms_1o": ms_primeiro,
+                                  "ms_tudo": int((time.monotonic() - relogio) * 1000)})
         finally:
             if proc.poll() is None:
                 proc.kill()
@@ -224,13 +241,17 @@ class Handler(BaseHTTPRequestHandler):
         leitor.join(timeout=2)
         saida = ((erros[0] if erros else b"") or b"").decode("utf-8", "replace")
         fim = terminador(proc.returncode, bytes_enviados)
+        tempos = {"ms_1o": ms_primeiro, "ms_tudo": int((time.monotonic() - relogio) * 1000)}
         if not fim:
             log("ffmpeg-erro", {"rotulo": rotulo, "status": proc.returncode,
-                                "bytes": bytes_enviados, "saida": saida[-800:]})
+                                "bytes": bytes_enviados, **tempos, "saida": saida[-800:]})
         elif saida:
             # Saiu com zero e escreveu no stderr: avisos de timestamp, faixa ignorada. Não é falha,
             # mas é exatamente o rastro que se procura quando alguém diz "tocou torto".
-            log("ffmpeg-avisou", {"rotulo": rotulo, "bytes": bytes_enviados, "saida": saida[-800:]})
+            log("ffmpeg-avisou", {"rotulo": rotulo, "bytes": bytes_enviados, **tempos,
+                                  "saida": saida[-800:]})
+        else:
+            log("cano", {"rotulo": rotulo, "bytes": bytes_enviados, **tempos})
 
         try:
             self.wfile.write(fim)

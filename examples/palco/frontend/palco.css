@@ -142,19 +142,26 @@ body { margin: 0; overflow: hidden; }
 .palco-veloc:hover:not(:disabled) { background: var(--ds-bg-hover); color: var(--ds-text); }
 .palco-veloc[data-alterada="1"] { color: var(--ds-accent-h); }
 
-/* ── 6. A barra de estado ───────────────────────────────────────────────────
-   ⚠ Sem monoespaçada e sem sigla. Mono é a tipografia de "isto é saída de máquina" — exatamente a
-   mensagem errada para quem só quer assistir. Aqui são frases. */
-.statusbar {
-  flex: 0 0 auto; display: flex; align-items: center; gap: var(--ds-gap-lg);
-  padding: 3px var(--ds-gap-md);
-  background: var(--ds-statusbar-bg); border-top: 1px solid var(--ds-border);
-  font-size: var(--tuff-size-2xs); color: var(--ds-text-dim);
+/* ── 6. O aviso ─────────────────────────────────────────────────────────────
+   Onde ficava a barra de estado. Ela sumiu porque nada nela passava no teste do projeto — *o que
+   isto muda no que a pessoa faz?*: "Do seu ambiente" é verdade que não decide nada, e o aviso, no
+   rodapé, ficava no ponto mais distante de onde se está olhando quando o vídeo para.
+
+   Sobre o palco, EMBAIXO — `.retomar` já ocupa o topo, e as duas podem aparecer juntas (retomar de
+   12:04 num arquivo cujo cano depois cai). Sobrepostas, a segunda apagaria a primeira. */
+.aviso {
+  position: absolute; left: 50%; bottom: var(--ds-gap-lg); transform: translateX(-50%);
+  max-width: min(90%, 52ch);
+  display: flex; align-items: center; gap: var(--ds-gap-sm);
+  padding: var(--ds-gap-sm) var(--ds-gap-md);
+  background: var(--ds-bg2); border: 1px solid var(--ds-warn);
+  border-radius: var(--ds-radius-md); box-shadow: var(--ds-shadow-md);
+  font-size: var(--tuff-size-sm); color: var(--ds-text);
 }
-/* Cortar em vez de empurrar: numa janela estreita, um aviso comprido empurraria a origem para fora
-   da barra em vez de ser ele o cortado — e a origem é a que sempre vale. */
-.statusbar > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#st-aviso:not(:empty) { color: var(--ds-warn); }
+/* O ícone não encolhe e o texto quebra: um aviso comprido numa janela estreita tem de virar duas
+   linhas, e não espremer o símbolo que diz de que tipo de mensagem se trata. */
+.aviso .tuff-ico { flex: 0 0 auto; color: var(--ds-warn); }
+.aviso[hidden] { display: none; }
 
 /* ── 7. A tabela da Biblioteca ──────────────────────────────────────────────
    Densa, com colunas, seleção em `--ds-sel`: o idioma do gerenciador de arquivos do ambiente. */

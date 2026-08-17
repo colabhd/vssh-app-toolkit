@@ -17,6 +17,7 @@ string de shell, é execução de comando.
 import json
 import os
 import subprocess
+import threading
 
 from decisao import sondar
 
@@ -161,6 +162,19 @@ def argv_de_legenda(caminho, indice):
 # ── A execução, que é fina de propósito ──────────────────────────────────────
 
 
+# A sonda de cada arquivo, guardada. ⚠ **A chave inclui `mtime` e tamanho**, e não só o caminho:
+# um arquivo que ainda está sendo copiado ou baixado muda de duração enquanto se olha para ele, e
+# uma memória por caminho serviria a duração antiga para sempre — com a linha do tempo mentindo e
+# a busca caindo no lugar errado. Mudou qualquer um dos dois, sonda de novo.
+#
+# Ela existe porque a sonda era feita DUAS vezes por abertura (`/api/abrir` e `/api/fluxo`) e mais
+# uma a cada busca — cada uma um processo novo, ~37 ms medidos numa máquina rápida e mais num
+# servidor compartilhado. É trabalho por uma resposta que não mudou.
+_MEMORIA = {}
+_MEMORIA_TETO = 64
+_TRAVA = threading.Lock()
+
+
 def sondar_arquivo(caminho, tempo_limite=20):
     """Roda o `ffprobe` e devolve a `Sonda`. Falha vira sonda vazia, nunca exceção.
 
@@ -168,11 +182,35 @@ def sondar_arquivo(caminho, tempo_limite=20):
     subindo pelo handler viraria 500 numa tela que não explica nada.
     """
     try:
+        st = os.stat(caminho)
+        chave = (caminho, st.st_mtime_ns, st.st_size)
+    except OSError:
+        chave = None
+
+    if chave is not None:
+        with _TRAVA:
+            guardada = _MEMORIA.get(chave)
+        if guardada is not None:
+            return guardada
+
+    try:
         saida = subprocess.run(argv_de_sonda(caminho), capture_output=True, timeout=tempo_limite,
                                check=True)
-        return sondar(json.loads(saida.stdout.decode("utf-8", "replace")), os.path.basename(caminho))
+        sonda = sondar(json.loads(saida.stdout.decode("utf-8", "replace")), os.path.basename(caminho))
     except (subprocess.SubprocessError, OSError, ValueError):
+        # ⚠ A falha NÃO é guardada. Um `ffprobe` que estourou o prazo porque o disco estava ocupado
+        # deixaria o arquivo marcado como "desconhecido" até o processo reiniciar — e a pessoa não
+        # teria como desfazer isso a não ser reabrindo o app.
         return sondar({}, os.path.basename(caminho))
+
+    if chave is not None:
+        with _TRAVA:
+            if len(_MEMORIA) >= _MEMORIA_TETO:
+                # Teto simples e sem política: quem usa isto abre dezenas de arquivos por sessão,
+                # não milhares, e uma LRU de verdade seria mecanismo para um problema que não há.
+                _MEMORIA.clear()
+            _MEMORIA[chave] = sonda
+    return sonda
 
 
 def achar_gpu():

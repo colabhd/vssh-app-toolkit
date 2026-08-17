@@ -76,6 +76,19 @@
           <div class="preparando" id="preparando" hidden>
             <span class="tuff-spinner"></span><span id="preparando-t">Preparando…</span>
           </div>
+
+          <!-- ⚠ O aviso mora SOBRE o palco, e não numa barra de estado no rodapé. Duas razões, e a
+               segunda é a que decide: uma falha de reprodução não é *estado*, é um evento — quem
+               olha para o vídeo que parou tem de encontrar a explicação onde estava olhando; e uma
+               barra permanente que fica vazia 99% do tempo gasta uma faixa da janela para, nos
+               outros 1%, mostrar o texto no lugar mais distante da vista.
+
+               Ele NÃO some sozinho, ao contrário de `.retomar`: aviso que ninguém leu é pior que
+               nenhum aviso. Sai quando o próximo arquivo abre. -->
+          <div class="aviso" id="aviso" role="status" hidden>
+            <svg class="tuff-ico"><use href="#ico-warning"></use></svg>
+            <span id="aviso-t"></span>
+          </div>
         </div>
       </div>
 
@@ -191,15 +204,11 @@
     </div>
   </div>
 
-  <!-- ⚠ Sem fonte monoespaçada e sem sigla. Ela dizia `MKV · H.264 1080p · AAC 2.0 · 1,4 Mbps`, e
-       mono é a tipografia de "isto é saída de máquina" — a mensagem errada para quem só quer
-       assistir. O detalhe técnico mora em Ferramentas → Informações do arquivo, que é onde o VLC o
-       põe. Aqui ficam frases, e só o que muda o que a pessoa faz. -->
-  <div class="statusbar">
-    <span id="st-origem">Do seu ambiente</span>
-    <span style="flex:1"></span>
-    <span id="st-aviso"></span>
-  </div>
+  <!-- ⚠ NÃO há barra de estado, e a que existia foi removida por medida própria. Ela dizia
+       "Do seu ambiente" e servia de casa para os avisos. Passando os dois pelo teste que este
+       projeto já usa — *o que aqui muda o que a pessoa faz?* — nenhum passa: "Do seu ambiente" é
+       verdade que não decide nada, e um aviso no rodapé fica no ponto mais distante de onde a
+       pessoa está olhando quando o vídeo para. O aviso subiu para cima do palco; a origem sumiu. -->
 
 </div>
 </body>

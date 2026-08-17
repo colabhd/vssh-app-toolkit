@@ -146,10 +146,23 @@ function montarPalco() {
     if (texto) $('preparando-t').textContent = texto;
   }
 
+  /**
+   * O aviso, sobre o palco.
+   *
+   * ⚠ Ele NÃO some sozinho, ao contrário de `.retomar`. Um aviso que expira é um aviso que quem
+   * saiu da janela por dez segundos nunca leu — e a pessoa volta para um vídeo parado sem
+   * explicação, que é exatamente o estado que ele existe para evitar. Sai quando o próximo arquivo
+   * abre, que é o momento em que ele deixou de valer.
+   */
+  function avisar(texto) {
+    $('aviso-t').textContent = texto || '';
+    $('aviso').hidden = !texto;
+  }
+
   async function abrir(caminho, opcoes) {
     const o = opcoes || {};
     const minha = ++geracao;
-    $('st-aviso').textContent = '';
+    avisar('');
     // ⚠ A lista some ANTES do `await`. Ela é dos vizinhos do arquivo ANTERIOR até `api/vizinhos`
     // responder, e nesse intervalo qualquer `ended` avançaria pela pasta errada — que é como uma
     // falha no primeiro quadro conseguiu pôr o vídeo anterior de volta na tela.
@@ -166,7 +179,7 @@ function montarPalco() {
     } catch (e) {
       if (minha !== geracao) return;
       mostrarPreparando(false);
-      $('st-aviso').textContent = 'Não consegui abrir este arquivo.';
+      avisar('Não consegui abrir este arquivo.');
       return;
     }
     if (minha !== geracao) return;   // alguém abriu outra coisa enquanto isto voltava
@@ -176,11 +189,10 @@ function montarPalco() {
     $('vazio-palco').hidden = true;
     $('agora-nome').textContent = r.nome;
     document.title = `${r.nome} — Palco`;
-    $('st-origem').textContent = r.temVideo ? 'Do seu ambiente' : 'Áudio, do seu ambiente';
 
     if (r.modo === 'desconhecido') {
       mostrarPreparando(false);
-      $('st-aviso').textContent = 'Não reconheci este arquivo como mídia.';
+      avisar('Não reconheci este arquivo como mídia.');
       return;
     }
 
@@ -281,9 +293,9 @@ function montarPalco() {
   video.addEventListener('error', () => {
     mostrarPreparando(false);
     if (!atual) return;
-    $('st-aviso').textContent = noCano()
+    avisar(noCano()
       ? 'A conversão no servidor falhou. O registro do aplicativo diz o motivo.'
-      : 'A reprodução falhou. Tente abrir de novo.';
+      : 'A reprodução falhou. Tente abrir de novo.');
     console.warn('[palco] erro de mídia', { modo: atual.modo, fonte: video.currentSrc,
                                             codigo: video.error && video.error.code });
   });
@@ -320,9 +332,8 @@ function montarPalco() {
 
   video.addEventListener('ended', () => {
     if (!chegouAoFim()) {
-      $('st-aviso').textContent =
-        `A transmissão parou em ${tempoDe(agoraReal())}, antes do fim. O registro do aplicativo `
-        + 'diz o motivo.';
+      avisar(`A transmissão parou em ${tempoDe(agoraReal())}, antes do fim. `
+             + 'O registro do aplicativo diz o motivo.');
       console.warn('[palco] fluxo truncado', { modo: atual && atual.modo, em: agoraReal(),
                                                duracao: duracaoReal() });
       return;
@@ -537,7 +548,7 @@ function montarPalco() {
     // de forma utilizável, e fingir que expõe daria um botão que não faz nada.
     const onde = agoraReal();
     atual.faixaDeAudio = i;
-    if (!noCano()) { $('st-aviso').textContent = 'Este arquivo toca direto: a faixa é a do arquivo.'; return; }
+    if (!noCano()) { avisar('Este arquivo toca direto: a faixa é a do arquivo.'); return; }
     base = onde;
     mostrarPreparando(true, 'Trocando a faixa de áudio…');
     video.src = `${urlDoCano(onde)}&audio=${i}`;
@@ -553,7 +564,7 @@ function montarPalco() {
     try {
       if (document.pictureInPictureElement) await document.exitPictureInPicture();
       else await video.requestPictureInPicture();
-    } catch { $('st-aviso').textContent = 'A janela flutuante não está disponível aqui.'; }
+    } catch { avisar('A janela flutuante não está disponível aqui.'); }
   }
 
   function telaCheia() {

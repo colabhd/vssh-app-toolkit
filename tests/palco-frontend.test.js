@@ -180,7 +180,10 @@ async function comEndedApos(resposta) {
   const aviso = await p.avaliar(`(async () => {
     document.getElementById('video').dispatchEvent(new Event('ended'));
     await new Promise((r) => setTimeout(r, 300));
-    return document.getElementById('st-aviso').textContent;
+    // ⚠ O texto E o \`hidden\`: o aviso vive num elemento que só aparece quando tem o que dizer, e
+    // um teste que lesse só o texto aprovaria uma caixa vazia desenhada sobre o vídeo para sempre.
+    const a = document.getElementById('aviso');
+    return a.hidden ? '' : document.getElementById('aviso-t').textContent;
   })()`);
   respostaDeAbrir = ABERTURA;
   return { avancou: aberturas - antes, aviso };

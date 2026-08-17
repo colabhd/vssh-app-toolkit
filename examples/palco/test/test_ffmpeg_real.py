@@ -324,6 +324,60 @@ class TestComArquivoDeVerdade(unittest.TestCase):
         fora = [(a, b) for a, b in zip(dts, dts[1:]) if b <= a]
         self.assertEqual(fora, [], "os timestamps saíram fora de ordem depois de fragmentar")
 
+    def test_a_sonda_e_GUARDADA_e_o_ARQUIVO_MUDADO_a_invalida(self):
+        """A sonda era refeita duas vezes por abertura e mais uma a cada busca — processo novo
+        sempre, por uma resposta que não muda. Aqui se mede que ela é guardada **e**, o que importa
+        mais, que a memória tem por onde ser desfeita.
+
+        ⚠ A invalidação não é zelo: um arquivo que ainda está sendo copiado ou baixado muda de
+        duração enquanto se olha para ele. Uma memória por CAMINHO serviria a duração antiga para
+        sempre — linha do tempo mentindo e busca caindo no lugar errado, sem nada indicando o
+        motivo. Por isso a chave leva `mtime` e tamanho.
+        """
+        copia = os.path.join(self.dir, "guardada.mkv")
+        shutil.copyfile(self.arquivo, copia)
+
+        primeira = sondar_arquivo(copia)
+        segunda = sondar_arquivo(copia)
+        self.assertIs(segunda, primeira, "a segunda sonda do MESMO arquivo rodou o ffprobe de novo")
+
+        # Mexer no arquivo tem de descartar o que estava guardado. `+1s` porque a resolução do
+        # mtime não é infinita, e um teste que escreve e lê no mesmo instante mediria sorte.
+        st = os.stat(copia)
+        os.utime(copia, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+        terceira = sondar_arquivo(copia)
+        self.assertIsNot(terceira, primeira,
+                         "o arquivo mudou e a sonda velha continuou valendo — é assim que a duração "
+                         "de um download em andamento fica congelada para sempre")
+        self.assertEqual(terceira.duracao, primeira.duracao)   # mesmo conteúdo, mesma resposta
+
+    def test_uma_sonda_que_FALHOU_nao_fica_guardada(self):
+        """⚠ Guardar a falha marcaria o arquivo como "desconhecido" até o processo reiniciar, e
+        quem está usando não teria como desfazer isso a não ser fechando o app. Um `ffprobe` que
+        estourou o prazo porque o disco estava ocupado é temporário; o efeito não pode ser.
+
+        ⚠ **Duas versões deste teste não mediam nada**, e as duas razões valem mais que o teste:
+
+        1. A primeira usava um arquivo INEXISTENTE. Sem arquivo não há `stat`, sem `stat` não há
+           chave, e sem chave nada seria guardado de qualquer maneira — passava com a memória certa
+           e com a errada. O caso que separa as duas é o arquivo que existe e cuja sonda falhou.
+        2. A segunda conferia `container`, que **vem da extensão do nome** e não do `ffprobe`: uma
+           sonda vazia de um `.mkv` continua respondendo `matroska`. O que só uma sonda bem-sucedida
+           produz é `duracao` — e é nela que a diferença aparece.
+        """
+        copia = os.path.join(self.dir, "prazo.mkv")
+        shutil.copyfile(self.arquivo, copia)
+
+        vazia = sondar_arquivo(copia, tempo_limite=0.001)   # não dá tempo nem de o ffprobe abrir
+        self.assertIsNone(vazia.duracao, "o prazo curto tinha de derrubar a sonda")
+        self.assertEqual(decidir(vazia, MAGRO).modo, "desconhecido")
+
+        # Mesmo arquivo, mesma chave, prazo normal: tem de sondar de novo.
+        agora = sondar_arquivo(copia)
+        self.assertIsNotNone(agora.duracao,
+                             "a sonda vazia ficou guardada, e o arquivo seguiu 'desconhecido' mesmo "
+                             "com o ffprobe voltando a funcionar")
+
     def test_a_legenda_embutida_vira_VTT(self):
         s = sondar_arquivo(self.arquivo)
         dados, erro, codigo = self._canalizar(argv_de_legenda(self.arquivo, s.legendas[0].indice))
