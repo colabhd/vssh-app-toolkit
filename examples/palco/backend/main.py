@@ -23,7 +23,13 @@ decidisse sozinho, por tabela, transcodificaria a 180% de CPU para metade das m�
     POST   /api/marca      {caminho, seg}     → onde a pessoa parou
     DELETE /api/marca      ?caminho=          → esquecer
 
-Uma dependência, e ela é o toolkit. O resto é stdlib.
+    GET    /api/yt/abrir   ?url=              → o que aquele endereço é, e os metadados do vídeo
+    GET    /api/yt/mpd     ?v=                → o manifesto DASH, com as URLs apontando para nós
+    GET    /api/yt/bytes   ?v=&f=             → o proxy de Range (obrigatório — ver `dash.py`)
+    GET    /api/yt/legenda ?v=&idioma=&auto=  → VTT
+
+Uma dependência, e ela é o toolkit. O resto é stdlib — **mais o yt-dlp, que é opcional**: sem ele o
+Palco continua um player local completo, e só as rotas `/api/yt/*` respondem 503.
 """
 
 import hashlib
@@ -51,11 +57,17 @@ from vssh_app_toolkit.spa import criar_spa_estatica  # noqa: E402
 from vssh_app_toolkit.tray import limpar_bandeja_ao_sair  # noqa: E402
 from vssh_app_toolkit.web import DIRETORIO_WEB, ESTILOS, ESTILOS_MIDIA, SCRIPTS, SCRIPTS_MIDIA, SHIMS  # noqa: E402
 
+from dash import montar_mpd  # noqa: E402
 from decisao import decidir, perfil_de  # noqa: E402
 from fluxo import enquadrar, terminador  # noqa: E402
 from midia import achar_gpu, argv_de_fluxo, argv_de_legenda, sondar_arquivo  # noqa: E402
 from pasta import vizinhanca  # noqa: E402
 from retomar import assinatura_de, esquecer, lembrar, retomada  # noqa: E402
+from urls import analisar  # noqa: E402
+from youtube import (  # noqa: E402
+    CABECALHOS_REPASSADOS, Resolvedor, id_valido, itag_valido, resposta_de_abertura,
+)
+from ytdlp import Mundo, carregar, versao  # noqa: E402
 
 APP_ID = os.environ.get("VSSH_APP_ID") or "palco"
 APP_TOKEN = os.environ.get("VSSH_APP_TOKEN") or None
@@ -81,6 +93,31 @@ spa = criar_spa_estatica(
     missing_bundle_hint="O frontend do Palco não está no pacote.",
     ao_avisar=lambda e: log("spa-warn", e),
 )
+
+# ── O YouTube, e ele é PREGUIÇOSO de propósito ───────────────────────────────
+#
+# ⚠ O `import yt_dlp` custa perto de um segundo e traz centenas de módulos de extractor. Pagá-lo no
+# boot atrasaria a abertura de todo `.mkv` da pasta de quem nunca vai abrir a aba do YouTube — e
+# esse é o caso principal do app, não o secundário.
+#
+# O `None` de `carregar()` também é deliberado: sem yt-dlp o Palco continua um player local
+# completo, e só as rotas `/api/yt/*` respondem 503 com uma frase que diz o que fazer.
+_YT_TRAVA = threading.Lock()
+_YT = {"mundo": None, "resolvedor": None, "versao": None, "tentou": False}
+
+
+def yt():
+    """O resolvedor, carregando o yt-dlp na primeira vez que alguém precisar dele."""
+    with _YT_TRAVA:
+        if not _YT["tentou"]:
+            _YT["tentou"] = True
+            modulo = carregar(dados=DADOS, vendor=_VENDOR)
+            if modulo is not None:
+                _YT["versao"] = versao(modulo)
+                _YT["mundo"] = Mundo(modulo)
+                _YT["resolvedor"] = Resolvedor(_YT["mundo"].extrair, _YT["mundo"].ler_cabecalho)
+            log("ytdlp", {"versao": _YT["versao"] or "ausente"})
+        return _YT["resolvedor"], _YT["mundo"]
 
 
 def token_confere(esperado, recebido):
@@ -317,7 +354,17 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             if caminho_url == "/healthz":
-                corpo = b"ok\n"
+                # ⚠ `ok` continua sendo a PRIMEIRA linha, e isso não é estilo: o runtime lê esta
+                # rota, e mudar o corpo por completo trocaria um diagnóstico melhor por um app que
+                # o supervisor considera morto.
+                #
+                # A versão do yt-dlp vai junto porque é ela que responde "por que parou de
+                # funcionar?" — a resposta quase sempre é "o extractor envelheceu", e sem isto
+                # descobri-lo exige entrar no servidor. E ela é lida do que JÁ foi carregado, sem
+                # disparar `yt()`: o `import` custa perto de um segundo, e o supervisor chama esta
+                # rota o tempo todo.
+                estado = _YT["versao"] or ("ausente" if _YT["tentou"] else "não carregado")
+                corpo = f"ok\nyt-dlp: {estado}\n".encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/plain")
                 self.send_header("Content-Length", str(len(corpo)))
@@ -342,6 +389,18 @@ class Handler(BaseHTTPRequestHandler):
 
             if caminho_url == "/api/vizinhos" and self.command in ("GET", "HEAD"):
                 return self._vizinhos(um("caminho"))
+
+            if caminho_url == "/api/yt/abrir" and self.command in ("GET", "HEAD"):
+                return self._yt_abrir(um("url"))
+
+            if caminho_url == "/api/yt/mpd" and self.command in ("GET", "HEAD"):
+                return self._yt_mpd(um("v"))
+
+            if caminho_url == "/api/yt/bytes" and self.command in ("GET", "HEAD"):
+                return self._yt_bytes(um("v"), um("f"))
+
+            if caminho_url == "/api/yt/legenda" and self.command in ("GET", "HEAD"):
+                return self._yt_legenda(um("v"), um("idioma"), um("auto") == "1")
 
             if caminho_url == "/api/marca":
                 if self.command == "POST":
@@ -478,6 +537,164 @@ class Handler(BaseHTTPRequestHandler):
         lembrar(DADOS, caminho, corpo.get("seg") or 0, corpo.get("dur"),
                 assinatura=assinatura_de(caminho))
         return self._json(200, {"ok": True})
+
+    # ── o YouTube ────────────────────────────────────────────────────────────
+
+    def _sem_ytdlp(self):
+        return self._json(503, {
+            "erro": "o yt-dlp não está instalado neste servidor",
+            "conserto": "reinstale o app com VSSH_APP_REBUILD=1, ou atualize pelo menu Ferramentas",
+        })
+
+    def _yt_abrir(self, url):
+        """O endereço → o que ele é, e (sendo vídeo) tudo que a tela precisa para tocar.
+
+        ⚠ `analisar` devolvendo `None` **não é erro**, e a resposta diz isso com todas as letras:
+        quem chama tem de devolver o link com `vssh.openUrl(url, {destino:'navegador'})`. É a regra
+        que impede o deeplink de virar beco — a pessoa clicou num link e tem de chegar a algum
+        lugar, mesmo que não seja aqui.
+        """
+        alvo = analisar(url)
+        if alvo is None or alvo.tipo != "video":
+            # Playlist, canal e busca ainda não têm tela. Enquanto não tiverem, devolver o link é o
+            # único caminho honesto — e é por isso que um teste impede o Palco de declarar
+            # `opens.urls` antes da aba existir.
+            return self._json(200, {**resposta_de_abertura(alvo), "url": url})
+
+        resolvedor, _ = yt()
+        if resolvedor is None:
+            return self._sem_ytdlp()
+
+        try:
+            v = resolvedor.video(alvo.id)
+        except Exception as e:  # noqa: BLE001
+            # ⚠ O extractor apodrece, e a mensagem tem de dizer isso — "falha interna" mandaria a
+            # pessoa investigar o app quando o conserto é atualizar uma dependência.
+            log("yt-erro", {"id": alvo.id, "erro": repr(e)[:300]})
+            return self._json(502, {
+                "erro": "não consegui ler este vídeo do YouTube",
+                "conserto": "o extractor pode estar desatualizado — Ferramentas → Atualizar yt-dlp",
+                "detalhe": str(e)[:200],
+            })
+
+        if not v.trilhas:
+            return self._json(422, {"erro": "este vídeo não tem formatos que este player toque"})
+
+        return self._json(200, resposta_de_abertura(alvo, v))
+
+    def _yt_mpd(self, vid):
+        resolvedor, _ = yt()
+        if resolvedor is None:
+            return self._sem_ytdlp()
+        if not id_valido(vid):
+            return self._json(400, {"erro": "id de vídeo inválido"})
+
+        v = resolvedor.video(vid)
+        if not v.trilhas:
+            return self._json(422, {"erro": "sem formatos utilizáveis"})
+
+        # ⚠ O `BaseURL` aponta para NÓS, e é obrigatório: a URL do googlevideo é presa ao IP de quem
+        # a pediu (o servidor) e o host não responde CORS — o preflight de `Range` leva 400. Ver o
+        # cabeçalho de `dash.py`, onde as duas medidas estão escritas.
+        corpo = montar_mpd(v.duracao, v.trilhas, f"/api/yt/bytes?v={vid}&f=").encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/dash+xml")
+        self.send_header("Content-Length", str(len(corpo)))
+        # O manifesto é derivado de credenciais que vencem: um cache intermediário guardando-o
+        # entregaria um MPD cujas trilhas já não resolvem.
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(corpo)
+
+    def _yt_bytes(self, vid, itag):
+        """O proxy de Range. É por aqui que passa **todo** byte de vídeo do YouTube."""
+        resolvedor, mundo = yt()
+        if resolvedor is None:
+            return self._sem_ytdlp()
+        if not id_valido(vid) or not itag_valido(itag):
+            return self._json(400, {"erro": "parâmetros inválidos"})
+
+        faixa = self.headers.get("Range")
+
+        def tentar(forcar):
+            if forcar:
+                resolvedor.video(vid, forcar=True)
+            url, cabs = resolvedor.url_de(vid, itag)
+            if url is None:
+                return None
+            return mundo.abrir_faixa(url, cabs, faixa)
+
+        try:
+            r = tentar(False)
+        except Exception as e:  # noqa: BLE001
+            # ⚠ **Este ramo é o que separa "funciona no teste" de "funciona em uso".** A credencial
+            # pode ser recusada antes do prazo — o YouTube gira chaves, e uma reprodução longa
+            # atravessa isso. Sem a segunda tentativa, o vídeo para no meio e do nosso lado nada
+            # falhou, que é o pior formato de defeito que existe.
+            log("yt-bytes-retry", {"id": vid, "itag": itag, "erro": repr(e)[:200]})
+            try:
+                r = tentar(True)
+            except Exception as e2:  # noqa: BLE001
+                log("yt-bytes-erro", {"id": vid, "itag": itag, "erro": repr(e2)[:200]})
+                return self._json(502, {"erro": "o YouTube recusou este trecho"})
+
+        if r is None:
+            return self._json(404, {"erro": "formato desconhecido para este vídeo"})
+
+        resposta, status = r
+        try:
+            self.send_response(status)
+            # Só o que o player usa. Repassar a resposta inteira vazaria cabeçalhos do Google —
+            # `Set-Cookie`, identificadores de borda — para dentro da sessão de quem assiste.
+            for nome in CABECALHOS_REPASSADOS:
+                valor = resposta.headers.get(nome)
+                if valor:
+                    self.send_header(nome, valor)
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            if self.command == "HEAD":
+                return
+            while True:
+                pedaco = resposta.read(64 * 1024)
+                if not pedaco:
+                    break
+                self.wfile.write(pedaco)
+        finally:
+            resposta.close()
+
+    def _yt_legenda(self, vid, idioma, automatica):
+        """A legenda como VTT, buscada pelo servidor.
+
+        Ela também não pode vir direto do YouTube para o navegador: `<track>` é sujeito à mesma
+        origem, e o host das legendas não responde CORS.
+        """
+        resolvedor, mundo = yt()
+        if resolvedor is None:
+            return self._sem_ytdlp()
+        if not id_valido(vid) or not idioma:
+            return self._json(400, {"erro": "parâmetros inválidos"})
+
+        v = resolvedor.video(vid)
+        faixa = next((x for x in v.legendas
+                      if x["idioma"] == idioma and bool(x["automatica"]) == bool(automatica)), None)
+        if faixa is None or not faixa.get("url"):
+            return self._json(404, {"erro": "esta legenda não existe para este vídeo"})
+
+        try:
+            resposta, _ = mundo.abrir_faixa(faixa["url"], {})
+            with resposta:
+                corpo = resposta.read()
+        except Exception as e:  # noqa: BLE001
+            log("yt-legenda-erro", {"id": vid, "idioma": idioma, "erro": repr(e)[:200]})
+            return self._json(502, {"erro": "não consegui buscar esta legenda"})
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/vtt; charset=utf-8")
+        self.send_header("Content-Length", str(len(corpo)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(corpo)
 
 
 def main():

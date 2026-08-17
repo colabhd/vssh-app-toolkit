@@ -27,6 +27,7 @@ meio. Quem serve bytes tem de poder pedir uma resolução nova, e `video()` devo
 resolve conforme a validade — a decisão é aqui, não em quem chama.
 """
 
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -34,6 +35,23 @@ from typing import Dict, List, Optional
 from urllib.parse import parse_qs, urlsplit
 
 from dash import CABECALHO, escolher_formatos, e_dash_em_mp4, ranges_do_cabecalho
+
+# ⚠ **A lista branca do proxy, e ela é curta de propósito.** Repassar a resposta do googlevideo
+# inteira levaria cabeçalhos do Google — `Set-Cookie`, identificadores de borda, `Alt-Svc` — para
+# dentro da sessão de quem assiste, na origem do ambiente. Nada disso é preciso para tocar: o player
+# usa os quatro abaixo e ignora o resto.
+CABECALHOS_REPASSADOS = ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges")
+
+_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
+_ITAG = re.compile(r"^\d{1,4}$")
+
+
+def id_valido(vid):
+    return bool(vid) and bool(_ID.match(str(vid)))
+
+
+def itag_valido(itag):
+    return bool(itag) and bool(_ITAG.match(str(itag)))
 
 # Quantas leituras de cabeçalho ao mesmo tempo. Oito porque são requisições que passam 99% do tempo
 # esperando a rede — mais threads não aceleram um servidor que responde em 250 ms, e cada uma custa
@@ -144,6 +162,42 @@ def legendas_de(info, idiomas=None):
             })
     saida.sort(key=lambda x: (x["automatica"], x["idioma"]))
     return saida
+
+
+def resposta_de_abertura(alvo, resolucao=None):
+    """O corpo JSON de `/api/yt/abrir` — a decisão de rota, sem nada de HTTP em volta.
+
+    ⚠ **`nao-e-nosso` NÃO é erro, e é o valor mais importante daqui.** Ele quer dizer "devolva este
+    link", e quem chama devolve com `vssh.openUrl(url, {destino:'navegador'})`. É a regra que impede
+    o deeplink de virar beco: no instante em que o Palco passa a receber os links do YouTube, todo
+    endereço que ele não souber montar vira uma tela de erro na frente de alguém que só clicou.
+
+    E isso vale hoje para playlist, canal e busca — que o `urls.py` sabe analisar e a interface
+    ainda não sabe mostrar. Enquanto não souber, devolver é o único caminho honesto.
+    """
+    if alvo is None:
+        return {"tipo": "nao-e-nosso"}
+    if alvo.tipo != "video":
+        return {"tipo": "nao-e-nosso", "porque": alvo.tipo}
+    if resolucao is None:
+        return {"tipo": "video", "id": alvo.id, "t": alvo.t}
+    return {
+        "tipo": "video",
+        "id": resolucao.id,
+        "titulo": resolucao.titulo,
+        "canal": resolucao.canal,
+        "duracao": resolucao.duracao,
+        "miniatura": resolucao.miniatura,
+        "aoVivo": resolucao.ao_vivo,
+        "t": alvo.t,
+        "mpd": f"/api/yt/mpd?v={resolucao.id}",
+        # ⚠ A URL da legenda NÃO viaja para a tela: ela é assinada, vence junto com as outras, e
+        # publicá-la faria a página tentar buscá-la direto — onde a mesma origem a barra. O
+        # frontend pede por idioma, e o servidor busca.
+        "legendas": [{k: x[k] for k in ("idioma", "nome", "automatica")}
+                     for x in resolucao.legendas],
+        "qualidades": sorted({t.altura for t in resolucao.trilhas if t.altura}),
+    }
 
 
 class Resolvedor:

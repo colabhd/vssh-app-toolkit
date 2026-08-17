@@ -20,7 +20,11 @@ AQUI = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(AQUI, "..", "backend"))
 
 from dash import Ranges  # noqa: E402
-from youtube import Resolvedor, expira_em, legendas_de, metadados  # noqa: E402
+from urls import analisar  # noqa: E402
+from youtube import (  # noqa: E402
+    CABECALHOS_REPASSADOS, Resolvedor, expira_em, id_valido, itag_valido, legendas_de, metadados,
+    resposta_de_abertura,
+)
 
 
 def fixture(nome="bbb-4k"):
@@ -275,6 +279,89 @@ class TestAUrlQueOProxyPede(unittest.TestCase):
         u2, _ = self.r.url_de("v", "134")
         self.assertNotEqual(u1, u2, "serviu a URL vencida")
         self.assertEqual(len(self.mundo.extraidas), 2)
+
+
+class TestOQueAsRotasDECIDEM(unittest.TestCase):
+    """O miolo das rotas `/api/yt/*`, sem nada de HTTP em volta.
+
+    ⚠ Ele mora aqui e não em `main.py` por uma razão prática: `main.py` **não importa no Windows** —
+    o `criar_servidor` do toolkit usa `socketserver.UnixStreamServer`, que não existe lá. Deixar a
+    decisão dentro do handler a tornaria inatingível para a suíte que roda na máquina de quem
+    escreve, que é onde ela precisa falhar.
+    """
+
+    def test_endereco_que_nao_e_do_youtube_devolve_nao_e_nosso(self):
+        # ⚠ **Não é erro.** É "devolva este link", e quem chama devolve com
+        # `vssh.openUrl(url, {destino:'navegador'})`. Sem esta saída, o deeplink põe uma tela de
+        # erro na frente de alguém que só clicou num link — pior do que não existir.
+        r = resposta_de_abertura(analisar("https://exemplo.org/video.mp4"))
+        self.assertEqual(r["tipo"], "nao-e-nosso")
+
+    def test_playlist_canal_e_busca_ainda_voltam_para_o_navegador(self):
+        # O `urls.py` sabe analisar os três; a interface ainda não sabe mostrá-los. Enquanto não
+        # souber, devolver é o único caminho honesto — e o `porque` diz o que faltou, o que torna
+        # esta lista a régua de quando o roteamento pode ser LIGADO.
+        for url, esperado in (
+            ("https://www.youtube.com/playlist?list=PLabc123", "playlist"),
+            ("https://www.youtube.com/@fulano", "canal"),
+            ("https://www.youtube.com/results?search_query=gatos", "busca"),
+            ("https://www.youtube.com/", "inicio"),
+        ):
+            alvo = analisar(url)
+            self.assertIsNotNone(alvo, url)
+            r = resposta_de_abertura(alvo)
+            self.assertEqual(r["tipo"], "nao-e-nosso", url)
+            self.assertEqual(r["porque"], esperado, url)
+
+    def test_um_video_sem_resolucao_ainda_devolve_id_e_tempo(self):
+        r = resposta_de_abertura(analisar("https://youtu.be/dQw4w9WgXcQ?t=90"))
+        self.assertEqual((r["tipo"], r["id"], r["t"]), ("video", "dQw4w9WgXcQ", 90))
+
+    def test_a_resposta_completa_carrega_o_mpd_e_as_qualidades(self):
+        mundo = Mundo()
+        v = mundo.resolvedor().video("aqz-KE-bpKQ")
+        r = resposta_de_abertura(analisar("https://youtu.be/aqz-KE-bpKQ?t=30"), v)
+        self.assertEqual(r["tipo"], "video", r)
+        self.assertEqual(r["mpd"], "/api/yt/mpd?v=aqz-KE-bpKQ")
+        self.assertEqual(r["t"], 30)
+        self.assertEqual(r["qualidades"], [144, 240, 360, 480, 720, 1080, 1440, 2160])
+        self.assertTrue(r["titulo"])
+
+    def test_a_URL_ASSINADA_da_legenda_NAO_vai_para_a_tela(self):
+        # ⚠ Duas razões, e a segunda basta: ela vence junto com as outras credenciais, e a página
+        # não conseguiria buscá-la de qualquer forma — `<track>` é sujeito à mesma origem e o host
+        # das legendas não responde CORS. Publicá-la seria vazar uma credencial para nada.
+        mundo = Mundo()
+        v = mundo.resolvedor().video("v")
+        v.legendas = [{"idioma": "pt", "nome": "Português", "automatica": False,
+                       "url": "https://youtube.com/api/timedtext?sig=SEGREDO", "ext": "vtt"}]
+        r = resposta_de_abertura(analisar("https://youtu.be/dQw4w9WgXcQ"), v)
+        self.assertNotIn("SEGREDO", json.dumps(r))
+        self.assertEqual(set(r["legendas"][0]), {"idioma", "nome", "automatica"})
+
+    def test_os_ids_e_itags_sao_conferidos(self):
+        # Chegam pela query. Sem conferência, `v=../../etc` viraria uma chave de cache e um pedido
+        # ao yt-dlp com lixo dentro.
+        for bom in ("dQw4w9WgXcQ", "aqz-KE-bpKQ"):
+            self.assertTrue(id_valido(bom), bom)
+        for ruim in ("", None, "curto", "tem/barra11", "a" * 12, "../../etc"):
+            self.assertFalse(id_valido(ruim), repr(ruim))
+        for bom in ("18", "134", "251"):
+            self.assertTrue(itag_valido(bom), bom)
+        for ruim in ("", None, "abc", "-1", "99999"):
+            self.assertFalse(itag_valido(ruim), repr(ruim))
+
+    def test_o_proxy_repassa_uma_lista_BRANCA_de_cabecalhos(self):
+        # ⚠ Repassar a resposta do googlevideo inteira levaria `Set-Cookie` e identificadores de
+        # borda do Google para dentro da sessão de quem assiste, na ORIGEM DO AMBIENTE. Nada disso
+        # é preciso para tocar.
+        self.assertEqual(set(CABECALHOS_REPASSADOS),
+                         {"Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"})
+        for proibido in ("Set-Cookie", "Alt-Svc", "Server", "X-Walltime-Ms", "Report-To"):
+            self.assertNotIn(proibido, CABECALHOS_REPASSADOS)
+        # E `Content-Range` TEM de estar: sem ele o dash.js não sabe que recebeu um trecho, e
+        # trata os 4 KB do índice como o arquivo inteiro.
+        self.assertIn("Content-Range", CABECALHOS_REPASSADOS)
 
 
 class TestOMPDDoFimAoFim(unittest.TestCase):
