@@ -142,7 +142,14 @@
              `<img>` por item trava a aba na abertura sem se recuperar. -->
         <div class="yt-grade" id="yt-grade"></div>
 
-        <div class="preparando yt-carregando" id="yt-carregando" hidden>
+        <!-- ⚠ Classe PRÓPRIA, e não `.preparando`. Reusá-la parecia economia e produziu um
+             defeito visível: `.preparando` é `position:absolute; left:50%; top:50%` com
+             `transform: translate(-50%,-50%)`, feita para ser uma pílula flutuando sobre o vídeo.
+             Aqui ela é um bloco no fluxo de um painel — e mesmo forçando `position:static`, o
+             `transform` continua valendo e joga a caixa para fora da própria área, no canto da
+             janela. Herdar o `padding`, a borda e a sombra também não fazia sentido: aqui não há
+             nada por baixo para a pílula se destacar. -->
+        <div class="yt-carregando" id="yt-carregando" hidden>
           <span class="tuff-spinner"></span><span>Consultando o YouTube…</span>
         </div>
 

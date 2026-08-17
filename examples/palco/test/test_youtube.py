@@ -13,6 +13,7 @@ para no meio para quem está assistindo.
 
 import json
 import os
+import re
 import sys
 import unittest
 
@@ -322,7 +323,7 @@ class TestOQueAsRotasDECIDEM(unittest.TestCase):
         v = mundo.resolvedor().video("aqz-KE-bpKQ")
         r = resposta_de_abertura(analisar("https://youtu.be/aqz-KE-bpKQ?t=30"), v)
         self.assertEqual(r["tipo"], "video", r)
-        self.assertEqual(r["mpd"], "/api/yt/mpd?v=aqz-KE-bpKQ")
+        self.assertEqual(r["mpd"], "api/yt/mpd?v=aqz-KE-bpKQ")
         self.assertEqual(r["t"], 30)
         self.assertEqual(r["qualidades"], [144, 240, 360, 480, 720, 1080, 1440, 2160])
         self.assertTrue(r["titulo"])
@@ -362,6 +363,82 @@ class TestOQueAsRotasDECIDEM(unittest.TestCase):
         # E `Content-Range` TEM de estar: sem ele o dash.js não sabe que recebeu um trecho, e
         # trata os 4 KB do índice como o arquivo inteiro.
         self.assertIn("Content-Range", CABECALHOS_REPASSADOS)
+
+
+class TestNenhumaUrlSAI_ABSOLUTA(unittest.TestCase):
+    """⚠ **O portão que faltava, e a falta custou a primeira reprodução de verdade.**
+
+    O app é servido sob `/<serverId>/proxy/app/<id>/`. Uma URL que o backend devolve começando com
+    `/` **sai do prefixo** e chega num 404 do PORTAL — não do backend, o que já torna o rastro
+    confuso: nada no log do app registra a requisição que falhou.
+
+    O `mpd` saía com barra e a `miniatura` sem, no mesmo corpo de resposta. Na tela isso apareceu
+    como um cartão com capa perfeita e um vídeo que não toca.
+
+    ⚠ **E por que nada pegou:** o teste do `mpd` FIXOU o valor errado (ele afirmava
+    `"/api/yt/mpd?v=…"`, com barra), e a bancada do navegador usava um duble escrito à mão com o
+    valor CERTO — ou seja, ela media um contrato que o backend não cumpria. Duas verdades que
+    ninguém percorria junto, que é a mesma forma do defeito da tag `v4`.
+
+    Este teste é mecânico de propósito: vale para toda URL de toda resposta, inclusive as que ainda
+    não existem.
+    """
+
+    def urls_de(self, obj, caminho="", achadas=None):
+        """Todo valor que parece uma rota nossa, com o caminho até ele."""
+        achadas = [] if achadas is None else achadas
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                self.urls_de(v, f"{caminho}.{k}", achadas)
+        elif isinstance(obj, list):
+            for i, v in enumerate(obj):
+                self.urls_de(v, f"{caminho}[{i}]", achadas)
+        elif isinstance(obj, str) and "api/" in obj:
+            achadas.append((caminho, obj))
+        return achadas
+
+    def test_a_resposta_de_abertura_nao_tem_URL_absoluta(self):
+        mundo = Mundo()
+        v = mundo.resolvedor().video("aqz-KE-bpKQ")
+        corpo = resposta_de_abertura(analisar("https://youtu.be/aqz-KE-bpKQ"), v)
+        achadas = self.urls_de(corpo)
+        self.assertTrue(achadas, "o piso caiu: nenhuma URL encontrada no corpo")
+        for onde, url in achadas:
+            self.assertFalse(url.startswith("/"), f"{onde} = {url!r} sai do prefixo do app")
+
+    def test_a_listagem_nao_tem_URL_absoluta(self):
+        from listas import como_json, normalizar
+        with open(os.path.join(AQUI, "dados", "yt-lista-busca.json"), encoding="utf-8") as fh:
+            corpo = como_json(normalizar(json.load(fh), "busca"))
+        achadas = self.urls_de(corpo)
+        self.assertGreaterEqual(len(achadas), 8, "o piso caiu: a listagem perdeu as miniaturas")
+        for onde, url in achadas:
+            self.assertFalse(url.startswith("/"), f"{onde} = {url!r} sai do prefixo do app")
+
+    def test_o_BaseURL_do_manifesto_tambem_e_relativo(self):
+        # ⚠ Aqui o efeito seria PIOR que o do `mpd`: o manifesto carregaria e nenhum segmento
+        # baixaria — na tela, um vídeo eternamente "carregando" em vez de um erro.
+        import xml.etree.ElementTree as ET
+
+        from dash import montar_mpd
+        mundo = Mundo()
+        v = mundo.resolvedor().video("aqz-KE-bpKQ")
+        raiz = ET.fromstring(montar_mpd(v.duracao, v.trilhas, "api/yt/bytes?v=aqz&f="))
+        ns = {"m": "urn:mpeg:dash:schema:mpd:2011"}
+        bases = [b.text for b in raiz.findall(".//m:BaseURL", ns)]
+        self.assertGreaterEqual(len(bases), 15)
+        for b in bases:
+            self.assertFalse(b.startswith("/"), f"{b!r} sai do prefixo do app")
+
+    def test_o_MAIN_monta_o_BaseURL_relativo(self):
+        # ⚠ O teste acima passa o prefixo à mão — mede o gerador, não quem o chama. Este lê a
+        # linha do `main.py`, que é onde o valor de verdade é escolhido, e é onde ele estava errado.
+        with open(os.path.join(AQUI, "..", "backend", "main.py"), encoding="utf-8") as fh:
+            fonte = fh.read()
+        chamadas = re.findall(r"montar_mpd\([^)]*?f\"([^\"]+)\"", fonte)
+        self.assertEqual(len(chamadas), 1, f"esperava uma chamada a montar_mpd, achei {chamadas}")
+        self.assertFalse(chamadas[0].startswith("/"),
+                         f"o main.py monta o BaseURL como {chamadas[0]!r} — sai do prefixo")
 
 
 class TestOMPDDoFimAoFim(unittest.TestCase):

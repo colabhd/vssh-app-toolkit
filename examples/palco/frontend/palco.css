@@ -219,11 +219,15 @@ body { margin: 0; overflow: hidden; }
 .yt-grade[hidden] { display: none; }
 .yt-vazio, .yt-carregando { flex: 1; }
 .yt-vazio[hidden], .yt-carregando[hidden] { display: none; }
-/* ⚠ `.yt-carregando` reusa `.preparando`, que é `position: absolute` sobre o palco. Aqui ela é
-   um bloco no fluxo do painel, e sem isto ficaria flutuando sobre o vídeo da outra aba. */
+/* ⚠ Escrita do zero, e não herdada de `.preparando`. A primeira versão reusava aquela classe e
+   acrescentava `position: static` por cima — o que não basta: `left`/`top` deixam de valer, mas o
+   `transform: translate(-50%,-50%)` CONTINUA, e joga a caixa meia largura para a esquerda e meia
+   altura para cima da própria área. Na tela: a mensagem de carregamento no canto da janela.
+   Anular propriedade por propriedade uma classe feita para outro contexto é como este tipo de
+   defeito nasce; sete linhas próprias não têm herança para anular. */
 .yt-carregando {
-  position: static; display: flex; align-items: center; justify-content: center;
-  gap: var(--ds-gap-sm);
+  display: flex; align-items: center; justify-content: center; gap: var(--ds-gap-sm);
+  color: var(--ds-text-mid); font-size: var(--tuff-size-sm);
 }
 
 /* ⚠ O conteúdo do cartão mora num FILHO, e não no nó que a grade entrega: ela já pôs `width`,

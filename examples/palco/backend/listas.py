@@ -37,6 +37,7 @@ E `_type` é a guarda que sobrevive à mudança: se um dia a aba `/videos` tamb�
 `normalizar` as descarta em vez de fingir que são vídeos.
 """
 
+import re
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -48,6 +49,20 @@ POR_PAGINA = 30
 # `_type` das entradas que são vídeo. O yt-dlp usa `url` para "um item que aponta para um vídeo" e
 # `playlist` para "uma seção/aba/lista". Só o primeiro vira cartão.
 _TIPO_DE_VIDEO = ("url", "video", None)
+
+# ⚠ **`_type` NÃO basta, e isto foi medido em uso.** Uma busca por "lofi girl" traz o CANAL entre
+# os resultados, e ele vem com `_type: 'url'` — exatamente como um vídeo. O que os separa é o
+# extractor: `Youtube` é vídeo, `YoutubeTab` é canal, playlist ou aba.
+#
+# Sem esta guarda o canal virava um cartão, e o `id` dele — `UCSJ4gkVC6NrvII8umztf0Ow`, 24
+# caracteres — ia parar na URL da miniatura, que respondia **400**. Na tela: um cartão sem capa,
+# sem duração, que não abre nada. Nada falha.
+_EXTRACTOR_DE_VIDEO = ("Youtube", None)
+
+# O id de vídeo do YouTube: 11 caracteres de um alfabeto fechado. É a mesma conferência de
+# `urls.py`, e ela está aqui como REDE DE SEGURANÇA da de cima — se o yt-dlp renomear `YoutubeTab`
+# um dia, o formato do id continua sendo o que ele é.
+_ID_DE_VIDEO = re.compile(r"^[A-Za-z0-9_-]{11}$")
 
 
 @dataclass
@@ -133,8 +148,12 @@ def _item(entrada):
         return None
     if entrada.get("_type") not in _TIPO_DE_VIDEO:
         return None                                   # é uma aba/seção do canal, não um vídeo
+    if entrada.get("ie_key") not in _EXTRACTOR_DE_VIDEO:
+        return None                                   # é um canal ou playlist entre os resultados
     vid = entrada.get("id")
-    if not vid or not entrada.get("title"):
+    if not vid or not _ID_DE_VIDEO.match(str(vid)):
+        return None
+    if not entrada.get("title"):
         # ⚠ Vídeo removido ou privado dentro de uma playlist: o yt-dlp devolve a entrada com o
         # título nulo. Um cartão sem nome não é clicável nem explicável — some, e a contagem no
         # cabeçalho (`total`) continua sendo a que o YouTube declarou, que é a verdade.

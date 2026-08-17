@@ -70,7 +70,8 @@ class TestOPisoDasFixturas(unittest.TestCase):
     """Sem isto, uma fixture vazia faria todo teste abaixo medir conjunto vazio e passar."""
 
     def test_as_quatro_fixturas_tem_o_que_medir(self):
-        for nome, minimo in (("busca", 8), ("playlist", 8), ("canal", 6), ("canal-abas", 3)):
+        for nome, minimo in (("busca", 8), ("playlist", 8), ("canal", 6), ("canal-abas", 3),
+                             ("busca-com-canal", 12)):
             ents = fixture(nome)["entries"]
             self.assertGreaterEqual(len(ents), minimo, nome)
         # E a do canal-abas TEM de ser a resposta errada, senão o portão principal não mede nada.
@@ -97,6 +98,71 @@ class TestNormalizar(unittest.TestCase):
         self.assertEqual(r.itens, [],
                          "as abas do canal viraram cartões de vídeo: "
                          + ", ".join(i.titulo for i in r.itens))
+
+    def test_UM_CANAL_entre_os_resultados_da_busca_NAO_vira_cartao(self):
+        # ⚠ **Achado em uso, e o sintoma passou por defeito de outra coisa.** Uma busca por
+        # "lofi girl" traz o CANAL entre os resultados, com `_type: 'url'` — exatamente como um
+        # vídeo. Só o `ie_key` os separa: `Youtube` contra `YoutubeTab`.
+        #
+        # Sem a guarda, o canal virava cartão e o id dele (`UCSJ4gkVC6NrvII8umztf0Ow`, 24
+        # caracteres) ia parar na URL da miniatura, que respondia 400. Na tela: um cartão sem capa
+        # e sem duração, que não abre nada — e no console um 400 que parece problema do proxy.
+        info = fixture("busca-com-canal")
+        canais = [e for e in info["entries"] if e.get("ie_key") == "YoutubeTab"]
+        self.assertTrue(canais, "a fixture perdeu o canal — o portão passou a medir nada")
+        self.assertTrue(all(e.get("_type") == "url" for e in canais),
+                        "o canal deixou de se parecer com um vídeo; o teste perdeu o sentido")
+
+        r = normalizar(info, "busca")
+        ids = {i.id for i in r.itens}
+        for c in canais:
+            self.assertNotIn(c["id"], ids, f"o canal {c['id']} virou um cartão de vídeo")
+        # E os vídeos de verdade continuam lá: uma guarda que descartasse tudo também "passaria".
+        self.assertEqual(len(r.itens), len(info["entries"]) - len(canais))
+
+    def test_todo_id_que_sai_daqui_e_id_de_VIDEO(self):
+        # A rede de segurança da guarda acima: se o yt-dlp renomear `YoutubeTab` um dia, o formato
+        # do id continua sendo o que é. Onze caracteres de um alfabeto fechado.
+        for nome in ("busca", "playlist", "canal", "busca-com-canal"):
+            for i in normalizar(fixture(nome), "busca").itens:
+                self.assertRegex(i.id, r"^[A-Za-z0-9_-]{11}$", f"{nome}: {i.id!r}")
+
+    def test_CADA_uma_das_TRES_guardas_barra_sozinha(self):
+        # ⚠ **Este teste existe porque a refutação achou o buraco — três vezes.** As três guardas
+        # (`_type`, `ie_key` e o formato do id) são defesa em profundidade, e nas fixturas reais
+        # elas COINCIDEM: o canal entre os resultados tem `YoutubeTab` E id de 24 caracteres; as
+        # abas têm `_type: 'playlist'` E `YoutubeTab`. Quebrar qualquer uma deixava as outras
+        # cobrindo, e a suíte inteira ficava verde.
+        #
+        # São três de propósito, e cada uma tem de valer sozinha: se o yt-dlp renomear `YoutubeTab`,
+        # sobram o id e o `_type`; se um dia um canal tiver id de 11 caracteres, sobram os outros
+        # dois. Defesa em profundidade que ninguém mede isolada é uma defesa só, com duas cópias.
+        base = {"_type": "url", "title": "Parece um vídeo", "duration": 100,
+                "channel": "Alguém", "thumbnails": [{"url": "https://x/t.jpg", "height": 180}]}
+
+        # 1. `ie_key` de canal, mas id com FORMA de vídeo — só a primeira guarda pode barrar.
+        so_ie_key = {**base, "id": "aaaaaaaaaaa", "ie_key": "YoutubeTab"}
+        self.assertEqual(normalizar({"entries": [so_ie_key]}, "busca").itens, [],
+                         "a guarda do `ie_key` não barra sozinha")
+
+        # 2. `ie_key` de vídeo, mas id de canal — só a segunda guarda pode barrar.
+        so_id = {**base, "id": "UCSJ4gkVC6NrvII8umztf0Ow", "ie_key": "Youtube"}
+        self.assertEqual(normalizar({"entries": [so_id]}, "busca").itens, [],
+                         "a guarda do formato do id não barra sozinha")
+
+        # 3. `_type` de seção, com extractor e id de vídeo — só a terceira guarda pode barrar.
+        #    A refutação achou este buraco depois dos outros dois: na fixture das abas do canal, o
+        #    `_type: 'playlist'` vem acompanhado de `ie_key: 'YoutubeTab'`, então a guarda do
+        #    extractor já as barrava e quebrar a do `_type` deixava tudo verde.
+        so_tipo = {**base, "id": "aaaaaaaaaaa", "ie_key": "Youtube", "_type": "playlist"}
+        self.assertEqual(normalizar({"entries": [so_tipo]}, "canal").itens, [],
+                         "a guarda do `_type` não barra sozinha")
+
+        # 4. E um vídeo de verdade continua passando: guardas que barram tudo também "passariam"
+        #    nos três casos acima.
+        bom = {**base, "id": "aqz-KE-bpKQ", "ie_key": "Youtube"}
+        self.assertEqual(len(normalizar({"entries": [bom]}, "busca").itens), 1,
+                         "as guardas ficaram tão rígidas que descartam vídeos de verdade")
 
     def test_a_aba_videos_do_MESMO_canal_vira_videos(self):
         # A outra metade: a guarda não pode ser tão rígida que descarte os vídeos de verdade.

@@ -195,7 +195,12 @@ def resposta_de_abertura(alvo, resolucao=None):
         "miniatura": resolucao.miniatura,
         "aoVivo": resolucao.ao_vivo,
         "t": alvo.t,
-        "mpd": f"/api/yt/mpd?v={resolucao.id}",
+        # ⚠ **SEM barra inicial.** O app é servido sob `/<serverId>/proxy/app/<id>/`, e um
+        # `/api/…` sai do prefixo — chegando num 404 do PORTAL, não do backend. Foi assim que a
+        # primeira reprodução de verdade falhou, com o dash.js pedindo
+        # `https://vssh.colabh.org/api/yt/mpd?v=…` e recebendo 404, enquanto a miniatura ao lado
+        # funcionava: `listas.py` já montava a dela relativa.
+        "mpd": f"api/yt/mpd?v={resolucao.id}",
         # ⚠ A URL da legenda NÃO viaja para a tela: ela é assinada, vence junto com as outras, e
         # publicá-la faria a página tentar buscá-la direto — onde a mesma origem a barra. O
         # frontend pede por idioma, e o servidor busca.

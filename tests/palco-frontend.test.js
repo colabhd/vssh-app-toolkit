@@ -94,9 +94,14 @@ const VSSH_FALSO = `
     openUrl: (u, o) => anota({ op: 'openUrl', u, destino: o && o.destino }),
   };`;
 
+// ⚠ O app roda sob `/<serverId>/proxy/app/<id>/`, e a bancada precisa poder imitar isso: uma URL
+// que o backend devolva com barra inicial funciona perfeitamente na raiz e sai do prefixo no
+// servidor de verdade. Servir só a raiz era o que deixava esse defeito invisível aqui.
+const PREFIXO = '/sub/prefixo';
+
 function servir(req, res) {
   const u = new URL(req.url, 'http://x');
-  const p = u.pathname;
+  const p = u.pathname.startsWith(PREFIXO + '/') ? u.pathname.slice(PREFIXO.length) : u.pathname;
 
   if (p === '/' || p === '/index.html') {
     let html = fs.readFileSync(path.join(APP, 'index.html'), 'utf8');
@@ -1102,4 +1107,71 @@ test('um vídeo SEM lista não herda a fila do anterior', seNaoTemMidia, async (
   })()`);
   assert.equal(r.nome, 'Solto');
   assert.equal(r.naFila, 0, 'o vídeo solto herdou a fila da busca anterior');
+});
+
+test('a faixa de "Consultando" fica DENTRO do painel, e não no canto da janela', seNaoTem,
+  async () => {
+    // ⚠ **Defeito visto em uso, e ele nasceu de reaproveitar uma classe.** `.yt-carregando` usava
+    // `.preparando`, que é `position:absolute; left:50%; top:50%` com
+    // `transform: translate(-50%,-50%)` — uma pílula flutuando sobre o vídeo. Forçar
+    // `position: static` por cima não basta: `left`/`top` deixam de valer, mas o `transform`
+    // CONTINUA, e joga a caixa meia largura para a esquerda e meia altura para cima da própria
+    // área. Na tela, a mensagem aparecia no canto, cortada.
+    //
+    // ⚠ E é por isso que a asserção é de GEOMETRIA, e não "o elemento está visível": ele estava
+    // visível o tempo todo. Só não estava onde deveria.
+    respostaDeListar = LISTAGEM;
+    const p = await comAbaAberta();
+    const r = await p.avaliar(`(() => {
+      const painel = document.getElementById('painel-youtube').getBoundingClientRect();
+      const c = document.getElementById('yt-carregando');
+      c.hidden = false;
+      const cx = c.getBoundingClientRect();
+      return {
+        painel: { l: painel.left, t: painel.top, r: painel.right, b: painel.bottom },
+        caixa: { l: cx.left, t: cx.top, r: cx.right, b: cx.bottom, w: cx.width, h: cx.height },
+      };
+    })()`);
+
+    assert.ok(r.caixa.w > 60 && r.caixa.h > 10, `a faixa não tem tamanho: ${JSON.stringify(r.caixa)}`);
+    assert.ok(r.caixa.l >= r.painel.l - 1 && r.caixa.r <= r.painel.r + 1,
+      `a faixa saiu do painel na horizontal: ${JSON.stringify(r)}`);
+    assert.ok(r.caixa.t >= r.painel.t - 1 && r.caixa.b <= r.painel.b + 1,
+      `a faixa saiu do painel na vertical: ${JSON.stringify(r)}`);
+  });
+
+test('a URL do MPD que o app pede fica DENTRO do prefixo do app', seNaoTem, async () => {
+  // ⚠ **O defeito que derrubou a primeira reprodução de verdade.** O app é servido sob
+  // `/<serverId>/proxy/app/<id>/`, e o backend devolvia `"/api/yt/mpd?v=…"` com barra inicial — que
+  // sai do prefixo e bate num 404 do PORTAL. No console: `GET https://host/api/yt/mpd?v=… 404`,
+  // sem o caminho do app no meio.
+  //
+  // O lado Python prende o valor que o backend PRODUZ; este prende o que o navegador PEDE, que é
+  // a metade que faltava: a bancada usava um duble escrito à mão com o valor certo, então ela
+  // media um contrato que o backend não cumpria.
+  respostaDeYtFixa = true;
+  respostaDeYt = {
+    tipo: 'video', id: 'aaaaaaaaaaa', titulo: 'Um vídeo', canal: 'C',
+    duracao: 6, mpd: 'api/yt/mpd?v=aaaaaaaaaaa', legendas: [], qualidades: [90],
+  };
+  const p = await nav.novaPagina(origem.url + 'sub/prefixo/');
+  const r = await p.avaliar(`(async () => {
+    const pedidas = [];
+    const orig = window.XMLHttpRequest.prototype.open;
+    window.XMLHttpRequest.prototype.open = function (m, u, ...resto) {
+      pedidas.push(String(u));
+      return orig.call(this, m, u, ...resto);
+    };
+    window.__abrirContexto({ type: 'open-context', tipo: 'url',
+      url: 'https://youtu.be/aaaaaaaaaaa' });
+    await new Promise((r) => setTimeout(r, 2500));
+    return pedidas.filter((u) => u.includes('yt/mpd'));
+  })()`);
+
+  assert.ok(r.length > 0, 'o dash.js não chegou a pedir o manifesto');
+  for (const u of r) {
+    const caminho = new URL(u, origem.url + 'sub/prefixo/').pathname;
+    assert.ok(caminho.startsWith('/sub/prefixo/'),
+      `o MPD foi pedido em ${caminho} — fora do prefixo do app`);
+  }
 });
