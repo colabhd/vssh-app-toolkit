@@ -378,6 +378,60 @@ class TestComArquivoDeVerdade(unittest.TestCase):
                              "a sonda vazia ficou guardada, e o arquivo seguiu 'desconhecido' mesmo "
                              "com o ffprobe voltando a funcionar")
 
+    def test_o_AVI_com_B_frames_perde_a_ordem_de_exibicao_ao_ser_COPIADO(self):
+        """A medida que justifica a única vez em que gastamos CPU sem o cliente pedir.
+
+        O AVI não guarda PTS. Com B-frames a ordem de exibição difere da de decodificação, e a
+        informação que as liga só existe dentro do fluxo H.264. Copiar escreve `pts == dts` em todo
+        quadro; o navegador exibe fora de ordem e descarta um em cada quatro.
+
+        ⚠ Este teste mede a CAUSA (pts contra dts), e não o sintoma (quadros descartados). O
+        sintoma precisa de um navegador com tela; a causa está nos bytes, e é a mesma coisa.
+        """
+        origem = os.path.join(self.dir, "reordenado.avi")
+        subprocess.run([
+            "ffmpeg", "-hide_banner", "-loglevel", "error",
+            "-f", "lavfi", "-i", "testsrc=size=320x240:rate=30:duration=4",
+            # `-bf 2` é o que põe B-frames no fluxo — sem eles não há reordenação e não há defeito.
+            "-c:v", "libx264", "-preset", "ultrafast", "-bf", "2", "-g", "30", "-an",
+            "-y", origem,
+        ], check=True, capture_output=True)
+
+        sonda = sondar_arquivo(origem)
+        self.assertEqual(sonda.container, "avi")
+        self.assertGreater(sonda.video.b_frames, 0, "o ffmpeg não pôs B-frames — o teste mediria nada")
+
+        # A decisão tem de recusar a cópia por causa do container.
+        d = decidir(sonda, MAGRO)
+        self.assertEqual(d.video, "recodificar")
+        self.assertIn("ordem de exibição", d.motivo)
+
+        def reordenados(dados):
+            saida = os.path.join(self.dir, "medido.mp4")
+            with open(saida, "wb") as fh:
+                fh.write(dados)
+            pk = json.loads(subprocess.run(
+                ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                 "packet=pts_time,dts_time", "-print_format", "json", saida],
+                capture_output=True, check=True).stdout)["packets"]
+            return sum(1 for p in pk if p.get("pts_time") != p.get("dts_time")), len(pk)
+
+        # O que a decisão produz: reencodado, com reordenação de verdade.
+        nosso, erro, codigo = self._canalizar(argv_de_fluxo(d, origem))
+        self.assertEqual(codigo, 0, erro)
+        dif, total = reordenados(nosso)
+        self.assertGreater(dif, 0, "o vídeo reencodado saiu sem reordenação — pts igual a dts")
+
+        # A refutação: forçar a cópia, que é o que fazíamos. Nenhum quadro reordenado.
+        copiando = decidir(sonda, MAGRO)
+        copiando.video = "copiar"
+        crua, erro, codigo = self._canalizar(argv_de_fluxo(copiando, origem))
+        self.assertEqual(codigo, 0, erro)
+        dif, total = reordenados(crua)
+        self.assertEqual(dif, 0,
+                         "copiar do AVI produziu reordenação — se isto passar a valer, a regra de "
+                         "`_SEM_ORDEM_DE_EXIBICAO` deixou de ser necessária e custa 100% de CPU")
+
     def test_a_legenda_embutida_vira_VTT(self):
         s = sondar_arquivo(self.arquivo)
         dados, erro, codigo = self._canalizar(argv_de_legenda(self.arquivo, s.legendas[0].indice))

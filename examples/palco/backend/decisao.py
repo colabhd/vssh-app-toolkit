@@ -50,6 +50,34 @@ _POR_EXTENSAO = {
 _LEGENDA_DE_IMAGEM = {"hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle", "xsub"}
 
 
+# ⚠ **Containers que não guardam a ordem de EXIBIÇÃO dos quadros** — e este é o achado mais caro
+# desta lista inteira, porque o sintoma não se parece nada com a causa.
+#
+# O AVI só guarda ordem de decodificação: ele não tem PTS, apenas DTS. Com B-frames, as duas ordens
+# são DIFERENTES, e a informação que as liga não está no arquivo — está só dentro do fluxo H.264,
+# onde só um decodificador chega. Um `-c:v copy` então escreve `pts == dts` em todo quadro, e o
+# navegador exibe na ordem errada.
+#
+# O que se vê é reprodução "meio travada". O que os números dizem (medido em Chrome 152, o mesmo
+# arquivo, MP4 comum servido de disco, sem cano nenhum no meio):
+#
+#     `-c:v copy`               25,8% dos quadros descartados   pts != dts em   0 de 901
+#     `-fflags +genpts`         25,8%                           pts != dts em 901 de 901
+#     `+genpts+igndts`          25,0%                           pts != dts em 901 de 901
+#     reencodando o vídeo        0,0%                           pts != dts em 700 de 901
+#
+# ⚠ O `genpts` é a armadilha: ele produz a caixa `ctts` e faz `pts != dts` em TODOS os quadros, o
+# que passa em qualquer conferência estrutural — mas é um deslocamento uniforme, não uma
+# reordenação. A reordenação de verdade é 700 de 901, e ela só existe depois de decodificar.
+#
+# Ou seja: **não há opção de remux que conserte isto**. Para este caso o vídeo tem de ser
+# recodificado, e é a única situação em que gastamos CPU sem o cliente ter pedido.
+#
+# A lista tem UM item de propósito. MP4, MOV e Matroska guardam a ordem de exibição; MPEG-TS tem
+# PTS. Pôr outro container aqui sem medir trocaria 2% de CPU por 100% em cima de um palpite.
+_SEM_ORDEM_DE_EXIBICAO = {"avi"}
+
+
 @dataclass
 class Faixa:
     indice: int
@@ -60,6 +88,9 @@ class Faixa:
     padrao: bool = False    # `disposition.default` — a que o navegador vai tocar sozinho
     idioma: Optional[str] = None
     titulo: Optional[str] = None
+    # Só de vídeo. Quantos quadros o decodificador precisa segurar antes de poder exibir — ou seja,
+    # se a ordem de EXIBIÇÃO difere da de DECODIFICAÇÃO. Ver `_SEM_ORDEM_DE_EXIBICAO`.
+    b_frames: int = 0
 
     @property
     def e_texto(self):
@@ -190,7 +221,7 @@ def sondar(bruto, nome=""):
                 continue
             if video is None:
                 video = Faixa(largura=int(s.get("width") or 0), altura=int(s.get("height") or 0),
-                              **comum)
+                              b_frames=int(s.get("has_b_frames") or 0), **comum)
         elif tipo == "audio":
             audios.append(Faixa(canais=int(s.get("channels") or 0), **comum))
         elif tipo == "subtitle":
@@ -209,12 +240,22 @@ def decidir(sonda, perfil=None):
                        motivo="o ffprobe não achou faixa de vídeo nem de áudio neste arquivo")
 
     # ── O vídeo ──────────────────────────────────────────────────────────────
+    #
+    # Duas razões para não poder copiar, e a segunda não é sobre o CODEC: é sobre o container de
+    # origem não guardar a ordem de exibição (ver `_SEM_ORDEM_DE_EXIBICAO`). Ela tem de vir DEPOIS,
+    # porque quando a máquina já não decodifica o codec a conversa acabou de qualquer jeito, e o
+    # motivo que a pessoa lê deve ser esse.
     if sonda.video is None:
-        acao_video, video_ok = "nenhum", True
-    elif sonda.video.codec in p.video:
-        acao_video, video_ok = "copiar", True
-    else:
+        acao_video, video_ok, porque_video = "nenhum", True, None
+    elif sonda.video.codec not in p.video:
         acao_video, video_ok = "recodificar", False
+        porque_video = f"esta máquina não decodifica {sonda.video.codec}"
+    elif sonda.container in _SEM_ORDEM_DE_EXIBICAO and sonda.video.b_frames > 0:
+        acao_video, video_ok = "recodificar", False
+        porque_video = (f"o container {sonda.container} não guarda a ordem de exibição dos quadros, "
+                        "e este vídeo tem quadros reordenados")
+    else:
+        acao_video, video_ok, porque_video = "copiar", True, None
 
     # ── O áudio, e QUAL faixa ────────────────────────────────────────────────
     #
@@ -249,10 +290,12 @@ def decidir(sonda, perfil=None):
     # O vídeo manda: se ele precisa ser recodificado, o resto vai junto e não há economia a fazer.
     # É o único caso caro, e é por isso que a interface avisa que está trabalhando.
     if not video_ok:
-        return Decisao(modo="transcode", video=acao_video,
-                       audio="recodificar" if sonda.audios else "nenhum",
-                       faixa_audio=faixa, codec_audio=codec_audio,
-                       motivo=f"esta máquina não decodifica {sonda.video.codec}")
+        # ⚠ O áudio segue a decisão DELE, e não a do vídeo. Antes esta linha forçava `recodificar`
+        # sempre que o vídeo era recodificado — mas os dois problemas são independentes, e um AAC
+        # que o cliente toca não fica intocável só porque o vídeo ao lado precisa passar pelo x264.
+        # Era CPU gasta a mais no caso que já é o mais caro de todos.
+        return Decisao(modo="transcode", video=acao_video, audio=acao_audio,
+                       faixa_audio=faixa, codec_audio=codec_audio, motivo=porque_video)
 
     container_ok = sonda.container in p.containers
 

@@ -98,6 +98,66 @@ class TestOsQuatroModos(unittest.TestCase):
         self.assertEqual(d.video, "recodificar")
 
 
+class TestOAviComQuadrosReordenados(unittest.TestCase):
+    """O defeito que só apareceu com um arquivo real na mão, e que se disfarçava de tudo menos do
+    que era.
+
+    O AVI guarda ordem de DECODIFICAÇÃO e nada mais — não tem PTS. Com B-frames a ordem de exibição
+    é outra, e a informação que liga as duas mora dentro do fluxo H.264, onde só um decodificador
+    chega. `-c:v copy` então escreve `pts == dts` em todo quadro e o navegador exibe fora de ordem.
+
+    Medido em Chrome 152, o MESMO arquivo servido como MP4 comum de disco, sem cano no meio:
+
+        copiando o vídeo       25,8% dos quadros descartados
+        `-fflags +genpts`      25,8%  (produz `ctts`, mas é deslocamento, não reordenação)
+        reencodando             0,0%
+
+    ⚠ Por isso a regra não pode ser "AVI reencoda": um AVI SEM B-frames tem ordem de exibição igual
+    à de decodificação, o remux está correto, e reencodar custaria 100% de CPU por nada.
+    """
+
+    def test_avi_com_B_frames_tem_de_RECODIFICAR_o_video(self):
+        s = sondar(ffprobe("avi", [video("h264", has_b_frames=2), audio("aac")]), "filme.avi")
+        d = decidir(s, CHROME)
+        self.assertEqual(d.modo, "transcode")
+        self.assertEqual(d.video, "recodificar")
+        self.assertIn("ordem de exibição", d.motivo)
+
+    def test_avi_SEM_B_frames_continua_barato(self):
+        # ⚠ A metade que impede o conserto de virar desperdício. Sem esta condição, todo `.avi` do
+        # mundo passaria pelo x264 — inclusive os que o remux resolve por 2%.
+        s = sondar(ffprobe("avi", [video("h264", has_b_frames=0), audio("aac")]), "filme.avi")
+        d = decidir(s, CHROME)
+        self.assertEqual(d.modo, "remux")
+        self.assertEqual(d.video, "copiar")
+
+    def test_MKV_com_B_frames_nao_e_afetado(self):
+        # Matroska guarda a ordem de exibição. A regra é do CONTAINER, não do B-frame.
+        s = sondar(ffprobe("matroska,webm", [video("h264", has_b_frames=2), audio("aac")]),
+                   "filme.mkv")
+        self.assertEqual(decidir(s, CHROME).modo, "direto")
+
+    def test_o_codec_que_a_maquina_nao_toca_vence_o_container(self):
+        # Quando a máquina já não decodifica o codec a conversa acabou de qualquer jeito, e o motivo
+        # que a pessoa lê tem de ser esse — não uma explicação sobre ordem de quadros.
+        s = sondar(ffprobe("avi", [video("hevc", has_b_frames=2), audio("aac")]), "filme.avi")
+        self.assertIn("não decodifica hevc", decidir(s, CHROME).motivo)
+
+    def test_recodificar_o_VIDEO_nao_arrasta_o_audio_junto(self):
+        # ⚠ O áudio segue a decisão dele. Antes o transcode forçava recodificar sempre, e um AAC
+        # que o cliente toca perfeitamente ia para o encoder junto — CPU a mais no caso que já é o
+        # mais caro de todos.
+        s = sondar(ffprobe("avi", [video("h264", has_b_frames=2), audio("aac")]), "filme.avi")
+        d = decidir(s, CHROME)
+        self.assertEqual((d.video, d.audio), ("recodificar", "copiar"))
+        self.assertEqual(d.codec_audio, "aac")   # e o filtro de ADTS continua sendo escolhido
+
+    def test_audio_que_NAO_toca_continua_sendo_recodificado(self):
+        s = sondar(ffprobe("avi", [video("h264", has_b_frames=2), audio("ac3", canais=6)]),
+                   "filme.avi")
+        self.assertEqual(decidir(s, CHROME).audio, "recodificar")
+
+
 class TestOPerfilEQueDecide(unittest.TestCase):
     """A razão de o perfil existir, num par de casos que se contradizem."""
 

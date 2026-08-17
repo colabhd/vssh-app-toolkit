@@ -624,9 +624,14 @@ function montarPalco() {
       q ? '' : null,
       q ? q.texto : null,
       // A frase que transforma o número em decisão. Sem ela, "3,2%" não diz a ninguém se está bom.
+      //
+      // ⚠ E ela NÃO culpa a máquina, embora essa tenha sido a primeira versão. Medido: o mesmo
+      // arquivo perde 25% dos quadros numa máquina que toca 720p a 60 quadros por segundo sem
+      // perder um — a causa estava no arquivo, e apontar para o computador teria mandado quem lê
+      // procurar no lugar errado. Um diagnóstico que nomeia o culpado errado é pior que nenhum.
       q ? (q.perdidos / q.total > 0.05
-        ? 'Perder mais de 5% é o que se vê como travamento, e a conta é desta máquina: '
-          + 'os bytes já chegaram.'
+        ? 'Perder mais de 5% é o que se vê como travamento. Os bytes chegaram — o que não coube '
+          + 'foi desenhar, e a causa pode ser o arquivo ou esta máquina.'
         : 'Abaixo de 5% a reprodução é considerada lisa.') : null,
     ].filter((x) => x !== null);
     await vssh.dialog.alert(linhas.join('\n'), 'Informações do arquivo');
