@@ -678,6 +678,19 @@ function montarPalco() {
   // O teclado com botão de play, o fone com botão de pausa. Sem isto o ambiente inteiro responde a
   // eles e o Palco não — e a pessoa conclui que o player é que é estranho.
 
+  // ⚠ A central de mídia do AMBIENTE, que é outra coisa do `mediaSession` do sistema. O shell já
+  // alcança este `<video>` sozinho e sabe tocar, pausar e buscar; o que ele não tem é a FILA — e
+  // sem declarar, ele não desenha anterior/próximo, que é a resposta certa para quem abriu um
+  // arquivo solto. Declarar de novo a cada abertura é o ponto: a pasta muda, e com ela a resposta.
+  function porCentralDeMidia() {
+    if (!vssh.media) return;   // shell antigo: o player continua inteiro, sem os dois botões
+    vssh.media.transporte({
+      anterior: indice > 0,
+      proximo: indice >= 0 && indice + 1 < vizinhos.length,
+    });
+  }
+  vssh.media?.aoAgir((acao) => executar(acao === 'anterior' ? 'anterior' : 'proximo'));
+
   function porMediaSession(r) {
     if (!('mediaSession' in navigator)) return;
     navigator.mediaSession.metadata = new MediaMetadata({ title: r.nome, artist: 'Palco' });
@@ -702,6 +715,7 @@ function montarPalco() {
       indice = r.atual;
       $('bib-pasta').textContent = r.pasta;
       desenharTabela();
+      porCentralDeMidia();
     } catch { /* a pasta pode ter sumido; o player continua tocando */ }
   }
 

@@ -32,6 +32,24 @@ type VsshNivel = 'info' | 'success' | 'warning' | 'error';
 type VsshPrioridade = 'baixa' | 'normal' | 'alta';
 
 /** Ação de uma notificação: DADO, nunca função. A resposta volta por `notify-action`. */
+/** O transporte que este app sabe fazer AGORA — ver `vssh.media`. */
+interface VsshTransporteDeMidia {
+  /** Há um item ANTES do atual na fila deste app. */
+  anterior?: boolean;
+  /** Há um item DEPOIS do atual. */
+  proximo?: boolean;
+}
+
+interface VsshMidia {
+  /** Declara o que o app sabe fazer. Chame de novo sempre que a resposta mudar (a pasta mudou). */
+  transporte(opcoes: VsshTransporteDeMidia): void;
+  /**
+   * Responde às ações da central. Recebe `'anterior'` ou `'proximo'` — tocar, pausar e buscar o
+   * shell resolve sozinho, sem passar por aqui. Um handler por janela; chamar de novo substitui.
+   */
+  aoAgir(handler: (acao: 'anterior' | 'proximo') => void): void;
+}
+
 interface VsshAcaoDeNotificacao {
   id: string;
   label: string;
@@ -535,6 +553,18 @@ interface Vssh {
   tabs: VsshAbas;
 
   tray: VsshBandeja;
+
+  /**
+   * A central de mídia do AMBIENTE — outra coisa do `navigator.mediaSession` do sistema.
+   *
+   * O shell já alcança o `<video>` deste documento e resolve tocar, pausar e buscar sozinho. O que
+   * ele não tem é a FILA: "próxima faixa" depende de uma lista, e a lista é do app.
+   *
+   * ⚠ Declarar é obrigatório, e é o que impede um botão morto. A regra do ambiente é "controle que
+   * não morde não é desenhado" — sem `transporte()`, a central não desenha anterior/próximo, que é
+   * a resposta certa para um app que abre um arquivo de cada vez.
+   */
+  media: VsshMidia;
 
   secrets: VsshCofre;
 

@@ -64,6 +64,13 @@ const EXCECOES = {
   'tabs.update': 'exige window.richChrome, que reescreve o cabeçalho do app inteiro',
   'tabs.on': 'exige window.richChrome, que reescreve o cabeçalho do app inteiro',
 
+  // ⚠ A central de mídia exige mídia TOCANDO, e a galeria não toca nada: a atividade só nasce
+  // quando o shell acha um `<audio>`/`<video>` vivo. Chamar `transporte()` numa galeria silenciosa
+  // declararia uma fila que não existe, e o `aoAgir` receberia uma ação que não teria o que fazer —
+  // que é exatamente o botão morto que a API existe para impedir. Quem exercita isto é o Palco.
+  'media.transporte': 'exige mídia tocando; a galeria é silenciosa por desenho',
+  'media.aoAgir': 'exige mídia tocando; a galeria é silenciosa por desenho',
+
   // `window.cabecalho: "app"` é a outra metade da mesma exclusão: o shell PARA de desenhar a barra
   // de título, e o app assume arrastar, duplo-clique e menu de contexto. Um app que declarasse isso
   // e não ligasse os três entregaria uma janela que não se move — e ligá-los aqui esconderia o

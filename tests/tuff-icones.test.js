@@ -62,19 +62,20 @@ const seNaoTemShell = {
 // Os ícones que não existem no shell, acrescentados para o que um visualizador de fotos e um player
 // de vídeo precisam. Cada um é **candidato a subir** para o sprite de lá: quando subir, ele sai
 // desta lista e passa a ser conferido pela fidelidade, como todos os outros.
+//
+// ⚠ **E seis já subiram.** A central de mídia do shell precisou de `play`, `pause`, `rewind`,
+// `forward`, `skip-back` e `skip-forward`, e eles foram copiados DAQUI para o `index.html` de lá —
+// o player do Palco e a central do ambiente mostram o mesmo controle, e dois desenhos para a mesma
+// ação é a divergência que ninguém reporta e todo mundo sente. Saíram desta lista e passaram a ser
+// cobrados pela fidelidade, que é exatamente o que o parágrafo acima promete que acontece.
 const NOSSOS = new Set([
-  'play', 'pause', 'stop', 'skip-back', 'skip-forward',
+  'stop',
   // A segunda leva, para o player completo do Palco. `cast` foi considerado e RECUSADO: não há
   // Chromecast neste ambiente, e ícone sem consumidor é a mesma dívida da classe que não estiliza
   // nada — a lição que `chevron-left`/`chevron-right` já custaram logo abaixo.
   // `repeat-one` não é enfeite do `repeat`: repetir é TRI-ESTADO, e o terceiro estado precisa de
   // glifo próprio — cor sozinha distingue dois, não três.
   'pip', 'subtitles', 'speed', 'repeat', 'repeat-one', 'shuffle',
-  // ⚠ A terceira leva, e a falta era estranha o bastante para valer o registro: havia `play`,
-  // `pause`, `stop`, `skip-back` e `skip-forward`, e não havia os DOIS botões mais usados de um
-  // player depois do play. `skip-*` é "outra faixa"; `rewind`/`forward` são "dez segundos atrás",
-  // que é outro gesto — e o mais repetido de todos ao rever um trecho.
-  'rewind', 'forward',
   'zoom-in', 'zoom-out', 'fit', 'rotate-left', 'rotate-right', 'crop', 'eye', 'eye-off',
   // ⚠ Só `chevron-up`. Eu havia acrescentado `chevron-left` e `chevron-right`, e as duas eram
   // DUPLICATAS: no shell as setas horizontais se chamam `arrow-left`/`arrow-right`, e o desenho é o
@@ -203,9 +204,13 @@ test('a deriva de espessura do sprite do shell está MEDIDA, e não corrigida no
     const chave = m ? m[1] : 'sólido (fill)';
     espessuras[chave] = (espessuras[chave] || 0) + 1;
   }
-  // Medido, não estimado: 45 ícones a 1.5, sete a 1.3, sete a 1.4 e um sem traço nenhum. (O outro
-  // sólido — `ico-more` ou `ico-audio` — tem `stroke-width` num filho, então cai numa das faixas.)
-  assert.deepEqual(espessuras, { 1.5: 45, 1.3: 7, 1.4: 7, 'sólido (fill)': 1 },
+  // Medido, não estimado: 45 ícones a 1.5, sete a 1.3, sete a 1.4 e SETE sem traço nenhum.
+  //
+  // ⚠ Os sólidos eram um e viraram sete: os seis do transporte de mídia subiram daqui para o
+  // `index.html` do shell, e eles são `fill="currentColor"` por natureza — um triângulo de play
+  // desenhado a traço fica com um buraco no meio. A deriva é REAL e está registrada em vez de
+  // apagada, que é o ponto deste caso: número novo entra depois de ser explicado.
+  assert.deepEqual(espessuras, { 1.5: 45, 1.3: 7, 1.4: 7, 'sólido (fill)': 7 },
     'a distribuição de espessuras do sprite do shell mudou. Reveja a cópia antes de seguir: '
     + `agora é ${JSON.stringify(espessuras)}`);
 });
