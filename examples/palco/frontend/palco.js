@@ -574,13 +574,43 @@ function montarPalco() {
   document.addEventListener('fullscreenchange', () =>
     trocarIcone($('btn-tela'), document.fullscreenElement ? 'fullscreen-exit' : 'maximize'));
 
+  // ── Quantos quadros esta máquina está perdendo ──────────────────────────
+  //
+  // ⚠ **Isto responde à única pergunta que log de servidor nenhum responde**: "está travando?".
+  // O caminho até aqui tem quatro trechos — ffmpeg, portal, rede, navegador — e os três primeiros
+  // se medem no servidor. O quarto só se mede na máquina que desenha, e `getVideoPlaybackQuality`
+  // é o instrumento: quadros que o decodificador entregou contra quadros que a tela não conseguiu
+  // mostrar a tempo.
+  //
+  // É o mesmo número que o VLC põe em Ferramentas → Informações da mídia → Estatísticas, sob
+  // "quadros perdidos", e pelo mesmo motivo: quando alguém diz "está travado", é a diferença entre
+  // "chegou pouco" e "chegou e não coube".
+  //
+  // ⚠ Ele fica AQUI e não na tela. Contador de quadros na interface de quem quer assistir é ruído
+  // permanente por uma informação que importa em dez minutos de uma vida — e é justamente por isso
+  // que ele tem de ser fácil de achar quando esses dez minutos chegam.
+
+  function qualidadeDaTela() {
+    const q = video.getVideoPlaybackQuality && video.getVideoPlaybackQuality();
+    if (!q || !q.totalVideoFrames) return null;
+    const pct = (q.droppedVideoFrames / q.totalVideoFrames) * 100;
+    return {
+      total: q.totalVideoFrames,
+      perdidos: q.droppedVideoFrames,
+      texto: `Quadros: ${q.totalVideoFrames} desenhados, ${q.droppedVideoFrames} perdidos`
+             + ` (${pct.toFixed(1)}%)`,
+    };
+  }
+
   async function informacoes() {
     if (!atual) return;
-    // ⚠ O detalhe técnico mora AQUI, e não na barra de estado. É onde o VLC o põe, e é o lugar
+    // ⚠ O detalhe técnico mora AQUI, e não numa barra de estado. É onde o VLC o põe, e é o lugar
     // certo: quem quer saber vai buscar; quem só quer assistir não tropeça nele.
+    const q = qualidadeDaTela();
     const linhas = [
       atual.nome,
       atual.duracao ? `Duração: ${tempoDe(atual.duracao)}` : null,
+      video.videoWidth ? `Imagem: ${video.videoWidth}×${video.videoHeight}` : null,
       `Faixas de áudio: ${atual.audios.length || 'nenhuma'}`,
       atual.legendas.length ? `Legendas: ${atual.legendas.length}` : null,
       '',
@@ -591,6 +621,13 @@ function montarPalco() {
         transcode: 'convertido no servidor',
       }[atual.modo] || atual.modo}`,
       atual.motivo,
+      q ? '' : null,
+      q ? q.texto : null,
+      // A frase que transforma o número em decisão. Sem ela, "3,2%" não diz a ninguém se está bom.
+      q ? (q.perdidos / q.total > 0.05
+        ? 'Perder mais de 5% é o que se vê como travamento, e a conta é desta máquina: '
+          + 'os bytes já chegaram.'
+        : 'Abaixo de 5% a reprodução é considerada lisa.') : null,
     ].filter((x) => x !== null);
     await vssh.dialog.alert(linhas.join('\n'), 'Informações do arquivo');
   }

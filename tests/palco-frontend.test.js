@@ -78,7 +78,11 @@ const VSSH_FALSO = `
   window.vssh = {
     inDesktop: true,
     fs: { urlFor: (p) => anota({ op: 'urlFor', p }, 'blob:falso/' + encodeURIComponent(p)) },
-    contextMenu: (x, y, itens) => anota({ op: 'contextMenu', x, y, itens }, Promise.resolve(null)),
+    // ⚠ Devolve \`window.__escolha\` quando o teste tiver posto uma, e \`null\` por padrão. É o que
+    // permite exercitar o caminho INTEIRO — botão → menu do ambiente → \`executar()\` — em vez de
+    // chamar a função de dentro por uma porta que o app não tem.
+    contextMenu: (x, y, itens) => anota({ op: 'contextMenu', x, y, itens },
+                                        Promise.resolve(window.__escolha ?? null)),
     window: { close: () => anota({ op: 'close' }) },
     dialog: { alert: (m, t) => anota({ op: 'alert', m, t }, Promise.resolve()) },
     openFolder: (p) => anota({ op: 'openFolder', p }),
@@ -210,6 +214,26 @@ test('sem régua verdadeira, o `ended` continua avançando', seNaoTem, async () 
   // que aqui seria falso.
   assert.doesNotMatch(r.aviso, /antes do fim/,
     'acusou fluxo truncado sem ter régua para saber disso');
+});
+
+test('Informações do arquivo diz COMO está sendo servido e quanto a tela perdeu', seNaoTem, async () => {
+  // ⚠ Este diálogo é o instrumento de diagnóstico do app, e por isso é medido: quando alguém diz
+  // "está travando", o caminho tem quatro trechos (ffmpeg, portal, rede, navegador) e os três
+  // primeiros aparecem no log do servidor. O quarto só existe na máquina que desenha.
+  const p = await comArquivoAberto();
+  const r = await p.avaliar(`(async () => {
+    window.__chamadas.length = 0;
+    window.__escolha = 'info';
+    document.querySelector('[data-menu="ferramentas"]').click();
+    await new Promise((r) => setTimeout(r, 200));
+    const alerta = window.__chamadas.find((c) => c.op === 'alert');
+    return alerta ? alerta.m : null;
+  })()`);
+  assert.ok(r, 'o diálogo de informações não abriu');
+  assert.match(r, /reembalado no servidor/, 'não disse como o arquivo está sendo servido');
+  // Sem mídia de verdade na bancada não há quadros, e a linha some — o que se prende aqui é que ela
+  // não é inventada: `getVideoPlaybackQuality` com zero quadros não vira "0 perdidos (NaN%)".
+  assert.doesNotMatch(r, /NaN|undefined/, 'o diálogo mostrou conta de quadros sem ter quadros');
 });
 
 // ── A lista de injeção, contra o backend ────────────────────────────────────
