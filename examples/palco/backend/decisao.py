@@ -140,6 +140,11 @@ class Decisao:
     video: str = "nenhum"                # copiar | recodificar | nenhum
     audio: str = "nenhum"                # copiar | recodificar | nenhum
     faixa_audio: Optional[int] = None    # o índice que o `-map` do ffmpeg vai usar
+    # ⚠ O codec da faixa escolhida viaja junto porque **copiar não é só copiar**: um AAC vindo de
+    # AVI ou de MPEG-TS está em enquadramento ADTS, e o muxer de MP4 exige ASC. Sem saber o codec
+    # aqui, `midia.py` não teria como decidir o filtro de bitstream — e a falha é do tipo que só
+    # aparece com o arquivo na mão.
+    codec_audio: Optional[str] = None
     motivo: str = ""
 
 
@@ -227,14 +232,17 @@ def decidir(sonda, perfil=None):
     tocavel = next((f for f in sonda.audios if f.codec in p.audio), None)
 
     reordenar = False
+    escolhida = None
     if padrao is None:
         acao_audio, faixa, audio_ok = "nenhum", None, True
     elif padrao.codec in p.audio:
-        acao_audio, faixa, audio_ok = "copiar", padrao.indice, True
+        acao_audio, faixa, audio_ok, escolhida = "copiar", padrao.indice, True, padrao
     elif tocavel is not None:
         acao_audio, faixa, audio_ok, reordenar = "copiar", tocavel.indice, True, True
+        escolhida = tocavel
     else:
-        acao_audio, faixa, audio_ok = "recodificar", padrao.indice, False
+        acao_audio, faixa, audio_ok, escolhida = "recodificar", padrao.indice, False, padrao
+    codec_audio = escolhida.codec if escolhida else None
 
     # ── O encontro ───────────────────────────────────────────────────────────
     #
@@ -243,19 +251,21 @@ def decidir(sonda, perfil=None):
     if not video_ok:
         return Decisao(modo="transcode", video=acao_video,
                        audio="recodificar" if sonda.audios else "nenhum",
-                       faixa_audio=faixa,
+                       faixa_audio=faixa, codec_audio=codec_audio,
                        motivo=f"esta máquina não decodifica {sonda.video.codec}")
 
     container_ok = sonda.container in p.containers
 
     if container_ok and audio_ok and not reordenar:
         return Decisao(modo="direto", video=acao_video, audio=acao_audio, faixa_audio=faixa,
+                       codec_audio=codec_audio,
                        motivo="o arquivo sai do portal como está, com Range nativo")
 
     if audio_ok:
         # Só a embalagem. `-c copy` nos dois lados: ~2% de um núcleo, e o vídeo passa intacto.
         return Decisao(
             modo="remux", video=acao_video, audio=acao_audio, faixa_audio=faixa,
+            codec_audio=codec_audio,
             motivo=(f"a faixa de áudio padrão ({padrao.codec}) não toca aqui, e há outra que toca"
                     if reordenar else f"esta máquina não abre o container {sonda.container}"))
 
@@ -263,4 +273,5 @@ def decidir(sonda, perfil=None):
     # embalagem errada (barata) mais áudio sem decodificador (barato), e o vídeo — que é onde estão
     # os bytes — passa intacto.
     return Decisao(modo="audio", video=acao_video, audio=acao_audio, faixa_audio=faixa,
+                   codec_audio=codec_audio,
                    motivo=f"o vídeo passa direto; só o áudio {sonda.audios[0].codec} não toca aqui")

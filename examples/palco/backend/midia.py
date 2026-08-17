@@ -98,6 +98,21 @@ def argv_de_fluxo(decisao, caminho, inicio=0, gpu=None):
 
     if decisao.audio == "copiar":
         argv += ["-c:a", "copy"]
+        # ⚠ **Copiar AAC não é copiar.** Num AVI ou num MPEG-TS o AAC vem em enquadramento ADTS —
+        # cada quadro com o próprio cabeçalho —, e o muxer de MP4 quer ASC, com a configuração numa
+        # caixa e os quadros crus. Sem o filtro ele RECUSA: "Malformed AAC bitstream detected".
+        #
+        # Foi o defeito que derrubou o primeiro `.avi` de verdade. E ele é traiçoeiro por duas
+        # razões: o ffmpeg escreve o cabeçalho e alguns quadros ANTES de recusar (24 KB no caso
+        # medido, o suficiente para o navegador desenhar um quadro), e as versões novas do ffmpeg
+        # inserem o filtro sozinhas em ALGUNS containers — de modo que a mesma linha de comando
+        # funciona na máquina de quem desenvolve e falha na de quem instalou.
+        #
+        # Medido: com o filtro, a saída de um AAC que já estava em ASC (de MKV, de MP4) é byte a
+        # byte a mesma — ele é inócuo onde não é preciso. Mas sobre áudio que NÃO é AAC ele mata o
+        # ffmpeg com EINVAL e zero byte, e é por isso que a condição olha o codec e não o container.
+        if decisao.codec_audio == "aac":
+            argv += ["-bsf:a", "aac_adtstoasc"]
     elif decisao.audio == "recodificar":
         # ⚠ `-ac 2` é onde se evita "não escuto o diálogo". O canal central de um 5.1 carrega a
         # fala, e uma soma ingênua de seis canais para dois a enterra. O rebaixamento do ffmpeg é

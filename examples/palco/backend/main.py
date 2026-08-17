@@ -365,6 +365,10 @@ class Handler(BaseHTTPRequestHandler):
                 # recodificar o áudio, e manter `copiar` entregaria vídeo mudo.
                 toca = perfil and escolhida.codec in perfil.audio
                 d.audio = "copiar" if toca else "recodificar"
+                # ⚠ E o codec vai junto: é ele que decide o filtro de bitstream do AAC. Esquecê-lo
+                # aqui faria a troca manual de faixa reintroduzir, só neste caminho, o defeito que
+                # `midia.py` conserta.
+                d.codec_audio = escolhida.codec
                 if d.modo == "direto":
                     d.modo = "remux"
         argv = argv_de_fluxo(d, caminho, inicio=int(t or 0), gpu=GPU)

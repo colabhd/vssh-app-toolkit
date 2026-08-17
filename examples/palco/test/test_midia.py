@@ -112,6 +112,46 @@ class TestOsModos(unittest.TestCase):
         self.assertIsNone(argv_de_fluxo(Decisao(modo="desconhecido"), ARQ))
 
 
+class TestOAacQueVemEmADTS(unittest.TestCase):
+    """O defeito que derrubou o primeiro `.avi` de verdade, e o log do servidor o nomeou:
+
+        Malformed AAC bitstream detected: use the audio bitstream filter 'aac_adtstoasc'
+        Error muxing a packet · Task finished with error code: -1
+
+    Num AVI ou num MPEG-TS o AAC vem em ADTS, com um cabeçalho por quadro; o MP4 quer ASC, com a
+    configuração numa caixa e os quadros crus. ⚠ E o ffmpeg escreve 24 KB ANTES de recusar — o
+    bastante para o navegador desenhar um quadro e o problema parecer qualquer outra coisa.
+    """
+
+    def test_copiar_AAC_pede_o_filtro(self):
+        argv = argv_de_fluxo(Decisao(modo="remux", video="copiar", audio="copiar",
+                                     faixa_audio=1, codec_audio="aac"), ARQ)
+        self.assertIn("-bsf:a", argv)
+        self.assertEqual(argv[pos(argv, "-bsf:a") + 1], "aac_adtstoasc")
+
+    def test_copiar_QUALQUER_OUTRO_codec_NAO_pede(self):
+        # ⚠ Não é zelo: medido, `-bsf:a aac_adtstoasc` sobre MP3 mata o ffmpeg com EINVAL e zero
+        # byte. Aplicá-lo "por segurança" trocaria um defeito de container por um defeito de codec.
+        for codec in ("mp3", "ac3", "opus", "flac", "vorbis"):
+            argv = argv_de_fluxo(Decisao(modo="remux", video="copiar", audio="copiar",
+                                         faixa_audio=1, codec_audio=codec), ARQ)
+            self.assertNotIn("-bsf:a", argv, f"o filtro do AAC vazou para {codec}")
+
+    def test_RECODIFICAR_para_aac_nao_pede(self):
+        # Quem recodifica produz ASC direto: o filtro ali seria sobre a entrada, que já foi
+        # decodificada, e o ffmpeg recusa.
+        argv = argv_de_fluxo(Decisao(modo="audio", video="copiar", audio="recodificar",
+                                     faixa_audio=1, codec_audio="ac3"), ARQ)
+        self.assertNotIn("-bsf:a", argv)
+
+    def test_sem_codec_conhecido_nao_pede(self):
+        # A decisão pode vir de um caminho que não soube o codec. Errar para o lado de não filtrar
+        # é o certo: o pior caso é o ffmpeg reclamar alto, e não morrer com EINVAL.
+        argv = argv_de_fluxo(Decisao(modo="remux", video="copiar", audio="copiar",
+                                     faixa_audio=1), ARQ)
+        self.assertNotIn("-bsf:a", argv)
+
+
 class TestFaixas(unittest.TestCase):
     def test_a_faixa_escolhida_e_a_MAPEADA(self):
         # Sem `-map`, o ffmpeg escolhe sozinho — e escolhe a "melhor", que costuma ser justamente

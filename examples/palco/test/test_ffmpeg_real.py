@@ -155,6 +155,94 @@ class TestComArquivoDeVerdade(unittest.TestCase):
         self.assertLess(len(do_meio), len(inteiro) * 0.85,
                         "buscar aos 2 s de 4 s tinha de render bem menos bytes")
 
+    def test_o_AAC_em_ADTS_so_entra_no_MP4_com_o_FILTRO(self):
+        """O defeito de verdade, com um arquivo de verdade — e a refutação junto.
+
+        Um `.avi` real derrubou o cano e o log do servidor nomeou a causa: *"Malformed AAC bitstream
+        detected: use the audio bitstream filter 'aac_adtstoasc'"*, status 255, **depois de já ter
+        escrito 24 KB**. Era o suficiente para o navegador desenhar um quadro.
+
+        ⚠ **O `.ts` aqui não é substituto arbitrário do `.avi`: é o caso que ainda falha.** As
+        versões novas do ffmpeg inserem o filtro sozinhas em alguns containers, e no meu AVI local
+        (8.1.1) a linha SEM o filtro passa. É exatamente a armadilha que fez o defeito chegar
+        publicado: funciona na máquina de quem escreve e falha na de quem instala. O MPEG-TS ainda
+        recusa nas duas, então é ele que consegue medir a diferença.
+        """
+        origem = os.path.join(self.dir, "adts.ts")
+        subprocess.run([
+            "ffmpeg", "-hide_banner", "-loglevel", "error",
+            "-f", "lavfi", "-i", "testsrc=size=320x240:rate=15:duration=3",
+            "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+            "-c:v", "libx264", "-preset", "ultrafast", "-g", "15", "-c:a", "aac",
+            "-y", origem,
+        ], check=True, capture_output=True)
+
+        d = decidir(sondar_arquivo(origem), MAGRO)
+        self.assertEqual((d.audio, d.codec_audio), ("copiar", "aac"),
+                         "a decisão precisa levar o codec para midia.py poder escolher o filtro")
+
+        argv = argv_de_fluxo(d, origem)
+        self.assertIn("-bsf:a", argv)
+        dados, erro, codigo = self._canalizar(argv)
+        self.assertEqual(codigo, 0, erro)
+        self.assertGreater(len(dados), 1000)
+
+        # A refutação: a MESMA linha sem o filtro. Ela tem de falhar — e falhar DEPOIS de escrever
+        # alguns bytes, que é a metade do defeito que o torna difícil de ler na tela.
+        sem = [a for a in argv if a not in ("-bsf:a", "aac_adtstoasc")]
+        parcial, erro, codigo = self._canalizar(sem)
+        self.assertNotEqual(codigo, 0, "sem o filtro o ffmpeg tinha de recusar este AAC")
+        self.assertIn("aac_adtstoasc", erro)
+        self.assertGreater(len(parcial), 0,
+                           "e escrever bytes antes de recusar — é por isso que o vídeo 'quase' toca")
+
+    def test_o_filtro_e_INOCUO_onde_o_AAC_ja_esta_certo(self):
+        # ⚠ A outra metade da regra. Se o filtro estragasse o AAC que já vem de um MKV, o conserto
+        # teria trocado um container quebrado por todos os outros. Medido: a saída é a mesma.
+        origem = os.path.join(self.dir, "aac.mkv")
+        subprocess.run([
+            "ffmpeg", "-hide_banner", "-loglevel", "error",
+            "-f", "lavfi", "-i", "testsrc=size=320x240:rate=15:duration=3",
+            "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+            "-c:v", "libx264", "-preset", "ultrafast", "-g", "15", "-c:a", "aac",
+            "-y", origem,
+        ], check=True, capture_output=True)
+
+        argv = argv_de_fluxo(decidir(sondar_arquivo(origem), MAGRO), origem)
+        com, erro, codigo = self._canalizar(argv)
+        self.assertEqual(codigo, 0, erro)
+        sem, _, _ = self._canalizar([a for a in argv if a not in ("-bsf:a", "aac_adtstoasc")])
+        self.assertEqual(com, sem, "o filtro mudou os bytes de um AAC que já estava em ASC")
+
+    def test_o_filtro_do_AAC_NAO_vaza_para_outro_codec(self):
+        # Medido: `-bsf:a aac_adtstoasc` sobre MP3 mata o ffmpeg com EINVAL e zero byte. A guarda é
+        # a condição por codec em `midia.py`; aqui se mede que a consequência é real.
+        origem = os.path.join(self.dir, "mp3.avi")
+        subprocess.run([
+            "ffmpeg", "-hide_banner", "-loglevel", "error",
+            "-f", "lavfi", "-i", "testsrc=size=320x240:rate=15:duration=3",
+            "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+            "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "libmp3lame",
+            "-y", origem,
+        ], check=True, capture_output=True)
+
+        # ⚠ Um perfil que TOCA mp3, e não o `MAGRO`: com o magro a decisão recodifica o áudio, e o
+        # caso sob medida — *copiar* um codec que não é AAC — nem chegaria a acontecer. Foi assim
+        # que a primeira versão deste teste passou medindo outra coisa.
+        toca_mp3 = Perfil(containers={"mp4"}, video={"h264"}, audio={"aac", "mp3"})
+        d = decidir(sondar_arquivo(origem), toca_mp3)
+        self.assertEqual((d.audio, d.codec_audio), ("copiar", "mp3"))
+
+        argv = argv_de_fluxo(d, origem)
+        self.assertNotIn("-bsf:a", argv, "o filtro do AAC vazou para um arquivo com MP3")
+        dados, erro, codigo = self._canalizar(argv)
+        self.assertEqual(codigo, 0, erro)
+
+        i = argv.index("-movflags")
+        quebrado, _, codigo = self._canalizar(argv[:i] + ["-bsf:a", "aac_adtstoasc"] + argv[i:])
+        self.assertNotEqual(codigo, 0, "aplicar o filtro sobre MP3 tinha de matar o ffmpeg")
+        self.assertEqual(len(quebrado), 0)
+
     def test_a_legenda_embutida_vira_VTT(self):
         s = sondar_arquivo(self.arquivo)
         dados, erro, codigo = self._canalizar(argv_de_legenda(self.arquivo, s.legendas[0].indice))
