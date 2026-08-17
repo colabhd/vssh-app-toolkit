@@ -95,6 +95,28 @@ class Mundo:
         with self._yt.YoutubeDL(opcoes) as ydl:
             return ydl.extract_info(url, download=False)
 
+    def listar(self, url, por_pagina):
+        """Busca, playlist ou canal — **plano**, e com teto.
+
+        ⚠ `extract_flat` é o que torna a aba possível, e não uma otimização. Sem ele o yt-dlp
+        resolve cada vídeo da lista por inteiro: medido, 4 000 ms para 3 resultados contra 1 570 ms
+        para 8 com ele. Uma busca de trinta seriam trinta resoluções completas — para exibir
+        título, duração e miniatura.
+
+        E `playlistend` não é cortesia: existem playlists de milhares de vídeos, e sem teto a
+        resposta viraria dezenas de MB e uma grade que o navegador não desenha.
+        """
+        opcoes = {
+            "quiet": True,
+            "no_warnings": True,
+            "skip_download": True,
+            "extract_flat": "in_playlist",
+            "playlistend": int(por_pagina),
+            "socket_timeout": self._tempo,
+        }
+        with self._yt.YoutubeDL(opcoes) as ydl:
+            return ydl.extract_info(url, download=False)
+
     def ler_cabecalho(self, url, headers, n):
         """Os primeiros `n` bytes de uma URL assinada.
 

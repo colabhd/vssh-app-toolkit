@@ -105,6 +105,10 @@ function servir(req, res) {
       '<link rel="stylesheet" href="/palco.css">',
       ...SCRIPTS.map((s) => `<script src="/_vssh/${s}"></script>`),
       `<script>${VSSH_FALSO}</script>`,   // ⚠ DEPOIS do shim: ver a nota acima
+      // ⚠ A MESMA ordem do `criar_spa_estatica`: `youtube.js` antes, porque ele só DEFINE
+      // `montarYoutube`, e é o `palco.js` que a chama no fim do próprio boot. Invertidos, a
+      // função ainda não existiria e a aba ficaria inerte — sem erro nenhum.
+      '<script src="/youtube.js"></script>',
       '<script src="/palco.js"></script>',
     ].join('\n');
     html = html.replace('</head>', `${tags}\n</head>`);
@@ -148,6 +152,24 @@ function servir(req, res) {
     return true;
   }
 
+  if (p === '/api/yt/listar') {
+    listagens.push(u.searchParams.get('url'));
+    if (respostaDeListar instanceof Error) {
+      res.writeHead(respostaDeListar.status || 502, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ erro: respostaDeListar.message }));
+      return true;
+    }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(respostaDeListar));
+    return true;
+  }
+  if (p === '/api/yt/miniatura') {
+    // 1x1 GIF transparente: o cartão precisa de uma imagem que CARREGA, e não de bytes de verdade.
+    res.writeHead(200, { 'content-type': 'image/gif' });
+    res.end(Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64'));
+    return true;
+  }
+
   // O cano e a legenda: o teste não toca mídia local, e um 204 evita que o `<video>` fique tentando.
   if (p.startsWith('/api/')) { res.writeHead(204); res.end(); return true; }
 
@@ -162,7 +184,7 @@ function servir(req, res) {
     return true;
   }
 
-  const doApp = /^\/(palco\.(?:js|css))$/.exec(p);
+  const doApp = /^\/((?:palco|youtube)\.(?:js|css))$/.exec(p);
   const daLib = /^\/_vssh\/([\w./-]+)$/.exec(p);
   const alvo = doApp ? path.join(APP, doApp[1])
     : daLib && !daLib[1].includes('..') ? path.join(WEB, daLib[1]) : null;
@@ -181,6 +203,8 @@ let respostaDeAbrir = ABERTURA;
 // O que `/api/yt/abrir` responde, e o contador de quem pediu o dash.js.
 let respostaDeYt = null;
 let pedidosDoDash = 0;
+let respostaDeListar = null;
+let listagens = [];
 let pedidosDeBytes = 0;
 let midia = null;
 // ⚠ Quantas vezes o app pediu para abrir. É o que mede "ele avançou de arquivo" sem ambiguidade: a
@@ -521,15 +545,19 @@ async function comUrlAberta(url, resposta) {
 }
 
 test('o que o Palco não sabe mostrar VOLTA para o navegador', seNaoTem, async () => {
-  // ⚠ É a regra que impede o deeplink de ficar PIOR que não existir. Playlist, canal e busca o
-  // `urls.py` sabe analisar e a interface ainda não sabe mostrar; enquanto não souber, quem clica
-  // num link tem de chegar a algum lugar.
-  const p = await comUrlAberta('https://www.youtube.com/playlist?list=PLabc',
-                               { tipo: 'nao-e-nosso', porque: 'playlist' });
+  // ⚠ É a regra que impede o deeplink de ficar PIOR que não existir: quem clica num link tem de
+  // chegar a algum lugar.
+  //
+  // ⚠ E o exemplo MUDOU junto com a aba. Antes era uma playlist — que hoje abre a aba, e por isso
+  // este teste passou a falhar quando ela nasceu. A falha estava certa: o que sobra para devolver
+  // é o que o Palco não reivindica, e é isso que o teste tem de medir agora. Um teste que
+  // continuasse usando playlist estaria prendendo o comportamento antigo contra o novo.
+  const p = await comUrlAberta('https://vimeo.com/12345',
+                               { tipo: 'nao-e-nosso' });
   const chamadas = await p.avaliar('window.__chamadas.filter((c) => c.op === "openUrl")');
   assert.equal(chamadas.length, 1, 'o link não foi devolvido');
   assert.equal(chamadas[0].destino, 'navegador');
-  assert.match(chamadas[0].u, /playlist\?list=PLabc/);
+  assert.match(chamadas[0].u, /vimeo\.com/);
 });
 
 test('o dash.js NÃO é baixado ao abrir um arquivo da pasta', seNaoTem, async () => {
@@ -699,4 +727,225 @@ test('um corpo vazio com 200 também devolve o link', seNaoTem, async () => {
   })`);
   assert.equal(r.openUrl, 1, 'o link não foi devolvido — o corpo vazio virou um TypeError solto');
   assert.equal(r.preparando, true, '"Preparando" ficou preso');
+});
+
+// ── A aba do YouTube ────────────────────────────────────────────────────────
+//
+// Ela é o que destrava `opens.urls`: no instante em que o roteamento existe, TODO endereço do
+// YouTube chega aqui. Estes testes são a régua de que nenhum deles vira beco.
+
+const LISTAGEM = {
+  tipo: 'busca',
+  titulo: 'gatos',
+  itens: Array.from({ length: 12 }, (_, i) => ({
+    id: `aaaaaaaaaa${i}`,
+    titulo: `Vídeo número ${i} com um título comprido o bastante para cortar em duas linhas`,
+    duracao: 60 + i * 30,
+    canal: `Canal ${i}`,
+    visualizacoes: 1500000 + i,
+    aoVivo: i === 3,
+    miniatura: `api/yt/miniatura?v=aaaaaaaaaa${i}`,
+  })),
+};
+
+async function comAbaAberta() {
+  const p = await nav.novaPagina(origem.url);
+  await p.avaliar(`(async () => {
+    document.querySelector('[data-aba="youtube"]').click();
+    await new Promise((r) => setTimeout(r, 100));
+  })()`);
+  return p;
+}
+
+/** Digita na caixa e espera os cartões — o caminho que a pessoa percorre. */
+const BUSCAR = (termo, ate) => `(async () => {
+  const b = document.getElementById('yt-busca');
+  b.value = ${JSON.stringify(termo)};
+  b.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  const prazo = Date.now() + 8000;
+  while (Date.now() < prazo && !(${ate})) await new Promise((r) => setTimeout(r, 100));
+})()`;
+
+test('a aba existe, e o transporte NÃO some ao entrar nela', seNaoTem, async () => {
+  // ⚠ É a diferença entre um programa de reprodução e uma página com vídeo dentro: o vídeo não
+  // parou de tocar só porque a pessoa foi procurar a próxima coisa.
+  const p = await comAbaAberta();
+  const r = await p.avaliar(`(() => {
+    const t = document.getElementById('transporte').getBoundingClientRect();
+    return {
+      painel: !!document.querySelector('#painel-youtube.painel--ativo'),
+      aba: document.querySelector('[data-aba="youtube"]').getAttribute('aria-selected'),
+      transporte: t.height,
+      temBusca: !!document.getElementById('yt-busca'),
+    };
+  })()`);
+  assert.equal(r.painel, true, 'o painel do YouTube não ficou ativo');
+  assert.equal(r.aba, 'true');
+  assert.ok(r.transporte > 40, `o transporte sumiu na aba do YouTube (${r.transporte}px)`);
+  assert.equal(r.temBusca, true);
+});
+
+test('buscar desenha cartões com capa, duração e canal', seNaoTem, async () => {
+  respostaDeListar = LISTAGEM;
+  listagens = [];
+  const p = await comAbaAberta();
+  await p.avaliar(BUSCAR('gatos', "document.querySelector('.yt-cartao')"));
+  const r = await p.avaliar(`(() => {
+    const cartoes = [...document.querySelectorAll('.yt-cartao')];
+    const um = cartoes[0];
+    const capa = um && um.querySelector('.yt-capa');
+    return {
+      quantos: cartoes.length,
+      temImagem: !!(capa && capa.querySelector('img')),
+      capaLargura: capa ? capa.getBoundingClientRect().width : 0,
+      dur: um ? (um.querySelector('.yt-dur') || {}).textContent : null,
+      nome: um ? um.querySelector('.yt-nome').textContent.slice(0, 20) : null,
+      canal: um ? um.querySelector('.yt-canal').textContent : null,
+      aoVivo: [...document.querySelectorAll('.yt-dur.ao-vivo')].map((e) => e.textContent),
+      vazio: document.getElementById('yt-vazio').hidden,
+    };
+  })()`);
+
+  assert.ok(r.quantos >= 4, `poucos cartões desenhados: ${r.quantos}`);
+  assert.equal(r.temImagem, true, 'o cartão saiu sem capa');
+  // ⚠ A largura, e não só a existência: um `<svg>`/`<div>` sem CSS tem tamanho default e satisfaz
+  // qualquer "existe" — foi assim que uma bancada aprovou a versão quebrada numa sessão anterior.
+  assert.ok(r.capaLargura > 60, `a capa não tem tamanho (${r.capaLargura}px) — o CSS não pegou`);
+  assert.equal(r.dur, '1:00', 'o selo de duração não é o tempo do vídeo');
+  assert.match(r.nome, /Vídeo número 0/);
+  assert.match(r.canal, /Canal 0 · 1,5 mi de visualizações/);
+  assert.deepEqual(r.aoVivo, ['AO VIVO'], 'a transmissão ao vivo não foi marcada');
+  assert.equal(r.vazio, true, 'o estado vazio ficou por cima da grade');
+  assert.equal(listagens.length, 1);
+  assert.match(listagens[0], /results\?search_query=gatos/);
+});
+
+test('uma busca nova NÃO deixa os cartões da anterior na tela', seNaoTem, async () => {
+  // ⚠ O defeito que este teste prende é da própria lib, e é silencioso: a grade só remonta uma
+  // célula quando o ÍNDICE dela muda — o certo para rolagem, e errado aqui. Com o mesmo número de
+  // resultados, os cartões antigos ficariam com os títulos e as capas anteriores sobre uma lista
+  // nova. Nada falharia, e a grade estaria mentindo.
+  respostaDeListar = LISTAGEM;
+  const p = await comAbaAberta();
+  await p.avaliar(BUSCAR('gatos', "document.querySelector('.yt-cartao')"));
+
+  // A segunda resposta tem o MESMO número de itens, e títulos diferentes.
+  respostaDeListar = {
+    ...LISTAGEM,
+    titulo: 'cachorros',
+    itens: LISTAGEM.itens.map((i, n) => ({ ...i, titulo: `Cachorro ${n}` })),
+  };
+  await p.avaliar(BUSCAR(
+    'cachorros',
+    "(document.querySelector('.yt-nome') || {}).textContent?.startsWith('Cachorro')"));
+  const nomes = await p.avaliar(
+    "[...document.querySelectorAll('.yt-nome')].slice(0, 4).map((e) => e.textContent)");
+  assert.ok(nomes.length >= 4, 'a grade ficou vazia');
+  for (const nome of nomes) {
+    assert.match(nome, /^Cachorro/, `um cartão da busca anterior ficou na tela: ${nome}`);
+  }
+});
+
+test('abrir um cartão toca no MESMO player e volta para Reproduzindo', seNaoTemMidia, async () => {
+  respostaDeListar = LISTAGEM;
+  respostaDeYt = {
+    tipo: 'video', id: 'aaaaaaaaaaa', titulo: 'Vídeo escolhido', canal: 'Canal 0',
+    duracao: dashDeTeste.DURACAO, mpd: 'api/yt/mpd?v=aaaaaaaaaaa', legendas: [], qualidades: [90],
+  };
+  const p = await comAbaAberta();
+  await p.avaliar(BUSCAR('gatos', "document.querySelector('.tuff-miniatura')"));
+  const r = await p.avaliar(`(async () => {
+    // Duplo-clique, que é o gesto do gerenciador de arquivos e o que a grade escuta.
+    document.querySelector('.tuff-miniatura')
+      .dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    const v = document.getElementById('video');
+    const prazo = Date.now() + 15000;
+    while (Date.now() < prazo && v.currentTime < 1) await new Promise((r) => setTimeout(r, 100));
+    return {
+      tempo: v.currentTime,
+      altura: v.videoHeight,
+      naAba: !!document.querySelector('#painel-reproduzindo.painel--ativo'),
+      nome: document.getElementById('agora-nome').textContent,
+    };
+  })()`);
+
+  assert.ok(r.tempo >= 1, `o cartão não tocou: ${JSON.stringify(r)}`);
+  assert.ok(r.altura > 0, 'nada foi desenhado');
+  assert.equal(r.naAba, true, 'não voltou para Reproduzindo — quem abre um vídeo quer vê-lo');
+  assert.equal(r.nome, 'Vídeo escolhido');
+});
+
+test('um link de PLAYLIST abre a aba, e não o player vazio', seNaoTem, async () => {
+  // ⚠ A metade que torna o deeplink honesto. Sem ela o Palco declararia `opens.urls` e devolveria
+  // ao navegador metade dos endereços que reivindicou.
+  respostaDeListar = { ...LISTAGEM, tipo: 'playlist', titulo: 'Minha lista' };
+  listagens = [];
+  const p = await nav.novaPagina(origem.url);
+  const r = await p.avaliar(`(async () => {
+    window.__abrirContexto({ type: 'open-context', tipo: 'url',
+      url: 'https://www.youtube.com/playlist?list=PLabc123' });
+    const prazo = Date.now() + 8000;
+    while (Date.now() < prazo && !document.querySelector('.yt-cartao')) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return {
+      naAba: !!document.querySelector('#painel-youtube.painel--ativo'),
+      titulo: document.getElementById('yt-titulo').textContent,
+      cartoes: document.querySelectorAll('.yt-cartao').length,
+      openUrl: window.__chamadas.filter((c) => c.op === 'openUrl').length,
+    };
+  })()`);
+  assert.equal(r.naAba, true, 'a playlist não abriu a aba do YouTube');
+  assert.ok(r.cartoes > 0, 'a playlist abriu a aba vazia');
+  assert.equal(r.titulo, 'Minha lista');
+  assert.equal(r.openUrl, 0, 'a playlist foi devolvida ao navegador — o deeplink virou beco');
+  assert.equal(listagens.length, 1);
+  assert.match(listagens[0], /playlist\?list=PLabc123/);
+});
+
+test('um link de CANAL também abre a aba', seNaoTem, async () => {
+  respostaDeListar = { ...LISTAGEM, tipo: 'canal', titulo: 'Blender' };
+  const p = await nav.novaPagina(origem.url);
+  const r = await p.avaliar(`(async () => {
+    window.__abrirContexto({ type: 'open-context', tipo: 'url',
+      url: 'https://www.youtube.com/@BlenderOfficial' });
+    const prazo = Date.now() + 8000;
+    while (Date.now() < prazo && !document.querySelector('.yt-cartao')) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return {
+      naAba: !!document.querySelector('#painel-youtube.painel--ativo'),
+      titulo: document.getElementById('yt-titulo').textContent,
+      openUrl: window.__chamadas.filter((c) => c.op === 'openUrl').length,
+    };
+  })()`);
+  assert.equal(r.naAba, true, 'o canal não abriu a aba');
+  assert.equal(r.titulo, 'Blender');
+  assert.equal(r.openUrl, 0);
+});
+
+test('um canal sem vídeos DIZ o que houve, e não manda atualizar o yt-dlp', seNaoTem, async () => {
+  // ⚠ A distinção importa porque o conserto é diferente: "este canal não tem vídeos" é uma
+  // resposta legítima do YouTube (medida: "This channel does not have a videos tab"), e mandar a
+  // pessoa atualizar uma dependência por causa disso é mandá-la resolver o problema errado.
+  respostaDeListar = Object.assign(new Error('este canal não tem vídeos publicados'),
+                                   { status: 404 });
+  const p = await nav.novaPagina(origem.url);
+  const r = await p.avaliar(`(async () => {
+    window.__abrirContexto({ type: 'open-context', tipo: 'url',
+      url: 'https://www.youtube.com/@vazio' });
+    const prazo = Date.now() + 8000;
+    while (Date.now() < prazo
+           && document.getElementById('yt-vazio-titulo').textContent === 'Procure um vídeo') {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return {
+      titulo: document.getElementById('yt-vazio-titulo').textContent,
+      msg: document.getElementById('yt-vazio-msg').textContent,
+      vazio: document.getElementById('yt-vazio').hidden,
+    };
+  })()`);
+  assert.equal(r.vazio, false, 'o estado vazio não apareceu');
+  assert.match(r.titulo, /não tem vídeos/);
+  assert.doesNotMatch(r.msg, /yt-dlp/i, 'mandou atualizar o yt-dlp por um canal vazio');
 });

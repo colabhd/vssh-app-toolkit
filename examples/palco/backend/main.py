@@ -27,6 +27,8 @@ decidisse sozinho, por tabela, transcodificaria a 180% de CPU para metade das m�
     GET    /api/yt/mpd     ?v=                → o manifesto DASH, com as URLs apontando para nós
     GET    /api/yt/bytes   ?v=&f=             → o proxy de Range (obrigatório — ver `dash.py`)
     GET    /api/yt/legenda ?v=&idioma=&auto=  → VTT
+    GET    /api/yt/listar  ?url=              → busca, playlist ou canal, para a grade
+    GET    /api/yt/miniatura ?v=              → a capa do cartão, pelo nosso proxy
 
 Uma dependência, e ela é o toolkit. O resto é stdlib — **mais o yt-dlp, que é opcional**: sem ele o
 Palco continua um player local completo, e só as rotas `/api/yt/*` respondem 503.
@@ -58,6 +60,7 @@ from vssh_app_toolkit.tray import limpar_bandeja_ao_sair  # noqa: E402
 from vssh_app_toolkit.web import DIRETORIO_WEB, ESTILOS, ESTILOS_MIDIA, SCRIPTS, SCRIPTS_MIDIA, SHIMS  # noqa: E402
 
 from dash import montar_mpd  # noqa: E402
+from listas import URL_DA_MINIATURA, como_json  # noqa: E402
 from decisao import decidir, perfil_de  # noqa: E402
 from fluxo import enquadrar, terminador  # noqa: E402
 from midia import achar_gpu, argv_de_fluxo, argv_de_legenda, sondar_arquivo  # noqa: E402
@@ -89,7 +92,11 @@ spa = criar_spa_estatica(
     # `SCRIPTS_MIDIA` é o que traz a `TuffMidia` — sem ela não há trilha, nem timecode, nem o
     # chrome que some. É a peça inteira deste app, e ela é opt-in de propósito.
     inject_scripts=([f"_vssh/{s}" for s in SHIMS] + [f"_vssh/{s}" for s in SCRIPTS]
-                    + [f"_vssh/{s}" for s in SCRIPTS_MIDIA] + ["palco.js"]),
+                    + [f"_vssh/{s}" for s in SCRIPTS_MIDIA]
+                    # ⚠ `youtube.js` ANTES de `palco.js`: ele só define `montarYoutube`, e é o
+                    # `palco.js` que a chama no fim do próprio boot. Na ordem inversa a função
+                    # ainda não existiria, e a aba ficaria inerte — sem erro nenhum.
+                    + ["youtube.js", "palco.js"]),
     missing_bundle_hint="O frontend do Palco não está no pacote.",
     ao_avisar=lambda e: log("spa-warn", e),
 )
@@ -115,7 +122,8 @@ def yt():
             if modulo is not None:
                 _YT["versao"] = versao(modulo)
                 _YT["mundo"] = Mundo(modulo)
-                _YT["resolvedor"] = Resolvedor(_YT["mundo"].extrair, _YT["mundo"].ler_cabecalho)
+                _YT["resolvedor"] = Resolvedor(_YT["mundo"].extrair, _YT["mundo"].ler_cabecalho,
+                                               listar=_YT["mundo"].listar)
             log("ytdlp", {"versao": _YT["versao"] or "ausente"})
         return _YT["resolvedor"], _YT["mundo"]
 
@@ -402,6 +410,12 @@ class Handler(BaseHTTPRequestHandler):
             if caminho_url == "/api/yt/legenda" and self.command in ("GET", "HEAD"):
                 return self._yt_legenda(um("v"), um("idioma"), um("auto") == "1")
 
+            if caminho_url == "/api/yt/listar" and self.command in ("GET", "HEAD"):
+                return self._yt_listar(um("url"))
+
+            if caminho_url == "/api/yt/miniatura" and self.command in ("GET", "HEAD"):
+                return self._yt_miniatura(um("v"))
+
             if caminho_url == "/api/marca":
                 if self.command == "POST":
                     return self._marcar(self._corpo())
@@ -662,6 +676,76 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(pedaco)
         finally:
             resposta.close()
+
+    def _yt_listar(self, url):
+        """Busca, playlist ou canal — o que a grade da aba desenha."""
+        resolvedor, _ = yt()
+        if resolvedor is None:
+            return self._sem_ytdlp()
+
+        alvo = analisar(url)
+        if alvo is None or alvo.tipo not in ("busca", "playlist", "canal"):
+            return self._json(400, {"erro": "este endereço não é uma listagem do YouTube"})
+
+        try:
+            listagem = resolvedor.listar(alvo)
+        except Exception as e:  # noqa: BLE001
+            # ⚠ A mensagem tem de distinguir "não existe" de "quebrou", porque o conserto é
+            # diferente: um canal sem aba de vídeos é uma resposta legítima do YouTube (medido:
+            # "This channel does not have a videos tab"), e mandar a pessoa atualizar o yt-dlp por
+            # causa disso é mandá-la resolver o problema errado.
+            texto = str(e)
+            vazio = "does not have" in texto or "Unable to recognize" in texto
+            log("yt-listar-erro", {"tipo": alvo.tipo, "erro": repr(e)[:250]})
+            return self._json(404 if vazio else 502, {
+                "erro": ("este canal não tem vídeos publicados" if vazio
+                         else "não consegui consultar o YouTube"),
+                "conserto": None if vazio
+                            else "o extractor pode estar desatualizado — Ferramentas → Atualizar yt-dlp",
+                "detalhe": texto[:200],
+            })
+
+        if listagem is None:
+            return self._json(400, {"erro": "este endereço não é uma listagem do YouTube"})
+        return self._json(200, como_json(listagem))
+
+    def _yt_miniatura(self, vid):
+        """A miniatura de um vídeo, pelo nosso proxy.
+
+        ⚠ **Sem estado**, e isso foi medido: `i.ytimg.com/vi/<id>/mqdefault.jpg` responde 200 para
+        todo vídeo que testei, inclusive o mais antigo do site — enquanto `hq720` e `maxresdefault`
+        respondem 404 nos antigos. Uma URL previsível dispensa um cache de id → URL assinada que
+        envelheceria junto com as credenciais e não passaria de um processo para outro.
+
+        Ela passa por aqui, e não vai direta para a página, pelas mesmas duas razões dos bytes de
+        vídeo: outra origem sem CORS, e a promessa de que tudo o que a pessoa recebe atravessa o
+        ambiente.
+        """
+        _, mundo = yt()
+        if mundo is None:
+            return self._sem_ytdlp()
+        if not id_valido(vid):
+            return self._json(400, {"erro": "id de vídeo inválido"})
+
+        try:
+            resposta, _status = mundo.abrir_faixa(URL_DA_MINIATURA.format(vid), {})
+            with resposta:
+                corpo = resposta.read()
+                tipo = resposta.headers.get("Content-Type") or "image/jpeg"
+        except Exception as e:  # noqa: BLE001
+            log("yt-miniatura-erro", {"id": vid, "erro": repr(e)[:150]})
+            return self._json(404, {"erro": "sem miniatura"})
+
+        self.send_response(200)
+        self.send_header("Content-Type", tipo)
+        self.send_header("Content-Length", str(len(corpo)))
+        # ⚠ Aqui o cache é LONGO, ao contrário de tudo o mais nesta seção: a miniatura de um vídeo
+        # não muda, e a URL não carrega credencial nenhuma. Sem isto, rolar a grade de volta
+        # re-buscaria trinta imagens do YouTube a cada vez.
+        self.send_header("Cache-Control", "public, max-age=86400")
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(corpo)
 
     def _yt_legenda(self, vid, idioma, automatica):
         """A legenda como VTT, buscada pelo servidor.

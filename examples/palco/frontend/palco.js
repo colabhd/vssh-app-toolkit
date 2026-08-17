@@ -273,6 +273,25 @@ function montarPalco() {
     dashPlayer = null;
   }
 
+  /**
+   * O endereço é uma LISTAGEM (playlist, canal, busca) ou um vídeo?
+   *
+   * ⚠ A pergunta é de rota, e por isso é respondida aqui e não no servidor: a diferença decide
+   * qual ABA abre, e esperar uma ida ao backend para saber isso mostraria o player vazio por meio
+   * segundo antes de trocar de tela. O backend continua sendo quem decide o que a URL É — este
+   * reconhecimento é grosseiro de propósito, e o que ele errar cai no caminho do vídeo, que já
+   * sabe devolver ao navegador o que não é dele.
+   */
+  function ehListagem(url) {
+    let u;
+    try { u = new URL(url); } catch { return null; }
+    if (!/(^|\.)youtube(-nocookie)?\.com$/.test(u.hostname)) return null;
+    if (u.pathname === '/playlist' && u.searchParams.get('list')) return 'playlist';
+    if (u.pathname === '/results') return 'busca';
+    if (/^\/(@|c\/|user\/|channel\/)/.test(u.pathname)) return 'canal';
+    return null;
+  }
+
   async function abrirYoutube(url) {
     const minha = ++geracao;
     avisar('');
@@ -319,6 +338,13 @@ function montarPalco() {
       return;
     }
     if (minha !== geracao) return;
+
+    // ⚠ A troca de aba mora AQUI, e não em quem chama. Ela tem de acontecer depois de saber que é
+    // um vídeo — antes, um endereço que vai voltar ao navegador deixaria a pessoa olhando um
+    // palco vazio — e tem de valer para as DUAS portas: o link roteado e o duplo-clique num
+    // cartão da grade. Estava só na primeira, e abrir pela grade tocava o vídeo deixando a tela
+    // na aba de busca: o som começava e não havia imagem em lugar nenhum.
+    irPara('reproduzindo');
 
     // ⚠ `atual` finge um arquivo em modo direto de propósito. É o que faz `noCano()` responder
     // falso — e tem de responder: o DASH tem busca nativa por Range, e mandá-lo pelo caminho do
@@ -913,10 +939,26 @@ function montarPalco() {
     // `vssh.openUrl` de outro app; o que ainda não acontece é o Palco ser ELEITO para os hosts do
     // YouTube, e isso segue desligado de propósito — `opens.urls` só entra quando a aba cobrir
     // playlist, canal e busca, senão o link vira beco.
-    if (ctx.tipo === 'url' && ctx.url) { irPara('reproduzindo'); abrirYoutube(ctx.url); return; }
+    if (ctx.tipo === 'url' && ctx.url) {
+      // ⚠ Playlist, canal e busca vão para a ABA; vídeo vai para o player. Sem esta bifurcação o
+      // Palco declararia `opens.urls` e devolveria ao navegador metade dos endereços que
+      // reivindicou — que é o beco que o roteamento existe para não produzir.
+      const lista = ehListagem(ctx.url);
+      if (lista && yt) { yt.abrirListagem(ctx.url, lista); return; }
+      // `abrirYoutube` troca de aba sozinho, e só depois de confirmar que é vídeo.
+      abrirYoutube(ctx.url);
+      return;
+    }
     if (ctx.path) { irPara('reproduzindo'); abrir(ctx.path); return; }
     if (ctx.rota) irPara(ctx.rota);
   });
+
+  // ── A aba do YouTube ────────────────────────────────────────────────────
+  //
+  // ⚠ Ela recebe o Palco por parâmetro, e não o contrário: quem toca é o player que já existe, e a
+  // aba só sabe pedir. Sem essa direção seriam dois donos do mesmo `<video>` — que é exatamente o
+  // desenho que faz um "app com YouTube dentro" virar dois apps colados.
+  const yt = window.montarYoutube ? montarYoutube({ abrirYoutube, irPara }) : null;
 
   porRepetir('nao');
   velocidade(1);

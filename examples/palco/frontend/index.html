@@ -38,6 +38,12 @@
     <button class="aba" data-aba="biblioteca" role="tab" aria-selected="false">
       <svg class="tuff-ico"><use href="#ico-folder"></use></svg>Biblioteca
     </button>
+    <!-- ⚠ O YouTube é uma ABA, e não uma seção de gaveta: é um miniapp dentro do Palco, e um vídeo
+         dele toca no MESMO transporte. É um app só, não dois colados — e é essa decisão que faz o
+         transporte permanecer enquanto se procura a próxima coisa para assistir. -->
+    <button class="aba" data-aba="youtube" role="tab" aria-selected="false">
+      <svg class="tuff-ico"><use href="#ico-search"></use></svg>YouTube
+    </button>
   </div>
 
   <div class="miolo">
@@ -116,6 +122,36 @@
         <div class="tuff-vazio bib-vazio" id="bib-vazio" hidden>
           <div class="tuff-vazio-titulo">Nenhuma pasta aberta</div>
           <div class="tuff-vazio-msg">Abra um arquivo e os vizinhos dele aparecem aqui.</div>
+        </div>
+      </div>
+
+      <!-- ── YouTube ─────────────────────────────────────────────────────────
+           Busca, canal e playlist na MESMA grade. São três consultas com o mesmo formato de
+           resposta, e três telas seriam três lugares para o mesmo cartão divergir. -->
+      <div class="painel" id="painel-youtube" role="tabpanel">
+        <div class="yt-topo">
+          <!-- ⚠ `.tuff-busca` vai NO `<input>`: ela já desenha a lupa como imagem de fundo. -->
+          <input class="tuff-busca" type="search" id="yt-busca"
+                 placeholder="Buscar no YouTube" aria-label="Buscar no YouTube">
+          <span class="yt-titulo" id="yt-titulo"></span>
+          <span style="flex:1"></span>
+          <button class="tuff-btn" id="yt-voltar" hidden>Voltar à busca</button>
+        </div>
+
+        <!-- A grade da `TuffMidia`: virtualizada, porque um canal tem milhares de vídeos e um
+             `<img>` por item trava a aba na abertura sem se recuperar. -->
+        <div class="yt-grade" id="yt-grade"></div>
+
+        <div class="preparando yt-carregando" id="yt-carregando" hidden>
+          <span class="tuff-spinner"></span><span>Consultando o YouTube…</span>
+        </div>
+
+        <div class="tuff-vazio yt-vazio" id="yt-vazio">
+          <svg class="tuff-ico tuff-ico--lg"><use href="#ico-search"></use></svg>
+          <div class="tuff-vazio-titulo" id="yt-vazio-titulo">Procure um vídeo</div>
+          <div class="tuff-vazio-msg" id="yt-vazio-msg">
+            O que você abrir aqui toca no mesmo player, com o mesmo transporte.
+          </div>
         </div>
       </div>
 

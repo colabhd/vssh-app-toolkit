@@ -208,9 +208,15 @@ class Resolvedor:
     testável sem rede.
     """
 
-    def __init__(self, extrair, ler_cabecalho, agora=time.time, paralelas=_PARALELAS):
+    def __init__(self, extrair, ler_cabecalho, listar=None, agora=time.time,
+                 paralelas=_PARALELAS):
         self._extrair = extrair
         self._ler = ler_cabecalho
+        # ⚠ Listar é uma terceira função, e não o mesmo `extrair` com outra opção: as duas chamadas
+        # pedem coisas de custos MUITO diferentes. Resolver um vídeo traz 33 formatos; listar traz
+        # trinta entradas planas. Medido, a diferença é 4 000 ms para 3 resultados contra 1 570 ms
+        # para 8. Uma função só, com um parâmetro de modo, esconderia isso de quem lê a chamada.
+        self._listar = listar
         self._agora = agora
         self._paralelas = max(1, int(paralelas))
         self._resolucoes = {}   # vid → Resolucao (morre com o `expire` da URL)
@@ -273,6 +279,22 @@ class Resolvedor:
         )
         self._resolucoes[vid] = r
         return r
+
+    def listar(self, alvo, por_pagina=None):
+        """Busca, playlist ou canal → `listas.Listagem`, ou `None` se o alvo não é listagem.
+
+        ⚠ **Sem cache, e é decisão.** As três listagens são exatamente as coisas que mudam: uma
+        busca tem de refletir o que existe agora, um canal acabou de publicar, uma playlist foi
+        reordenada. Guardá-las trocaria 700 ms por uma tela que mente — e o que custa caro (resolver
+        o vídeo escolhido) já é cacheado do outro lado.
+        """
+        from listas import POR_PAGINA, normalizar, url_de_listagem
+
+        url = url_de_listagem(alvo, por_pagina or POR_PAGINA)
+        if url is None or self._listar is None:
+            return None
+        info = self._listar(url, por_pagina or POR_PAGINA)
+        return normalizar(info, alvo.tipo, lista=alvo.lista)
 
     def url_de(self, vid, itag):
         """A URL assinada de um formato, re-resolvendo se a que temos está perto de vencer.

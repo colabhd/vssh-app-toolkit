@@ -22,6 +22,9 @@
       "video/mpeg", "video/ogg", "video/x-ms-wmv", "video/x-flv", "video/mp2t",
       "audio/mpeg", "audio/mp4", "audio/flac", "audio/wav", "audio/ogg", "audio/aac",
       "audio/x-ms-wma", "audio/x-matroska"
+    ],
+    "urls": [
+      "youtube.com", "*.youtube.com", "youtu.be", "youtube-nocookie.com"
     ]
   },
   "minShellVersion": "4.1.0",

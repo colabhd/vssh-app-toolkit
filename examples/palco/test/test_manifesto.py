@@ -17,7 +17,9 @@ import unittest
 _AQUI = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_AQUI, "..", "backend"))
 
+from listas import url_de_listagem  # noqa: E402
 from pasta import EXTENSOES  # noqa: E402
+from urls import analisar  # noqa: E402
 
 with open(os.path.join(_AQUI, "..", "vssh-app.json"), encoding="utf-8") as _fh:
     MANIFESTO = json.load(_fh)
@@ -81,20 +83,77 @@ class TestOQueOAmbienteVaiMandar(unittest.TestCase):
 
 
 class TestOrdemDasFases(unittest.TestCase):
-    def test_o_Palco_NAO_declara_urls_antes_de_ter_a_aba_do_YouTube(self):
-        # ⚠ A regra que este teste torna mecânica: no instante em que `opens.urls` existe, todo
-        # link do YouTube passa a chegar aqui — playlist, canal, busca, ao vivo, `/shorts`. Se a
-        # aba não cobre todos, a pessoa clica num link e chega num beco, e o roteamento ficou PIOR
-        # do que não existir.
-        #
-        # Ligar isto é da Fase 5, junto com a aba. Quando ela existir, este teste vira o seu
-        # contrário: passa a EXIGIR os hosts, e a lista abaixo deixa de ser um veto e vira a
-        # conferência de que `urls.py` e o manifesto casam.
-        self.assertNotIn("urls", MANIFESTO["opens"],
-                         "o roteamento de link foi ligado antes de a aba do YouTube existir")
-        self.assertFalse(
-            os.path.exists(os.path.join(_AQUI, "..", "frontend", "youtube.js")),
-            "a aba do YouTube apareceu — atualize este teste para exigir `opens.urls`")
+    """⚠ Este teste virou o seu contrário, e o texto anterior fica registrado porque a regra é a
+    mesma: no instante em que `opens.urls` existe, TODO link do YouTube passa a chegar aqui —
+    playlist, canal, busca, ao vivo, `/shorts`. Se a interface não cobre todos, a pessoa clica num
+    link e chega num beco, e o roteamento fica PIOR do que não existir.
+
+    Ele vetava `opens.urls` até `frontend/youtube.js` aparecer. A aba existe; agora ele EXIGE os
+    hosts, e confere que `urls.py` e o manifesto casam — porque a divergência entre os dois é
+    silenciosa dos dois lados: um host no manifesto que o `urls.py` recusa devolve tudo ao
+    navegador (o roteamento existe e não faz nada), e um host que o `urls.py` aceita sem estar no
+    manifesto nunca chega (o código existe e não roda).
+    """
+
+    def test_a_aba_do_YouTube_existe(self):
+        # O piso do teste abaixo: exigir `opens.urls` sem a aba seria exigir o beco.
+        self.assertTrue(os.path.exists(os.path.join(_AQUI, "..", "frontend", "youtube.js")),
+                        "`opens.urls` está declarado e a aba sumiu")
+
+    def test_os_hosts_do_manifesto_sao_os_MESMOS_que_o_urls_py_aceita(self):
+        declarados = set(MANIFESTO["opens"].get("urls") or [])
+        self.assertTrue(declarados, "o roteamento de link não foi ligado")
+
+        # `analisar` é a autoridade sobre "é meu". Todo host declarado tem de passar por ela, e
+        # nenhum host vizinho pode passar.
+        for host in declarados:
+            nu = host.removeprefix("*.")
+            # ⚠ A forma canônica depende do host: em `youtu.be` o id é o CAMINHO, e um
+            # `youtu.be/watch?v=…` é um endereço que não existe. A primeira versão deste teste
+            # montava `/watch?v=` para todos e reprovou — corretamente, e por um motivo que não
+            # era o que ela queria medir.
+            url = (f"https://{nu}/dQw4w9WgXcQ" if nu == "youtu.be"
+                   else f"https://{nu}/watch?v=dQw4w9WgXcQ")
+            self.assertIsNotNone(analisar(url),
+                                 f"o manifesto declara {host} e o urls.py recusa {url}")
+
+        # ⚠ E o engano clássico, do outro lado: `'evilyoutube.com'.endswith('youtube.com')` é
+        # `True`. O schema recusa esse casamento por sufixo, e o `urls.py` também — este teste
+        # existe para que os dois continuem recusando juntos.
+        for vizinho in ("evilyoutube.com", "youtube.com.br", "notyoutu.be"):
+            self.assertIsNone(analisar(f"https://{vizinho}/watch?v=dQw4w9WgXcQ"), vizinho)
+
+    def test_TODA_forma_de_endereco_que_o_urls_py_aceita_tem_uma_TELA(self):
+        # ⚠ A régua de "o deeplink não vira beco", mecânica. Cada linha é uma forma que chega por
+        # link, e o que ela precisa que exista do outro lado.
+        casos = [
+            ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "video"),
+            ("https://youtu.be/dQw4w9WgXcQ?t=90", "video"),
+            ("https://www.youtube.com/shorts/dQw4w9WgXcQ", "video"),
+            ("https://www.youtube.com/live/dQw4w9WgXcQ", "video"),
+            ("https://www.youtube.com/playlist?list=PLabc123", "playlist"),
+            ("https://www.youtube.com/@fulano", "canal"),
+            ("https://www.youtube.com/channel/UCabc123", "canal"),
+            ("https://www.youtube.com/c/Fulano", "canal"),
+            ("https://www.youtube.com/user/Fulano", "canal"),
+            ("https://www.youtube.com/results?search_query=gatos", "busca"),
+            ("https://www.youtube.com/", "inicio"),
+        ]
+        for url, tipo in casos:
+            alvo = analisar(url)
+            self.assertIsNotNone(alvo, url)
+            self.assertEqual(alvo.tipo, tipo, url)
+            if tipo in ("playlist", "canal", "busca"):
+                # Listagem: tem de virar um pedido ao yt-dlp, senão a aba abre vazia.
+                self.assertIsNotNone(url_de_listagem(alvo), f"{url} não vira listagem")
+
+    def test_o_que_exige_LOGIN_continua_voltando_para_o_navegador(self):
+        # A outra metade da honestidade: o que não dá para mostrar sem autenticar não é
+        # reivindicado. Montar uma casca vazia seria pior que devolver o link.
+        for url in ("https://www.youtube.com/feed/subscriptions",
+                    "https://www.youtube.com/playlist?list=WL",
+                    "https://www.youtube.com/playlist?list=LL"):
+            self.assertIsNone(analisar(url), url)
 
 
 if __name__ == "__main__":
