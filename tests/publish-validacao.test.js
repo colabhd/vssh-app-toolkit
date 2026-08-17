@@ -311,6 +311,18 @@ test('backend e window também fecharam', seNaoTem, () => {
     /^ERROR=schema:window: campo desconhecido: widht/m);
 });
 
+test('`multiplasJanelas` é booleano, e o typo dele é pego', seNaoTem, () => {
+  // ⚠ O campo decide se "Abrir com" cria janela nova ou reaproveita a que existe. Escrito errado
+  // ele não vira erro: o app publica, instala, e o comportamento é o padrão — que é exatamente o
+  // que quem declarou o campo estava tentando mudar. O `additionalProperties: false` é o que
+  // transforma isso em recusa na publicação em vez de mistério na mesa de quem usa.
+  assert.doesNotMatch(validar({ ...BASE, window: { multiplasJanelas: true } }), /^ERROR=/m);
+  assert.match(validar({ ...BASE, window: { multiplasJanela: true } }),
+    /campo desconhecido: multiplasJanela/);
+  assert.match(validar({ ...BASE, window: { multiplasJanelas: 'sim' } }),
+    /^ERROR=schema:window\.multiplasJanelas/m);
+});
+
 test('o erro nomeia o vizinho — inclusive quando o typo é uma transposição', seNaoTem, () => {
   // "campo desconhecido: requiredPackage" está correto e não ajuda: quem publica olha para o
   // manifesto, vê o campo escrito lá, e conclui que o schema é que está velho.

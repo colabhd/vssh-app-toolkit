@@ -330,7 +330,7 @@
     },
     "window": {
       "type": "object",
-      "description": "Ignorado por type:'engine'. O portal repassa este objeto INTEIRO ao cliente (`window: m.window || {}` em routes/apps.ts), e o cliente lê exatamente os quatro campos abaixo — então uma chave a mais aqui viaja o caminho todo para não ser lida por ninguém. É o campo em que o erro de digitação era mais barato de cometer e mais caro de perceber: `widht: 900` deixa a janela no tamanho padrão, sem erro em lugar nenhum.",
+      "description": "Ignorado por type:'engine'. O portal repassa este objeto INTEIRO ao cliente (`window: m.window || {}` em routes/apps.ts), e o cliente lê exatamente os cinco campos abaixo — então uma chave a mais aqui viaja o caminho todo para não ser lida por ninguém. É o campo em que o erro de digitação era mais barato de cometer e mais caro de perceber: `widht: 900` deixa a janela no tamanho padrão, sem erro em lugar nenhum.",
       "additionalProperties": false,
       "properties": {
         "title": {
@@ -349,6 +349,11 @@
         "richChrome": {
           "type": "boolean",
           "description": "Tabbar de verdade no cabeçalho + itens de aba no menu de contexto."
+        },
+        "multiplasJanelas": {
+          "type": "boolean",
+          "default": false,
+          "description": "Cada pedido de abrir cria uma janela NOVA, em vez de focar a que já existe. O padrão (`false`) é o certo para quem tem abas ou lista própria — abrir um segundo `.md` no editor não deve abrir um segundo editor. Declare `true` quando cada coisa aberta é uma sessão inteira e independente: um player, um visualizador de imagem, um terminal. ⚠ **O backend continua sendo UM.** Duas janelas do mesmo app são duas visões do mesmo processo, como duas abas do navegador no mesmo servidor — não há porta, token nem `VSSH_APP_DATA_DIR` separados, e um app que declara isto precisa aguentar dois `open-context` sem que o segundo apague o estado do primeiro. Vale para o \"Abrir com\" do gerenciador de arquivos e para o ícone no menu iniciar e no launchpad; NÃO vale para clique em notificação, que sempre foca a janela que a produziu."
         },
         "cabecalho": {
           "enum": [

@@ -36,6 +36,7 @@
   "window": {
     "title": "Palco",
     "width": 1000,
-    "height": 660
+    "height": 660,
+    "multiplasJanelas": true
   }
 }

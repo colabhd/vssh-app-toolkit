@@ -87,6 +87,29 @@ janela que se redimensiona sozinha briga com quem acabou de arrastá-la.
 { "window": { "width": 1100, "height": 720, "richChrome": false } }
 ```
 
+### Uma janela ou várias — `window.multiplasJanelas`
+
+Por padrão, pedir para abrir um app que já está aberto **foca a janela existente** e entrega o
+pedido a ela por `open-context`. É o certo para quem tem abas ou lista própria: abrir um segundo
+`.md` no editor não deve abrir um segundo editor.
+
+Declare `"multiplasJanelas": true` quando cada coisa aberta é uma **sessão inteira e independente** —
+um player, um visualizador de imagem, um terminal. Vale para o "Abrir com" do gerenciador de
+arquivos e para o ícone no menu iniciar e no launchpad.
+
+```json
+{ "window": { "multiplasJanelas": true } }
+```
+
+⚠ **O backend continua sendo UM.** Duas janelas do mesmo app são duas visões do mesmo processo —
+como duas abas do navegador no mesmo servidor. Não há porta, token nem `VSSH_APP_DATA_DIR`
+separados. Um app que declara isto precisa aguentar dois `open-context` sem que o segundo apague o
+estado do primeiro, e precisa que o estado por janela viva **no frontend**, não em variáveis do
+backend.
+
+⚠ **Clique em notificação nunca abre janela nova**, mesmo com o campo ligado: quem clica num aviso
+quer ver o que o produziu, e uma janela em branco ao lado é o oposto disso.
+
 ---
 
 ## Falar com o usuário
