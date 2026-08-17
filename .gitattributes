@@ -18,6 +18,12 @@ scripts/vssh-app-lib-sync  text eol=lf
 # (detecta binario por byte nulo), e "provavelmente" nao e resposta para um arquivo de 30 KB cuja
 # corrupcao apareceria como texto invisivel na tela de um app, e nao como erro.
 *.woff2 binary
+
+# ⚠ As bibliotecas de terceiro vendorizadas no pacote de um app. Elas são TEXTO, e por isso o
+# `text=auto` acima as converteria — o que destrói a única propriedade que torna um arquivo
+# vendorizado conferível: ser byte a byte o que o upstream publicou. A procedência fica em
+# `PROCEDENCIA.md` ao lado, com a versão e o sha256, e ela só serve enquanto o arquivo não muda.
+examples/*/frontend/vendor/*.js binary
 *.woff  binary
 *.ttf   binary
 *.otf   binary
