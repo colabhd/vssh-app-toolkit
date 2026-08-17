@@ -89,6 +89,9 @@ const VSSH_FALSO = `
     pickFile: () => anota({ op: 'pickFile' }, Promise.resolve(null)),
     lembrarRota: (r) => anota({ op: 'lembrarRota', r }),
     onOpenContext: (fn) => { window.__abrirContexto = fn; },
+    // A saída do laço: o app devolve o que não sabe mostrar. Sem ela, um link que o Palco não
+    // trata vira uma tela de erro na frente de quem só clicou.
+    openUrl: (u, o) => anota({ op: 'openUrl', u, destino: o && o.destino }),
   };`;
 
 function servir(req, res) {
@@ -121,8 +124,43 @@ function servir(req, res) {
     res.end(JSON.stringify(VIZINHOS));
     return true;
   }
-  // O cano e a legenda: o teste não toca mídia, e um 204 evita que o `<video>` fique tentando.
+  // ── O YouTube ─────────────────────────────────────────────────────────────
+  if (p === '/api/yt/abrir') {
+    // ⚠ `null` aqui NÃO serve para simular falha: `JSON.stringify(null)` é `"null"`, que é JSON
+    // perfeitamente válido — o `fetch` resolve, o `.json()` resolve, e quem recebe leva um
+    // `TypeError` ao ler um campo. Foi assim que a primeira versão deste teste mediu nada.
+    if (respostaDeYt === 'FALHAR') { res.writeHead(502); res.end('{}'); return true; }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(respostaDeYt));
+    return true;
+  }
+  if (p === '/api/yt/mpd') {
+    if (!midia) { res.writeHead(503); res.end(); return true; }
+    res.writeHead(200, { 'content-type': 'application/dash+xml' });
+    res.end(midia.mpd);
+    return true;
+  }
+  const bytes = /^\/api\/yt\/bytes$/.test(p) && u.searchParams.get('f');
+  if (bytes) {
+    pedidosDeBytes += 1;
+    if (!midia) { res.writeHead(503); res.end(); return true; }
+    midia.servirBytes(req, res, bytes);
+    return true;
+  }
+
+  // O cano e a legenda: o teste não toca mídia local, e um 204 evita que o `<video>` fique tentando.
   if (p.startsWith('/api/')) { res.writeHead(204); res.end(); return true; }
+
+  // ⚠ Contado, e não só servido: a carga SOB DEMANDA do dash.js é uma decisão de 714 KB, e o único
+  // jeito de medir "sob demanda" é contar quem pediu e quando.
+  if (p === '/vendor/dash.mediaplayer.min.js') {
+    pedidosDoDash += 1;
+    const arq = path.join(APP, 'vendor', 'dash.mediaplayer.min.js');
+    if (!fs.existsSync(arq)) { res.writeHead(404); res.end(); return true; }
+    res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' });
+    res.end(fs.readFileSync(arq));
+    return true;
+  }
 
   const doApp = /^\/(palco\.(?:js|css))$/.exec(p);
   const daLib = /^\/_vssh\/([\w./-]+)$/.exec(p);
@@ -140,6 +178,11 @@ function servir(req, res) {
 // O que `/api/abrir` responde. É variável porque o modo e a DURAÇÃO mudam o comportamento do
 // player, e a duração é a régua que separa "o filme acabou" de "o cano morreu".
 let respostaDeAbrir = ABERTURA;
+// O que `/api/yt/abrir` responde, e o contador de quem pediu o dash.js.
+let respostaDeYt = null;
+let pedidosDoDash = 0;
+let pedidosDeBytes = 0;
+let midia = null;
 // ⚠ Quantas vezes o app pediu para abrir. É o que mede "ele avançou de arquivo" sem ambiguidade: a
 // bancada responde sempre o mesmo `nome`, então ler a tela não distingue avançar de ficar parado.
 let aberturas = 0;
@@ -446,4 +489,214 @@ test('a 560px o PLAY continua na tela, e o que cai é o secundário', seNaoTem, 
   assert.equal(r.aleatorio, false);
   assert.equal(r.menuVideo, false, 'os menus secundários tinham de cair');
   assert.equal(r.menuMidia, true, 'Mídia e Reprodução nunca caem');
+});
+
+// ── O YouTube: a COSTURA, não a reprodução ─────────────────────────────────
+//
+// Que um MPD gerado pelo backend toca no dash.js quem prova é `palco-dash.test.js`, com o ffmpeg
+// e o Chrome. O que falta provar é a costura no app, e ela tem três partes que só quebram em
+// silêncio: devolver o que não sabemos mostrar, carregar 714 KB só quando são precisos, e soltar o
+// elemento antes que outra fonte o assuma.
+
+const dashDeTeste = require('./browser/dash-de-teste.js');
+
+const semMidia = dashDeTeste.motivoDoSkip();
+const seNaoTemMidia = { skip: seNaoTem.skip || semMidia || false };
+
+before(() => {
+  if (seNaoTemMidia.skip) return;
+  midia = dashDeTeste.montar('/api/yt/bytes?v=aaaaaaaaaaa&f=');
+});
+after(() => { if (midia) midia.limpar(); });
+
+/** Abre uma URL pela porta de entrada do app — o mesmo caminho que o roteamento de link usa. */
+async function comUrlAberta(url, resposta) {
+  respostaDeYt = resposta;
+  const p = await nav.novaPagina(origem.url);
+  await p.avaliar(`(async () => {
+    window.__abrirContexto({ type: 'open-context', tipo: 'url', url: ${JSON.stringify(url)} });
+    await new Promise((r) => setTimeout(r, 400));
+  })()`);
+  return p;
+}
+
+test('o que o Palco não sabe mostrar VOLTA para o navegador', seNaoTem, async () => {
+  // ⚠ É a regra que impede o deeplink de ficar PIOR que não existir. Playlist, canal e busca o
+  // `urls.py` sabe analisar e a interface ainda não sabe mostrar; enquanto não souber, quem clica
+  // num link tem de chegar a algum lugar.
+  const p = await comUrlAberta('https://www.youtube.com/playlist?list=PLabc',
+                               { tipo: 'nao-e-nosso', porque: 'playlist' });
+  const chamadas = await p.avaliar('window.__chamadas.filter((c) => c.op === "openUrl")');
+  assert.equal(chamadas.length, 1, 'o link não foi devolvido');
+  assert.equal(chamadas[0].destino, 'navegador');
+  assert.match(chamadas[0].u, /playlist\?list=PLabc/);
+});
+
+test('o dash.js NÃO é baixado ao abrir um arquivo da pasta', seNaoTem, async () => {
+  // 714 KB. Quem abre um `.mkv` da própria pasta não pode pagar por um cliente DASH que nunca vai
+  // usar — e abrir arquivo local é o caso principal deste app, não o secundário.
+  pedidosDoDash = 0;
+  await comArquivoAberto();
+  assert.equal(pedidosDoDash, 0,
+    'o dash.js foi carregado para tocar um arquivo local: a carga sob demanda quebrou');
+});
+
+test('um vídeo do YouTube toca no MESMO player, e o dash.js vem uma vez só', seNaoTemMidia,
+  async () => {
+    pedidosDoDash = 0;
+    const p = await comUrlAberta('https://youtu.be/aaaaaaaaaaa', {
+      tipo: 'video', id: 'aaaaaaaaaaa', titulo: 'Um vídeo', canal: 'Um canal',
+      duracao: dashDeTeste.DURACAO, mpd: 'api/yt/mpd?v=aaaaaaaaaaa', legendas: [], qualidades: [90, 180],
+    });
+    const r = await p.avaliar(`(async () => {
+      const v = document.getElementById('video');
+      const ate = Date.now() + 15000;
+      while (Date.now() < ate && v.currentTime < 1) await new Promise((r) => setTimeout(r, 100));
+      const q = v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality() : {};
+      return {
+        tempo: v.currentTime, altura: v.videoHeight, desenhados: q.totalVideoFrames || 0,
+        nome: document.getElementById('agora-nome').textContent,
+        vazio: document.getElementById('vazio-palco').hidden,
+        preparando: document.getElementById('preparando').hidden,
+      };
+    })()`);
+
+    assert.ok(r.tempo >= 1, `não tocou: ${JSON.stringify(r)}`);
+    assert.ok(r.altura > 0, 'nada foi desenhado na tela');
+    assert.equal(r.nome, 'Um vídeo', 'o transporte não mostrou o que está tocando');
+    assert.equal(r.vazio, true, 'o estado vazio continuou por cima do vídeo');
+    assert.equal(r.preparando, true, '"Preparando" ficou preso na tela');
+    assert.equal(pedidosDoDash, 1, `o dash.js foi baixado ${pedidosDoDash} vezes`);
+  });
+
+test('abrir um arquivo local DEPOIS de um do YouTube funciona', seNaoTemMidia, async () => {
+  // ⚠ **O defeito da SEGUNDA abertura**, e nenhum teste de abertura única o acharia. O dash.js
+  // mantém `MediaSource` e `SourceBuffer` presos ao `<video>`; um `video.src = …` por cima não os
+  // desfaz, e o arquivo local simplesmente não toca — sem erro, porque quem manda no elemento
+  // ainda é o outro player.
+  const p = await comUrlAberta('https://youtu.be/aaaaaaaaaaa', {
+    tipo: 'video', id: 'aaaaaaaaaaa', titulo: 'Um vídeo', canal: 'Um canal',
+    duracao: dashDeTeste.DURACAO, mpd: 'api/yt/mpd?v=aaaaaaaaaaa', legendas: [], qualidades: [90],
+  });
+  await p.avaliar(`(async () => {
+    const v = document.getElementById('video');
+    const ate = Date.now() + 15000;
+    while (Date.now() < ate && v.currentTime < 0.5) await new Promise((r) => setTimeout(r, 100));
+  })()`);
+
+  const r = await p.avaliar(`(async () => {
+    window.__chamadas.length = 0;
+    window.__abrirContexto({ type: 'open-context', tipo: 'arquivo', path: ${JSON.stringify(ABERTURA.caminho)} });
+    await new Promise((r) => setTimeout(r, 500));
+    const v = document.getElementById('video');
+    return {
+      src: v.currentSrc || v.src,
+      nome: document.getElementById('agora-nome').textContent,
+    };
+  })()`);
+
+  // ⚠ O sinal é a FONTE do `<video>`, e não uma chamada ao `vssh`: o arquivo desta bancada é modo
+  // `remux`, então ele vai pelo cano (`api/fluxo`) e nunca passa por `fs.urlFor`. A primeira versão
+  // deste teste contava `urlFor` e falhou por medir o caminho errado — o que foi sorte, porque
+  // um teste que medisse o caminho errado e passasse não denunciaria nada.
+  assert.equal(r.nome, ABERTURA.nome, 'o transporte não trocou de faixa');
+  assert.match(r.src, /api\/fluxo/,
+    `o <video> continuou com a fonte do dash.js (${r.src}) — o MediaSource não foi solto`);
+  assert.doesNotMatch(r.src, /^blob:/, 'a fonte ainda é um MediaSource');
+});
+
+test('dois vídeos do YouTube em sequência, e o dash.js continua vindo uma vez só', seNaoTemMidia,
+  async () => {
+    // Duas coisas de uma vez: que o segundo vídeo toca (dois `MediaPlayer` sobre o mesmo `<video>`
+    // é o cenário onde eles poderiam brigar) e que os 714 KB não são baixados de novo.
+    const yt = {
+      tipo: 'video', id: 'aaaaaaaaaaa', titulo: 'Um vídeo', canal: 'C',
+      duracao: dashDeTeste.DURACAO, mpd: 'api/yt/mpd?v=aaaaaaaaaaa', legendas: [], qualidades: [90],
+    };
+    pedidosDoDash = 0;
+    const p = await comUrlAberta('https://youtu.be/aaaaaaaaaaa', yt);
+    await p.avaliar(`(async () => {
+      const v = document.getElementById('video');
+      const ate = Date.now() + 15000;
+      while (Date.now() < ate && v.currentTime < 0.5) await new Promise((r) => setTimeout(r, 100));
+    })()`);
+
+    const r = await p.avaliar(`(async () => {
+      const v = document.getElementById('video');
+      window.__abrirContexto({ type: 'open-context', tipo: 'url', url: 'https://youtu.be/bbbbbbbbbbb' });
+      await new Promise((r) => setTimeout(r, 800));
+      const ate = Date.now() + 15000;
+      while (Date.now() < ate && v.currentTime < 1.5) await new Promise((r) => setTimeout(r, 100));
+      const q = v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality() : {};
+      return { tempo: v.currentTime, altura: v.videoHeight, desenhados: q.totalVideoFrames || 0 };
+    })()`);
+
+    assert.ok(r.tempo >= 1.5, `o segundo vídeo não tocou: ${JSON.stringify(r)}`);
+    assert.ok(r.altura > 0, 'o segundo vídeo não desenhou nada');
+    assert.equal(pedidosDoDash, 1, `o dash.js foi baixado ${pedidosDoDash} vezes para dois vídeos`);
+  });
+
+test('quando a reprodução do YouTube falha, a tela DIZ — e não fica em "Preparando"', seNaoTem,
+  async () => {
+    // ⚠ O defeito que este teste prende apareceu ao investigar por que uma mutação não mordia.
+    // Quem esconde "Preparando" no caminho normal são os eventos `loadeddata`/`playing` do
+    // `<video>`; quando o dash.js falha, nenhum dos dois chega. Sem o ouvinte de erro a pessoa
+    // fica olhando um spinner que nunca termina, e nada no console diz por quê.
+    //
+    // A bancada produz a falha do jeito mais realista: um MPD que não carrega. `midia` é `null`
+    // aqui de propósito quando não há ffmpeg — e mesmo com ele, o `v=` abaixo não tem mídia.
+    const p = await comUrlAberta('https://youtu.be/zzzzzzzzzzz', {
+      tipo: 'video', id: 'zzzzzzzzzzz', titulo: 'Vídeo quebrado', canal: 'C',
+      duracao: 10, mpd: 'api/yt/mpd-que-nao-existe', legendas: [], qualidades: [],
+    });
+    const r = await p.avaliar(`(async () => {
+      const ate = Date.now() + 12000;
+      while (Date.now() < ate && document.getElementById('aviso').hidden) {
+        await new Promise((r) => setTimeout(r, 150));
+      }
+      return {
+        preparando: document.getElementById('preparando').hidden,
+        aviso: document.getElementById('aviso').hidden,
+        texto: document.getElementById('aviso-t').textContent,
+      };
+    })()`);
+
+    assert.equal(r.aviso, false, 'a falha não foi dita na tela');
+    assert.match(r.texto, /falhou/i);
+    assert.equal(r.preparando, true, '"Preparando" ficou preso para sempre');
+  });
+
+test('uma falha ao consultar o YouTube devolve o link, em vez de ficar com ele', seNaoTem,
+  async () => {
+    // ⚠ Este caminho é diferente do `nao-e-nosso`: ali o servidor RESPONDEU "não é meu"; aqui ele
+    // não respondeu. O reflexo é mostrar um erro e parar — mas quem clicou num link tem de chegar
+    // a algum lugar, e o navegador é um lugar. Ficar com o link é o beco de novo, por outra porta.
+    respostaDeYt = 'FALHAR';                   // faz `/api/yt/abrir` responder 502
+    const p = await nav.novaPagina(origem.url);
+    await p.avaliar(`(async () => {
+      window.__abrirContexto({ type: 'open-context', tipo: 'url', url: 'https://youtu.be/ccccccccccc' });
+      await new Promise((r) => setTimeout(r, 600));
+    })()`);
+    const chamadas = await p.avaliar('window.__chamadas.filter((c) => c.op === "openUrl")');
+    assert.equal(chamadas.length, 1, 'o link não foi devolvido depois da falha');
+    assert.equal(chamadas[0].destino, 'navegador');
+  });
+
+test('um corpo vazio com 200 também devolve o link', seNaoTem, async () => {
+  // ⚠ Este é o caso que ensinou a guarda `!r`, e ele é traiçoeiro porque NADA falha: `null` é JSON
+  // válido, o `fetch` resolve, o `.json()` resolve, e a primeira leitura de campo levanta um
+  // `TypeError` de dentro de um `async` — que ninguém pega. O spinner fica, o link some, e o
+  // console mostra um erro que não parece ter relação com o link em que a pessoa clicou.
+  respostaDeYt = null;                       // 200, com o corpo literal `null`
+  const p = await nav.novaPagina(origem.url);
+  await p.avaliar(`(async () => {
+    window.__abrirContexto({ type: 'open-context', tipo: 'url', url: 'https://youtu.be/ddddddddddd' });
+    await new Promise((r) => setTimeout(r, 600));
+  })()`);
+  const r = await p.avaliar(`({
+    openUrl: window.__chamadas.filter((c) => c.op === 'openUrl').length,
+    preparando: document.getElementById('preparando').hidden,
+  })`);
+  assert.equal(r.openUrl, 1, 'o link não foi devolvido — o corpo vazio virou um TypeError solto');
+  assert.equal(r.preparando, true, '"Preparando" ficou preso');
 });

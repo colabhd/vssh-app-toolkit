@@ -29,7 +29,7 @@
     "runtime": "python3",
     "transport": "socket",
     "entrypoint": "backend/main.py",
-    "installCommand": "( [ \"${VSSH_APP_REBUILD:-}\" != 1 ] && test -d vendor/py ) || python3 -m pip install --no-cache-dir --target vendor/py \"https://github.com/colabhd/vssh-app-toolkit/archive/refs/tags/v4.tar.gz\"",
+    "installCommand": "( [ \"${VSSH_APP_REBUILD:-}\" != 1 ] && test -d vendor/py ) || python3 -m pip install --no-cache-dir --target vendor/py \"https://github.com/colabhd/vssh-app-toolkit/archive/refs/tags/v4.tar.gz\" yt-dlp",
     "healthcheckPath": "/healthz",
     "aoFechar": "encerrar"
   },

@@ -61,6 +61,24 @@ class TestOQueOAmbienteVaiMandar(unittest.TestCase):
         # resolve.
         self.assertIn("ffmpeg", MANIFESTO.get("requiredPackages", []))
 
+    def test_o_yt_dlp_e_INSTALADO_e_no_mesmo_lugar_que_o_toolkit(self):
+        # ⚠ Sem esta linha o app instala inteiro, abre, toca arquivo local — e a aba do YouTube
+        # responde 503 para sempre, sem que nada na instalação tenha falhado. O código trata a
+        # ausência com elegância justamente para uma instalação ANTIGA sobreviver; para uma
+        # instalação nova, ausência é defeito.
+        cmd = MANIFESTO["backend"]["installCommand"]
+        self.assertIn("yt-dlp", cmd)
+        self.assertIn("--target vendor/py", cmd,
+                      "o yt-dlp tem de cair no mesmo lugar de onde `ytdlp.py` o procura")
+
+    def test_o_rebuild_continua_sendo_o_jeito_de_atualizar_as_libs(self):
+        # O `installCommand` pula quando `vendor/py` já existe — é o que faz reinstalar ser barato.
+        # A consequência é que uma instalação existente NÃO pega libs novas sem
+        # `VSSH_APP_REBUILD=1`, e isso já foi o defeito de classe do primeiro dia.
+        cmd = MANIFESTO["backend"]["installCommand"]
+        self.assertIn("VSSH_APP_REBUILD", cmd)
+        self.assertIn("test -d vendor/py", cmd)
+
 
 class TestOrdemDasFases(unittest.TestCase):
     def test_o_Palco_NAO_declara_urls_antes_de_ter_a_aba_do_YouTube(self):

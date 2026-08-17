@@ -168,6 +168,7 @@ function montarPalco() {
     // falha no primeiro quadro conseguiu pôr o vídeo anterior de volta na tela.
     vizinhos = [];
     indice = -1;
+    soltarDash();
     mostrarPreparando(true, 'Abrindo…');
     let r;
     try {
@@ -225,6 +226,129 @@ function montarPalco() {
     aplicarLegendas(r);
     carregarVizinhos(caminho, minha);
     porMediaSession(r);
+  }
+
+  // ── O YouTube ───────────────────────────────────────────────────────────
+  //
+  // ⚠ **O dash.js é carregado SOB DEMANDA, e isso é uma decisão, não uma otimização.** São 714 KB
+  // vendorizados no pacote (`vendor/PROCEDENCIA.md` diz de onde vieram e por quê). Injetá-los junto
+  // com o resto faria quem abre um `.mkv` da própria pasta baixar um cliente DASH inteiro para
+  // nunca usá-lo — e abrir arquivo local é o caso PRINCIPAL deste app, não o secundário.
+  //
+  // O `<video>` é o mesmo, e o transporte é o mesmo. Um vídeo do YouTube não é outra tela: é outra
+  // fonte de bytes para o player que já existe.
+
+  let dashPromessa = null;
+  let dashPlayer = null;
+
+  function carregarDash() {
+    if (dashPromessa) return dashPromessa;
+    dashPromessa = new Promise((ok, erro) => {
+      const s = document.createElement('script');
+      // Sem barra inicial, pelo mesmo motivo de `urlDoCano`: o app é servido sob um prefixo.
+      s.src = 'vendor/dash.mediaplayer.min.js';
+      s.onload = () => (window.dashjs ? ok(window.dashjs) : erro(new Error('dash.js não expôs a API')));
+      s.onerror = () => erro(new Error('não consegui carregar o dash.js'));
+      document.head.appendChild(s);
+    }).catch((e) => { dashPromessa = null; throw e; });   // deixa a próxima tentativa acontecer
+    return dashPromessa;
+  }
+
+  /**
+   * Desmonta o player DASH, antes de qualquer outra fonte assumir o `<video>`.
+   *
+   * ⚠ **Isto é higiene, e não o conserto de um sintoma — medido.** Eu esperava que sem o `destroy`
+   * o dash.js segurasse `MediaSource` e `SourceBuffer` no elemento e o arquivo local não tocasse.
+   * Não é o que acontece com o dash.js 5.2: nos dois cenários que exercitei — YouTube → arquivo
+   * local, e YouTube → outro YouTube — o resultado foi indistinguível com e sem ele (1,56 s contra
+   * 1,57 s de reprodução, 52 quadros nos dois, zero pedidos de bytes vazando depois da troca).
+   *
+   * Fica porque liberar explicitamente o que a API mandou criar é o certo — o objeto carrega
+   * timers, ouvintes e buffers —, e porque a próxima versão da biblioteca não deve nada à
+   * tolerância desta. Mas o comentário não vai afirmar um defeito que eu não consegui demonstrar.
+   */
+  function soltarDash() {
+    if (!dashPlayer) return;
+    try { dashPlayer.destroy(); } catch { /* já caiu */ }
+    dashPlayer = null;
+  }
+
+  async function abrirYoutube(url) {
+    const minha = ++geracao;
+    avisar('');
+    vizinhos = [];
+    indice = -1;
+    soltarDash();
+    mostrarPreparando(true, 'Consultando o YouTube…');
+
+    let r;
+    try {
+      r = await api(`api/yt/abrir?url=${encodeURIComponent(url)}`);
+    } catch (e) {
+      if (minha !== geracao) return;
+      mostrarPreparando(false);
+      // ⚠ E aqui NÃO ficamos com o link: quem não consegue mostrar devolve. A pessoa clicou num
+      // link e tem de chegar a algum lugar, mesmo que não seja aqui.
+      avisar('Não consegui abrir este vídeo do YouTube; abrindo no navegador.');
+      vssh.openUrl(url, { destino: 'navegador' });
+      return;
+    }
+    if (minha !== geracao) return;
+
+    // ⚠ `!r` faz parte da guarda, e não é paranoia: um corpo `null` é JSON válido, então o `fetch`
+    // resolve, o `.json()` resolve, e a linha seguinte levanta `TypeError` sem que nada tenha
+    // "falhado" — a pessoa fica com o spinner e o link some. Custou um teste que media nada.
+    // ⚠ `!r` faz parte da guarda, e não é paranoia: um corpo `null` é JSON válido, então o `fetch`
+    // resolve, o `.json()` resolve, e a linha seguinte levanta `TypeError` sem que nada tenha
+    // "falhado" — a pessoa fica com o spinner e o link some. Custou um teste que media nada.
+    if (!r || r.tipo !== 'video') {
+      // Playlist, canal e busca ainda não têm tela. Devolver é o caminho honesto — e é o que
+      // impede o deeplink de virar beco.
+      mostrarPreparando(false);
+      vssh.openUrl(url, { destino: 'navegador' });
+      return;
+    }
+
+    let dashjs;
+    try {
+      dashjs = await carregarDash();
+    } catch (e) {
+      if (minha !== geracao) return;
+      mostrarPreparando(false);
+      avisar('Não consegui carregar o player de streaming.');
+      return;
+    }
+    if (minha !== geracao) return;
+
+    // ⚠ `atual` finge um arquivo em modo direto de propósito. É o que faz `noCano()` responder
+    // falso — e tem de responder: o DASH tem busca nativa por Range, e mandá-lo pelo caminho do
+    // cano trocaria um `seek` instantâneo por um ffmpeg reiniciando do zero, que aqui nem existe.
+    atual = {
+      caminho: null, nome: r.titulo, duracao: r.duracao, modo: 'direto',
+      temVideo: true, audios: [], legendas: [], youtube: r,
+    };
+    base = 0;
+    $('vazio-palco').hidden = true;
+    $('agora-nome').textContent = r.titulo;
+    document.title = `${r.titulo} — Palco`;
+
+    dashPlayer = dashjs.MediaPlayer().create();
+    // ⚠ **Sem este ouvinte a tela fica presa em "Preparando" para sempre**, e o defeito só apareceu
+    // ao investigar por que uma mutação não mordia. Quem esconde a faixa no caminho normal são os
+    // eventos `loadeddata`/`playing` do próprio `<video>` — e quando o dash.js falha (um MPD que
+    // não carrega, um segmento recusado, um codec que a máquina não aceita) nenhum dos dois chega.
+    // Nada falha visivelmente: a pessoa fica olhando um spinner que não termina.
+    dashPlayer.on(dashjs.MediaPlayer.events.ERROR, (e) => {
+      if (minha !== geracao) return;
+      const msg = (e && e.error && (e.error.message || e.error.code)) || '';
+      mostrarPreparando(false);
+      avisar(`A reprodução deste vídeo do YouTube falhou${msg ? ` (${msg})` : ''}.`);
+    });
+    dashPlayer.initialize(video, r.mpd, true);
+    if (r.t) dashPlayer.seek(r.t);
+
+    mostrarRetomar(0);
+    porMediaSession({ nome: r.titulo, origem: r.canal });
   }
 
   function mostrarRetomar(seg) {
@@ -693,7 +817,12 @@ function montarPalco() {
 
   function porMediaSession(r) {
     if (!('mediaSession' in navigator)) return;
-    navigator.mediaSession.metadata = new MediaMetadata({ title: r.nome, artist: 'Palco' });
+    // O canal do YouTube quando há um; "Palco" quando o que está tocando é um arquivo da pasta e
+    // não existe autoria a mostrar. Repetir "Palco" havendo o nome do canal desperdiçaria a única
+    // linha secundária que a central de mídia oferece.
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: r.nome, artist: r.origem || 'Palco',
+    });
     const liga = (acao, fn) => {
       try { navigator.mediaSession.setActionHandler(acao, fn); } catch { /* não suportada */ }
     };
@@ -780,6 +909,11 @@ function montarPalco() {
 
   vssh.onOpenContext((ctx) => {
     if (ctx.tipo === 'pasta') return;          // pasta é a Biblioteca de outro dia
+    // ⚠ `tipo: 'url'` é o que o roteamento de link entrega (Fase 3). Ele já chega hoje por
+    // `vssh.openUrl` de outro app; o que ainda não acontece é o Palco ser ELEITO para os hosts do
+    // YouTube, e isso segue desligado de propósito — `opens.urls` só entra quando a aba cobrir
+    // playlist, canal e busca, senão o link vira beco.
+    if (ctx.tipo === 'url' && ctx.url) { irPara('reproduzindo'); abrirYoutube(ctx.url); return; }
     if (ctx.path) { irPara('reproduzindo'); abrir(ctx.path); return; }
     if (ctx.rota) irPara(ctx.rota);
   });
