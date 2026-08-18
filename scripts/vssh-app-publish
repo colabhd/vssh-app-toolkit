@@ -65,15 +65,28 @@ MANIFEST="${PKG}/vssh-app.json"
 SCHEMA="$(cd "$(dirname "$0")/.." && pwd)/schema/vssh-app.schema.json"
 INFO="$(VSSH_MANIFEST_PATH="${MANIFEST}" VSSH_VERSION_OVERRIDE="${VERSION_OVERRIDE}" VSSH_SCHEMA_PATH="${SCHEMA}" python3 <<'PYEOF'
 import json, os, re, sys
+# ⚠ **O encoding vai DECLARADO nas três pontas, e nenhuma delas é hipotética.**
+#
+# Este bloco lê um manifesto com acento, REESCREVE esse manifesto com `ensure_ascii=False` (a
+# linha do `--version`, que roda em toda publicação do CI), e imprime mensagens de erro em
+# português. Sem declarar, as três herdam a codificação do locale — e num locale que não seja
+# UTF-8 a do meio é a cara: o `name` e a `description` do app sairiam corrompidos DENTRO do
+# pacote publicado, sem erro nenhum e sem volta.
+#
+# Foi a terceira ponta que denunciou as outras: três testes de `publish-validacao` reprovavam no
+# Windows há meses comparando `vers�o` com `versão`, e a leitura fácil era "ruído de
+# plataforma". Era o mesmo defeito, no lugar mais barato de vê-lo.
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
 p = os.environ['VSSH_MANIFEST_PATH']
-m = json.load(open(p))
+m = json.load(open(p, encoding='utf-8'))
 app_id = m.get('id', '')
 if not re.match(r'^[a-z0-9-]+$', app_id or ''):
     print('ERROR=id_invalido'); sys.exit(0)
 override = os.environ.get('VSSH_VERSION_OVERRIDE') or ''
 if override:
     m['version'] = override
-    json.dump(m, open(p, 'w'), ensure_ascii=False, indent=2)
+    json.dump(m, open(p, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
 version = m.get('version', '')
 if not re.match(r'^[0-9A-Za-z][0-9A-Za-z.\-+_]*$', version or ''):
     print('ERROR=version_ausente'); sys.exit(0)
@@ -403,7 +416,7 @@ Atualize:  pip install --target vendor/py \"https://github.com/colabhd/vssh-app-
     # caso — acusando o app de um defeito que era da própria pergunta. Agora ela SEGUE o comando:
     # todo token do installCommand que seja um arquivo do pacote entra na busca, um nível.
     ROTEIROS="${PKG}/vssh-app.json"
-    CMD_INSTALL="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("backend",{}).get("installCommand","") or "")' "${PKG}/vssh-app.json" 2>/dev/null || true)"
+    CMD_INSTALL="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1], encoding="utf-8")).get("backend",{}).get("installCommand","") or "")' "${PKG}/vssh-app.json" 2>/dev/null || true)"
     for tok in ${CMD_INSTALL}; do
       if [ -f "${PKG}/${tok}" ]; then ROTEIROS="${ROTEIROS} ${PKG}/${tok}"; fi
     done

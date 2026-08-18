@@ -73,6 +73,60 @@ function validar(manifesto) {
 
 const BASE = { id: 'x', version: '1.0.0', backend: { runtime: 'node', entrypoint: 'b.js' } };
 
+// ── O acento, nas três pontas ───────────────────────────────────────────────
+//
+// ⚠ Três testes deste arquivo reprovavam no Windows há meses comparando `vers\ufffdo` com a
+// palavra certa, e a leitura fácil era "ruído de plataforma, passa no Linux". Não era: o bloco
+// Python do publish lia, REESCREVIA e imprimia texto acentuado sem declarar codificação nenhuma,
+// e as três herdavam o locale. A do meio é a cara — ela roda em toda publicação do CI.
+
+/** Roda o validador COM `--version`, e devolve o manifesto como ficou no disco. */
+function reescreverVersao(manifesto, versao) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vssh-pub-'));
+  try {
+    const py = path.join(dir, 'valida.py');
+    const mf = path.join(dir, 'vssh-app.json');
+    fs.writeFileSync(py, validador());
+    fs.writeFileSync(mf, JSON.stringify(manifesto), 'utf8');
+    const saida = execFileSync(PY, [py], {
+      encoding: 'utf8',
+      env: { ...process.env, VSSH_MANIFEST_PATH: mf, VSSH_SCHEMA_PATH: SCHEMA,
+             VSSH_VERSION_OVERRIDE: versao },
+    }).trim();
+    return { saida, gravado: JSON.parse(fs.readFileSync(mf, 'utf8')) };
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test('o `--version` reescreve o manifesto SEM corromper o acento', seNaoTem, () => {
+  // ⚠ **O caminho que roda em toda publicação**, e o único aqui que estraga algo permanente: o
+  // manifesto reescrito é o que vai DENTRO do pacote. Corrompido, o nome e a descrição do app
+  // chegam tortos ao repositório — sem erro em lugar nenhum, e sem volta, porque o original já
+  // foi sobrescrito.
+  const acentuado = {
+    ...BASE,
+    name: 'Aplicação de Vídeo',
+    description: 'Reprodução, transcrição e legendas — inclusive automáticas',
+  };
+  const { saida, gravado } = reescreverVersao(acentuado, '2.5.0');
+
+  assert.match(saida, /^ID=x$/m, `o validador reprovou: ${saida}`);
+  assert.equal(gravado.version, '2.5.0', 'a version não foi reescrita');
+  // Byte a byte o que entrou. `ensure_ascii=False` grava os acentos como acentos, então quem
+  // escreve o arquivo precisa dizer em que codificação — senão o locale decide, e ele varia.
+  assert.equal(gravado.name, acentuado.name);
+  assert.equal(gravado.description, acentuado.description);
+});
+
+test('as mensagens de erro do validador chegam em UTF-8', seNaoTem, () => {
+  // A ponta mais barata de conferir, e a que denunciou as outras duas.
+  const saida = validar({ ...BASE, provides: ['llm'] });
+  assert.ok(!saida.includes('\ufffd'),
+    `a saída veio com byte irrecuperável — o locale decidiu a codificação: ${saida}`);
+  assert.match(saida, /versão/, saida);
+});
+
 test('um manifesto sadio passa', seNaoTem, () => {
   assert.match(validar(BASE), /^ID=x$/m);
   assert.match(validar({ ...BASE, requiredPackages: ['ffmpeg', 'libreoffice-calc', 'g++'] }), /^ID=x$/m);
