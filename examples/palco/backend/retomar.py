@@ -143,3 +143,23 @@ def assinatura_de(caminho):
         return f"{st.st_size}:{int(st.st_mtime)}"
     except OSError:
         return None
+
+# ── A chave de um vídeo do YouTube ───────────────────────────────────────────
+#
+# ⚠ **Um prefixo, e não uma segunda tabela.** Repetir, retomar, esquecer e o teto de `_TETO`
+# entradas já existem e funcionam; separar as origens duplicaria os quatro para ganhar nada —
+# "onde parei" é a mesma pergunta, e a lista de recentes fica mais útil misturada do que dividida.
+#
+# `yt:` nunca colide com um caminho: um caminho absoluto começa com `/`, e nenhum arquivo que este
+# app abre é nomeado por um id de onze caracteres do YouTube depois de dois-pontos.
+
+_PREFIXO_DE_VIDEO = "yt:"
+
+
+def marca_de_video(vid):
+    return f"{_PREFIXO_DE_VIDEO}{vid}"
+
+
+def e_marca_de_video(chave):
+    return isinstance(chave, str) and chave.startswith(_PREFIXO_DE_VIDEO)
+

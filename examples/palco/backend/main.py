@@ -23,12 +23,13 @@ decidisse sozinho, por tabela, transcodificaria a 180% de CPU para metade das m�
     POST   /api/marca      {caminho, seg}     → onde a pessoa parou
     DELETE /api/marca      ?caminho=          → esquecer
 
-    GET    /api/yt/abrir   ?url=              → o que aquele endereço é, e os metadados do vídeo
+    GET    /api/yt/abrir   ?url=&hl=          → o que aquele endereço é, e os metadados do vídeo
     GET    /api/yt/mpd     ?v=                → o manifesto DASH, com as URLs apontando para nós
     GET    /api/yt/bytes   ?v=&f=             → o proxy de Range (obrigatório — ver `dash.py`)
     GET    /api/yt/legenda ?v=&idioma=&auto=  → VTT
-    GET    /api/yt/listar  ?url=&de=          → uma página de busca, playlist ou canal
+    GET    /api/yt/listar  ?url=&de=&hl=      → uma página de busca, playlist ou canal
     GET    /api/yt/miniatura ?v=              → a capa do cartão, pelo nosso proxy
+    POST   /api/yt/atualizar                  → baixa o yt-dlp novo e o põe em uso, sem reabrir
 
 Uma dependência, e ela é o toolkit. O resto é stdlib — **mais o yt-dlp, que é opcional**: sem ele o
 Palco continua um player local completo, e só as rotas `/api/yt/*` respondem 503.
@@ -65,12 +66,16 @@ from decisao import decidir, perfil_de  # noqa: E402
 from fluxo import enquadrar, terminador  # noqa: E402
 from midia import achar_gpu, argv_de_fluxo, argv_de_legenda, sondar_arquivo  # noqa: E402
 from pasta import vizinhanca  # noqa: E402
-from retomar import assinatura_de, esquecer, lembrar, retomada  # noqa: E402
+from retomar import (  # noqa: E402
+    assinatura_de, e_marca_de_video, esquecer, lembrar, marca_de_video, retomada,
+)
 from urls import analisar  # noqa: E402
 from youtube import (  # noqa: E402
     CABECALHOS_REPASSADOS, Resolvedor, id_valido, itag_valido, resposta_de_abertura,
 )
-from ytdlp import Mundo, carregar, versao  # noqa: E402
+from ytdlp import (  # noqa: E402
+    Mundo, atualizar, carregar, idiomas_suportados, negociar_idioma, versao,
+)
 
 APP_ID = os.environ.get("VSSH_APP_ID") or "palco"
 APP_TOKEN = os.environ.get("VSSH_APP_TOKEN") or None
@@ -78,6 +83,25 @@ DADOS = os.environ.get("VSSH_APP_DATA_DIR") or os.path.join("/tmp", f"{APP_ID}-d
 
 log = criar_log_do_app(app_id=APP_ID)
 limpar_bandeja_ao_sair()
+
+
+def _versao_do_app():
+    """A versão que o pacote INSTALADO carrega — não a do repositório.
+
+    ⚠ Ela existe porque a pergunta "isto que estou vendo é o conserto de ontem?" não tinha resposta,
+    e sem resposta um app velho e um conserto que não funcionou são indistinguíveis. É a mesma
+    fronteira da tag `v4`: o que roda no servidor é outro arquivo do que está no disco de quem
+    escreve. O `--version` do CI reescreve este campo no manifesto empacotado, então o número aqui
+    é o número publicado.
+    """
+    try:
+        with open(os.path.join(_AQUI, "..", "vssh-app.json"), encoding="utf-8") as fh:
+            return str(json.load(fh).get("version") or "?")
+    except (OSError, ValueError):
+        return "?"
+
+
+VERSAO = _versao_do_app()
 
 # Medido uma vez no boot, e não por requisição: enumerar `/dev/dri` a cada abertura de vídeo seria
 # I/O por uma resposta que não muda enquanto o processo vive.
@@ -110,21 +134,48 @@ spa = criar_spa_estatica(
 # O `None` de `carregar()` também é deliberado: sem yt-dlp o Palco continua um player local
 # completo, e só as rotas `/api/yt/*` respondem 503 com uma frase que diz o que fazer.
 _YT_TRAVA = threading.Lock()
-_YT = {"mundo": None, "resolvedor": None, "versao": None, "tentou": False}
+_YT = {"modulo": None, "mundo": None, "resolvedor": None, "versao": None,
+       "idioma": None, "tentou": False}
 
 
-def yt():
-    """O resolvedor, carregando o yt-dlp na primeira vez que alguém precisar dele."""
+def _montar_yt(modulo, idioma):
+    """(Re)constrói o mundo e o resolvedor para um idioma. Chamar com `_YT_TRAVA` na mão."""
+    _YT["modulo"] = modulo
+    _YT["versao"] = versao(modulo)
+    _YT["idioma"] = idioma
+    _YT["mundo"] = Mundo(modulo, idioma=idioma)
+    _YT["resolvedor"] = Resolvedor(_YT["mundo"].extrair, _YT["mundo"].ler_cabecalho,
+                                   listar=_YT["mundo"].listar, idioma=idioma)
+
+
+def yt(idioma=None):
+    """O resolvedor, carregando o yt-dlp na primeira vez que alguém precisar dele.
+
+    ⚠ **O idioma é do PROCESSO, e não do pedido** — e isso é uma consequência, não uma preferência:
+    `url_de()` re-resolve um vídeo no meio de uma reprodução, do proxy de bytes, onde não há
+    requisição do navegador para carregar um `hl`. Se o idioma viajasse por pedido, essa
+    re-resolução gravaria no cache uma versão sem idioma por cima da que a tela mostrou. Como o
+    backend é um processo POR USUÁRIO, "do processo" e "de quem assiste" são a mesma coisa.
+
+    Trocar de idioma reconstrói tudo e joga fora os caches — inclusive o de ranges, que é caro e
+    não dependia do idioma. É aceitável porque acontece no máximo uma vez por sessão: o navegador
+    manda sempre o mesmo valor.
+    """
     with _YT_TRAVA:
         if not _YT["tentou"]:
             _YT["tentou"] = True
             modulo = carregar(dados=DADOS, vendor=_VENDOR)
             if modulo is not None:
-                _YT["versao"] = versao(modulo)
-                _YT["mundo"] = Mundo(modulo)
-                _YT["resolvedor"] = Resolvedor(_YT["mundo"].extrair, _YT["mundo"].ler_cabecalho,
-                                               listar=_YT["mundo"].listar)
-            log("ytdlp", {"versao": _YT["versao"] or "ausente"})
+                _montar_yt(modulo, negociar_idioma(idioma, idiomas_suportados()))
+            log("ytdlp", {"versao": _YT["versao"] or "ausente", "idioma": _YT["idioma"]})
+
+        modulo = _YT["modulo"]
+        if modulo is not None and idioma:
+            querido = negociar_idioma(idioma, idiomas_suportados())
+            if querido != _YT["idioma"]:
+                log("ytdlp-idioma", {"de": _YT["idioma"], "para": querido, "pedido": idioma})
+                _montar_yt(modulo, querido)
+
         return _YT["resolvedor"], _YT["mundo"]
 
 
@@ -399,7 +450,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._vizinhos(um("caminho"))
 
             if caminho_url == "/api/yt/abrir" and self.command in ("GET", "HEAD"):
-                return self._yt_abrir(um("url"))
+                return self._yt_abrir(um("url"), um("hl"))
 
             if caminho_url == "/api/yt/mpd" and self.command in ("GET", "HEAD"):
                 return self._yt_mpd(um("v"))
@@ -411,10 +462,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._yt_legenda(um("v"), um("idioma"), um("auto") == "1")
 
             if caminho_url == "/api/yt/listar" and self.command in ("GET", "HEAD"):
-                return self._yt_listar(um("url"), um("de"))
+                return self._yt_listar(um("url"), um("de"), um("hl"))
 
             if caminho_url == "/api/yt/miniatura" and self.command in ("GET", "HEAD"):
                 return self._yt_miniatura(um("v"))
+
+            if caminho_url == "/api/yt/atualizar" and self.command == "POST":
+                return self._yt_atualizar()
 
             if caminho_url == "/api/marca":
                 if self.command == "POST":
@@ -545,11 +599,23 @@ class Handler(BaseHTTPRequestHandler):
         })
 
     def _marcar(self, corpo):
-        caminho = corpo.get("caminho")
-        if not caminho:
+        """Onde a pessoa parou — de um arquivo, ou de um vídeo do YouTube.
+
+        ⚠ **Isto respondia 400 em toda reprodução do YouTube**, quinze em quinze segundos, e o único
+        sinal era uma linha vermelha no console de quem abrisse as ferramentas do navegador. A causa
+        é que `atual.caminho` é `null` no DASH — não há arquivo —, e o frontend mandava o `null`
+        assim mesmo. Uma chave que não é caminho resolve as duas pontas: o pedido para de ser
+        inválido, e o vídeo do YouTube passa a retomar de onde parou, como qualquer outro.
+        """
+        chave = corpo.get("caminho")
+        if not isinstance(chave, str) or not chave:
             return self._json(400, {"erro": "sem caminho"})
-        lembrar(DADOS, caminho, corpo.get("seg") or 0, corpo.get("dur"),
-                assinatura=assinatura_de(caminho))
+        # ⚠ `assinatura_de` só faz sentido sobre arquivo: ela é `tamanho:mtime`, e a pergunta que
+        # responde ("este arquivo é o mesmo de quando marquei?") não tem análogo num vídeo do
+        # YouTube, cujo id JÁ é a identidade. Chamá-la mesmo assim devolveria `None` por acidente
+        # de `os.stat` falhar — que é o valor certo pelo motivo errado.
+        assinatura = None if e_marca_de_video(chave) else assinatura_de(chave)
+        lembrar(DADOS, chave, corpo.get("seg") or 0, corpo.get("dur"), assinatura=assinatura)
         return self._json(200, {"ok": True})
 
     # ── o YouTube ────────────────────────────────────────────────────────────
@@ -560,7 +626,38 @@ class Handler(BaseHTTPRequestHandler):
             "conserto": "reinstale o app com VSSH_APP_REBUILD=1, ou atualize pelo menu Ferramentas",
         })
 
-    def _yt_abrir(self, url):
+    def _yt_atualizar(self):
+        """Baixa o yt-dlp mais novo e o põe em uso, sem reabrir o app.
+
+        ⚠ **É o recurso que decide se este app dura.** O YouTube quebra extractor toda semana; um
+        `pip install` feito na instalação congela a versão, e sem uma saída daqui a única resposta
+        para "parou de funcionar" seria entrar no servidor como root. Ver o cabeçalho de `ytdlp.py`
+        para a ordem de busca que torna isto possível.
+
+        Serializado pela mesma trava do carregamento: dois cliques ao mesmo tempo dariam dois `pip`
+        escrevendo no mesmo diretório, que é como se produz uma instalação pela metade.
+        """
+        with _YT_TRAVA:
+            antes = _YT["versao"]
+            modulo, detalhe = atualizar(DADOS)
+            if modulo is None:
+                log("ytdlp-atualizar-erro", {"antes": antes, **detalhe})
+                return self._json(502, {
+                    "erro": "não consegui atualizar o yt-dlp",
+                    "detalhe": detalhe.get("erro"),
+                })
+
+            # ⚠ Reconstruir é obrigatório: o `Mundo` e o `Resolvedor` seguram a CLASSE
+            # `YoutubeDL` da versão velha. Trocar o módulo sem trocá-los deixaria o app usando o
+            # extractor antigo com a versão nova em disco — que é exatamente o estado que este
+            # botão existe para desfazer, agora com o `/healthz` mentindo por cima.
+            _YT["tentou"] = True
+            _montar_yt(modulo, _YT["idioma"])
+            log("ytdlp-atualizado", {"antes": antes, "agora": _YT["versao"]})
+            return self._json(200, {"ok": True, "antes": antes, "versao": _YT["versao"],
+                                    "mudou": antes != _YT["versao"]})
+
+    def _yt_abrir(self, url, idioma=None):
         """O endereço → o que ele é, e (sendo vídeo) tudo que a tela precisa para tocar.
 
         ⚠ `analisar` devolvendo `None` **não é erro**, e a resposta diz isso com todas as letras:
@@ -575,7 +672,7 @@ class Handler(BaseHTTPRequestHandler):
             # `opens.urls` antes da aba existir.
             return self._json(200, {**resposta_de_abertura(alvo), "url": url})
 
-        resolvedor, _ = yt()
+        resolvedor, _ = yt(idioma)
         if resolvedor is None:
             return self._sem_ytdlp()
 
@@ -594,7 +691,13 @@ class Handler(BaseHTTPRequestHandler):
         if not v.trilhas:
             return self._json(422, {"erro": "este vídeo não tem formatos que este player toque"})
 
-        return self._json(200, resposta_de_abertura(alvo, v))
+        # ⚠ A marca de um vídeo do YouTube existe pelo mesmo motivo da de um arquivo, e o `t=` da
+        # URL ganha dela: quem mandou o link apontando para um trecho está dizendo onde começar, e
+        # sobrepor isso com "onde eu parei" ignoraria o pedido de quem compartilhou.
+        return self._json(200, {
+            **resposta_de_abertura(alvo, v),
+            "retomarEm": retomada(DADOS, marca_de_video(alvo.id)),
+        })
 
     def _yt_mpd(self, vid):
         resolvedor, _ = yt()
@@ -692,9 +795,9 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             resposta.close()
 
-    def _yt_listar(self, url, de=None):
+    def _yt_listar(self, url, de=None, idioma=None):
         """Uma página de busca, playlist ou canal — o que a grade da aba desenha."""
-        resolvedor, _ = yt()
+        resolvedor, _ = yt(idioma)
         if resolvedor is None:
             return self._sem_ytdlp()
 

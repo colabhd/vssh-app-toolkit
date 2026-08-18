@@ -19,7 +19,9 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend"))
 
-from retomar import esquecer, lembrar, retomada, todas  # noqa: E402
+from retomar import (  # noqa: E402
+    e_marca_de_video, esquecer, lembrar, marca_de_video, retomada, todas,
+)
 
 FILME = "/home/ana/Vídeos/o filme.mkv"
 
@@ -121,6 +123,39 @@ class TestNaoDerrubar(Base):
         alvo = os.path.join(self.dir, "que", "nao", "existe")
         lembrar(alvo, FILME, 2400, 3600)
         self.assertEqual(retomada(alvo, FILME), 2400)
+
+
+class TestAChaveDeUmVideoDoYoutube(Base):
+    """Uma marca de vídeo do YouTube mora na MESMA tabela de um arquivo, sob um prefixo.
+
+    ⚠ Repetir, esquecer e o teto de entradas já existem e funcionam; uma segunda tabela duplicaria
+    os três para ganhar nada — "onde parei" é a mesma pergunta.
+    """
+
+    def test_a_chave_NAO_se_confunde_com_um_caminho(self):
+        # ⚠ Sem prefixo, `dQw4w9WgXcQ` é indistinguível de um caminho relativo — e `assinatura_de`
+        # passaria a ser chamada sobre ele, `esquecer` deixaria de saber o que apaga, e um dia
+        # alguém escreveria uma regra por caminho que pegaria vídeos por acidente.
+        chave = marca_de_video("dQw4w9WgXcQ")
+        self.assertTrue(e_marca_de_video(chave))
+        self.assertNotEqual(chave, "dQw4w9WgXcQ")
+        for caminho in (FILME, "/home/ana/Vídeos/aula.mkv", "aula.mkv", "C:\\v\\a.mkv"):
+            self.assertFalse(e_marca_de_video(caminho), caminho)
+
+    def test_dois_videos_diferentes_nao_compartilham_marca(self):
+        self.assertNotEqual(marca_de_video("aaaaaaaaaaa"), marca_de_video("bbbbbbbbbbb"))
+
+    def test_a_marca_de_video_percorre_o_mesmo_caminho_de_um_arquivo(self):
+        chave = marca_de_video("dQw4w9WgXcQ")
+        lembrar(self.dir, chave, 300, 1800)
+        self.assertEqual(retomada(self.dir, chave), 300)
+        # E terminar apaga, como em qualquer outro: reabrir nos créditos é o defeito clássico.
+        lembrar(self.dir, chave, 1795, 1800)
+        self.assertIsNone(retomada(self.dir, chave))
+
+    def test_e_marca_de_video_recusa_o_que_nao_e_texto(self):
+        for lixo in (None, 0, [], {}):
+            self.assertFalse(e_marca_de_video(lixo))
 
 
 if __name__ == "__main__":

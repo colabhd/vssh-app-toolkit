@@ -135,6 +135,7 @@ function servir(req, res) {
   }
   // ── O YouTube ─────────────────────────────────────────────────────────────
   if (p === '/api/yt/abrir') {
+    aberturasDeYt.push({ url: u.searchParams.get('url'), hl: u.searchParams.get('hl') });
     // ⚠ `null` aqui NÃO serve para simular falha: `JSON.stringify(null)` é `"null"`, que é JSON
     // perfeitamente válido — o `fetch` resolve, o `.json()` resolve, e quem recebe leva um
     // `TypeError` ao ler um campo. Foi assim que a primeira versão deste teste mediu nada.
@@ -150,6 +151,46 @@ function servir(req, res) {
       if (pedido) corpo = { ...corpo, id: pedido, titulo: `Vídeo ${pedido}` };
     }
     res.end(JSON.stringify(corpo));
+    return true;
+  }
+  if (p === '/healthz') {
+    res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+    res.end(respostaDeHealthz);
+    return true;
+  }
+  if (p === '/api/marca') {
+    // ⚠ O duble responde 400 sem `caminho` **como o backend responde** — é o que faz o defeito
+    // aparecer aqui em vez de só no servidor de verdade. Um duble que aceitasse qualquer corpo
+    // aprovaria um `caminho: null` calado, que é exatamente o que estava indo.
+    if (req.method === 'DELETE') {
+      esquecimentos.push(u.searchParams.get('caminho'));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"ok":true}');
+      return true;
+    }
+    let bruto = '';
+    req.on('data', (c) => { bruto += c; });
+    req.on('end', () => {
+      let corpo = null;
+      try { corpo = JSON.parse(bruto || 'null'); } catch { corpo = null; }
+      marcas.push(corpo);
+      const ok = corpo && typeof corpo.caminho === 'string' && corpo.caminho;
+      res.writeHead(ok ? 200 : 400, { 'content-type': 'application/json' });
+      res.end(ok ? '{"ok":true}' : '{"erro":"sem caminho"}');
+    });
+    return true;
+  }
+  if (p === '/api/yt/legenda') {
+    legendasPedidas.push({ v: u.searchParams.get('v'), idioma: u.searchParams.get('idioma'),
+                           auto: u.searchParams.get('auto') });
+    res.writeHead(200, { 'content-type': 'text/vtt; charset=utf-8' });
+    res.end('WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nolá\n');
+    return true;
+  }
+  if (p === '/api/yt/atualizar') {
+    atualizacoes += 1;
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(respostaDeAtualizar));
     return true;
   }
   if (p === '/api/yt/mpd') {
@@ -169,7 +210,7 @@ function servir(req, res) {
 
   if (p === '/api/yt/listar') {
     const de = Number(u.searchParams.get('de') || 1);
-    listagens.push({ url: u.searchParams.get('url'), de });
+    listagens.push({ url: u.searchParams.get('url'), de, hl: u.searchParams.get('hl') });
     if (respostaDeListar instanceof Error) {
       res.writeHead(respostaDeListar.status || 502, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ erro: respostaDeListar.message }));
@@ -227,6 +268,13 @@ let respostaDeYtFixa = false;
 let pedidosDoDash = 0;
 let respostaDeListar = null;
 let listagens = [];
+let aberturasDeYt = [];
+let marcas = [];
+let esquecimentos = [];
+let legendasPedidas = [];
+let atualizacoes = 0;
+let respostaDeHealthz = 'ok\nversao: 0.1.31\nyt-dlp: 2026.07.04\nidioma: pt\n';
+let respostaDeAtualizar = { ok: true, antes: '2025.06.09', versao: '2026.07.04', mudou: true };
 let pedidosDeBytes = 0;
 // Faz o proxy de bytes recusar, como um servidor que perdeu a credencial do googlevideo.
 let bytesRecusados = false;
@@ -785,6 +833,24 @@ async function comAbaAberta() {
 }
 
 /** Digita na caixa e espera os cartões — o caminho que a pessoa percorre. */
+/**
+ * Espera o SERVIDOR ver uma consulta nova, e não a tela parecer diferente.
+ *
+ * ⚠ Esperar por DOM aqui é o que deixou um teste instável: depois de rolar, uma segunda busca
+ * esconde a grade — e `scrollTop` de um elemento escondido é 0 no mesmo instante, enquanto os
+ * cartões da busca ANTERIOR continuam no documento. As duas condições passam a valer antes de a
+ * resposta chegar, e o teste lê `listagens[0]` de um array vazio. Um teste instável é pior que um
+ * teste ausente: ele ensina a ignorar o vermelho.
+ */
+async function ateChegarem(quantas, prazo = 8000) {
+  const fim = Date.now() + prazo;
+  while (Date.now() < fim && listagens.length < quantas) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  assert.ok(listagens.length >= quantas,
+    `o servidor viu ${listagens.length} consulta(s), esperava ${quantas}`);
+}
+
 const BUSCAR = (termo, ate) => `(async () => {
   const b = document.getElementById('yt-busca');
   b.value = ${JSON.stringify(termo)};
@@ -1354,13 +1420,17 @@ test('trocar de busca ZERA a grade e a paginação', seNaoTem, async () => {
   // A segunda busca devolve EXATAMENTE os mesmos ids da primeira — o pior caso para um `Set` que
   // não fosse zerado, e um caso real: duas buscas parecidas trazem vídeos em comum.
   listagens = [];
-  // ⚠ Esperar `.yt-cartao` aqui não espera NADA: os cartões da busca anterior ainda estão na tela.
-  // A condição tem de ser a chegada da resposta NOVA — e foi essa corrida que fez este teste
-  // falhar uma vez em duas execuções. Um teste instável é pior que um teste ausente: ele ensina a
-  // ignorar o vermelho.
-  await p.avaliar(BUSCAR('gatos de novo',
-    "document.getElementById('yt-grade').scrollTop === 0"
-    + " && document.querySelector('.yt-cartao')"));
+  // ⚠ A espera é sobre o que o SERVIDOR viu — ver `ateChegarem`. A tela mente aqui: a grade
+  // escondida durante o carregamento já reporta `scrollTop === 0`, e os cartões da busca anterior
+  // ainda estão no documento, então qualquer condição de DOM passa antes da resposta chegar.
+  await p.avaliar(BUSCAR('gatos de novo', 'false'));
+  await ateChegarem(1);
+  await p.avaliar(`(async () => {
+    const prazo = Date.now() + 5000;
+    while (Date.now() < prazo && !document.querySelector('.yt-cartao')) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  })()`);
   const r = await p.avaliar(`(() => ({
     desenhados: document.querySelectorAll('.yt-nome').length,
     topo: document.getElementById('yt-grade').scrollTop,
@@ -1437,4 +1507,306 @@ test('um erro que PERSISTE acaba dizendo que falhou', seNaoTemMidia, async () =>
   assert.equal(r.aviso, false, 'o erro persistente nunca foi dito na tela');
   assert.match(r.texto, /falhou/i);
   assert.equal(r.preparando, true, '"Retomando" ficou preso para sempre');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A sessão de uso de 18/08, segunda leva: o que a primeira reprodução completa
+// mostrou depois que o vídeo passou a tocar.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const VIDEO_COM_LEGENDA = {
+  tipo: 'video', id: 'aaaaaaaaaaa', titulo: 'Um vídeo', canal: 'Um canal',
+  duracao: 6, mpd: 'api/yt/mpd?v=aaaaaaaaaaa', qualidades: [90],
+  legendas: [
+    { idioma: 'pt', nome: 'Português', automatica: false },
+    { idioma: 'pt', nome: 'Português', automatica: true },
+  ],
+};
+
+/** Abre um vídeo do YouTube de verdade (dash.js + mídia) e espera ele tocar. */
+async function comYoutubeTocando(resposta = VIDEO_COM_LEGENDA) {
+  respostaDeYtFixa = true;
+  respostaDeYt = resposta;
+  const p = await nav.novaPagina(origem.url);
+  await p.avaliar(`(async () => {
+    window.__abrirContexto({ type: 'open-context', tipo: 'url',
+      url: 'https://youtu.be/aaaaaaaaaaa' });
+    const prazo = Date.now() + 12000;
+    const v = document.getElementById('video');
+    while (Date.now() < prazo && !(v.readyState >= 2 && v.duration > 0)) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  })()`);
+  return p;
+}
+
+test('a marca de um vídeo do YouTube tem CHAVE, e o servidor não responde 400',
+  seNaoTemMidia, async () => {
+    // ⚠ **O defeito veio de um console colado por quem usava o app:**
+    //
+    //     POST …/api/palco/api/marca 400 (Bad Request)
+    //
+    // a cada quinze segundos, durante toda a reprodução. `atual.caminho` é `null` no DASH — não
+    // existe arquivo — e o `null` ia no corpo assim mesmo. Na tela, nada: o único sinal era a
+    // linha vermelha de quem tivesse as ferramentas do navegador abertas. E junto com o ruído ia
+    // um recurso inteiro: um vídeo longo do YouTube nunca lembrava onde a pessoa parou.
+    marcas = [];
+    const p = await comYoutubeTocando();
+    await p.avaliar(`(async () => {
+      const v = document.getElementById('video');
+      v.currentTime = 3;
+      v.pause();                                  // 'pause' e' um dos gatilhos de marcar()
+      await new Promise((r) => setTimeout(r, 600));
+    })()`);
+
+    assert.ok(marcas.length > 0, 'nenhuma marca foi enviada — o vídeo do YouTube não é lembrado');
+    for (const m of marcas) {
+      assert.ok(m && typeof m.caminho === 'string' && m.caminho,
+        `a marca foi enviada sem chave: ${JSON.stringify(m)} — é o 400 do relato`);
+      assert.match(m.caminho, /^yt:aaaaaaaaaaa$/,
+        `a chave não identifica o vídeo: ${m.caminho}`);
+    }
+  });
+
+test('"Esquecer onde parei" usa a MESMA chave que gravou', seNaoTemMidia, async () => {
+  // Duas formas de nomear a mesma coisa dariam um "esquecer" que apaga uma entrada que ninguém
+  // gravou — e deixa a de verdade no lugar, com a pessoa vendo o botão não funcionar.
+  esquecimentos = [];
+  marcas = [];
+  const p = await comYoutubeTocando();
+  await p.avaliar(`(async () => {
+    const v = document.getElementById('video');
+    v.currentTime = 3; v.pause();
+    await new Promise((r) => setTimeout(r, 400));
+    window.__escolha = 'esquecer';
+    document.querySelector('.menubar [data-menu="ferramentas"]').click();
+    await new Promise((r) => setTimeout(r, 400));
+  })()`);
+  assert.ok(esquecimentos.length > 0, 'o "esquecer" não chegou ao servidor');
+  assert.equal(esquecimentos[0], marcas[0].caminho,
+    'a chave de esquecer é diferente da que gravou');
+});
+
+test('o console NÃO acusa `Invalid URL` durante a reprodução', seNaoTemMidia, async () => {
+  // ⚠ **A linha que veio no relato**, uma por resposta de segmento:
+  //
+  //     [CmcdController] Failed to record response received in CMCD reporter.
+  //     TypeError: Failed to construct 'URL': Invalid URL
+  //
+  // O dash.js propaga a forma da URL do MANIFESTO para os segmentos: recebendo um endereço
+  // relativo, tudo fica relativo, e o CmcdController faz `new URL(<relativa>)` sem base. Ele
+  // engole a exceção, então nada quebra — e é justamente esse o custo: dezenas de linhas
+  // vermelhas por minuto enterrando qualquer erro de verdade que apareça no meio.
+  const p = await comYoutubeTocando();
+  await p.avaliar('new Promise((r) => setTimeout(r, 1500))');
+  const ruins = p.console.filter((m) => /Invalid URL/i.test(m.texto));
+  assert.deepEqual(ruins.map((m) => m.texto.slice(0, 120)), [],
+    `${ruins.length} linha(s) de URL inválida no console`);
+});
+
+test('o manifesto chega ao dash.js ABSOLUTO', seNaoTem, async () => {
+  // A causa do teste acima, medida diretamente: o dash.js pede o MPD exatamente como recebeu.
+  // Um endereço relativo aqui resolve certo no navegador — por isso o defeito não impede a
+  // reprodução — e contamina toda a árvore de URLs que ele deriva.
+  respostaDeYtFixa = true;
+  respostaDeYt = { ...VIDEO_COM_LEGENDA, legendas: [] };
+  const p = await nav.novaPagina(origem.url + 'sub/prefixo/');
+  const r = await p.avaliar(`(async () => {
+    const pedidas = [];
+    const orig = window.XMLHttpRequest.prototype.open;
+    window.XMLHttpRequest.prototype.open = function (m, u, ...resto) {
+      pedidas.push(String(u));
+      return orig.call(this, m, u, ...resto);
+    };
+    window.__abrirContexto({ type: 'open-context', tipo: 'url',
+      url: 'https://youtu.be/aaaaaaaaaaa' });
+    await new Promise((r) => setTimeout(r, 2500));
+    return pedidas.filter((u) => u.includes('yt/mpd'));
+  })()`);
+
+  assert.ok(r.length > 0, 'o dash.js não chegou a pedir o manifesto');
+  for (const u of r) {
+    assert.match(u, /^https?:\/\//,
+      `o dash.js recebeu o manifesto relativo (${u}) — é daí que sai o "Invalid URL"`);
+    assert.ok(new URL(u).pathname.startsWith('/sub/prefixo/'),
+      `o MPD foi pedido fora do prefixo do app: ${u}`);
+  }
+});
+
+// ── As legendas do YouTube ──────────────────────────────────────────────────
+
+test('as legendas do YouTube viram `<track>` NOSSO, e nunca do YouTube', seNaoTemMidia,
+  async () => {
+    // ⚠ `<track>` é sujeito à mesma origem e o host das legendas do YouTube não responde CORS —
+    // apontar para lá daria uma legenda que aparece no menu e nunca carrega.
+    const p = await comYoutubeTocando();
+    const r = await p.avaliar(`(() => [...document.querySelectorAll('#video track')]
+      .map((t) => ({ label: t.label, src: t.getAttribute('src'), lang: t.srclang })))()`);
+
+    assert.equal(r.length, 2, `${r.length} faixa(s) de legenda desenhadas`);
+    for (const t of r) {
+      assert.ok(!/youtube|googlevideo/.test(t.src), `a legenda aponta para fora: ${t.src}`);
+      assert.ok(t.src.startsWith('api/yt/legenda?'),
+        `a legenda não vem da nossa rota: ${t.src}`);
+      assert.ok(!t.src.startsWith('/'),
+        `barra inicial em ${t.src} — sai do prefixo do app e bate num 404 do portal`);
+      assert.equal(t.lang, 'pt');
+    }
+    // A automática vem MARCADA. Sem isso a escolha seria entre "Português" e "Português", no
+    // escuro — e as duas são qualidades de texto muito diferentes.
+    assert.deepEqual(r.map((t) => t.label), ['Português', 'Português (automática)']);
+    assert.ok(r[1].src.includes('auto=1'), 'a automática não se distingue no pedido');
+  });
+
+test('a legenda do YouTube aparece no menu Legenda e o servidor a serve', seNaoTemMidia,
+  async () => {
+    legendasPedidas = [];
+    const p = await comYoutubeTocando();
+    const itens = await p.avaliar(`(async () => {
+      window.__escolha = null;
+      document.querySelector('.menubar [data-menu="legenda"]').click();
+      await new Promise((r) => setTimeout(r, 200));
+      const c = window.__chamadas.filter((x) => x.op === 'contextMenu').pop();
+      return c.itens.map((i) => i.label).filter(Boolean);
+    })()`);
+    assert.deepEqual(itens, ['Sem legenda', 'Português', 'Português (automática)']);
+
+    // E ligar uma pede o VTT ao nosso servidor — o passo que separa "está no menu" de "aparece
+    // na tela", e o único que exercita a rota inteira.
+    await p.avaliar(`(async () => {
+      document.getElementById('video').textTracks[0].mode = 'showing';
+      await new Promise((r) => setTimeout(r, 800));
+    })()`);
+    assert.deepEqual(legendasPedidas, [{ v: 'aaaaaaaaaaa', idioma: 'pt', auto: null }]);
+  });
+
+// ── O idioma de quem assiste ────────────────────────────────────────────────
+
+test('o idioma do navegador viaja nas DUAS rotas do YouTube', seNaoTem, async () => {
+  // ⚠ Sem ele o yt-dlp fixa `hl: "en"` e o YouTube devolve o título TRADUZIDO — medido: os mesmos
+  // vídeos brasileiros voltam como "I MADE IT IN 4 MINUTES!! THE SIMPLEEST AND CHEAPEST CAKE".
+  // Quem busca em português recebe uma grade em inglês macarrônico.
+  //
+  // ⚠ E as DUAS rotas, e não só a de abrir: a busca é onde isso aparece primeiro, porque é uma
+  // grade inteira de títulos traduzidos de uma vez.
+  listagens = [];
+  aberturasDeYt = [];
+  respostaDeListar = paginada({ total: 30 });
+  respostaDeYtFixa = true;
+  respostaDeYt = { ...VIDEO_COM_LEGENDA, legendas: [] };
+
+  const p = await comAbaAberta();
+  await p.avaliar(BUSCAR('gatos', 'false'));
+  await ateChegarem(1);
+  await p.avaliar(`(async () => {
+    window.__abrirContexto({ type: 'open-context', tipo: 'url',
+      url: 'https://youtu.be/aaaaaaaaaaa' });
+    await new Promise((r) => setTimeout(r, 600));
+  })()`);
+
+  const esperado = await p.avaliar('navigator.language');
+  assert.ok(esperado, 'o navegador desta bancada não declara idioma');
+  assert.equal(listagens[0].hl, esperado, 'a busca foi ao YouTube sem idioma');
+  assert.ok(aberturasDeYt.length > 0, 'nenhuma abertura registrada');
+  assert.equal(aberturasDeYt[aberturasDeYt.length - 1].hl, esperado,
+    'abrir um vídeo foi ao YouTube sem idioma');
+});
+
+// ── O botão que faz o app durar ─────────────────────────────────────────────
+
+test('Ferramentas oferece atualizar o yt-dlp, e a frase diz a VERSÃO', seNaoTem, async () => {
+  // ⚠ É o que impede o Palco de funcionar por um mês e depois parar: o YouTube quebra extractor
+  // toda semana e o `pip install` da instalação congela a versão. Sem esta saída, a única resposta
+  // para "parou de abrir vídeo" seria entrar no servidor como root.
+  atualizacoes = 0;
+  respostaDeAtualizar = { ok: true, antes: '2025.06.09', versao: '2026.07.04', mudou: true };
+  const p = await nav.novaPagina(origem.url);
+  const r = await p.avaliar(`(async () => {
+    window.__escolha = 'yt-atualizar';
+    document.querySelector('.menubar [data-menu="ferramentas"]').click();
+    await new Promise((r) => setTimeout(r, 800));
+    const c = window.__chamadas.filter((x) => x.op === 'contextMenu').pop();
+    return { itens: c.itens.map((i) => i.label).filter(Boolean),
+             aviso: document.getElementById('aviso-t').textContent };
+  })()`);
+
+  assert.ok(r.itens.includes('Atualizar o yt-dlp'), `o item não está no menu: ${r.itens}`);
+  assert.equal(atualizacoes, 1, 'o clique não chegou ao servidor');
+  // A frase diz a versão, e não "pronto": quando o extractor já estava atualizado o conserto é
+  // outro, e um "pronto" mandaria a pessoa procurar o defeito no lugar errado.
+  assert.match(r.aviso, /2026\.07\.04/, `a frase não diz a versão: ${r.aviso}`);
+});
+
+test('atualizar sem novidade DIZ que já estava na versão mais nova', seNaoTem, async () => {
+  respostaDeAtualizar = { ok: true, antes: '2026.07.04', versao: '2026.07.04', mudou: false };
+  const p = await nav.novaPagina(origem.url);
+  const aviso = await p.avaliar(`(async () => {
+    window.__escolha = 'yt-atualizar';
+    document.querySelector('.menubar [data-menu="ferramentas"]').click();
+    await new Promise((r) => setTimeout(r, 800));
+    return document.getElementById('aviso-t').textContent;
+  })()`);
+  assert.match(aviso, /já estava/, `a frase mente sobre ter atualizado: ${aviso}`);
+});
+
+test('"Mostrar no gerenciador" fica DESABILITADO num vídeo do YouTube', seNaoTemMidia,
+  async () => {
+    // ⚠ Habilitado, ele levava um `TypeError` sobre `null.replace` — o menu fechava, nada
+    // acontecia, e não havia nada na tela dizendo por quê. Não existe pasta de um vídeo do
+    // YouTube, e desabilitar é a resposta honesta.
+    const p = await comYoutubeTocando();
+    const r = await p.avaliar(`(async () => {
+      window.__escolha = null;
+      document.querySelector('.menubar [data-menu="ferramentas"]').click();
+      await new Promise((r) => setTimeout(r, 200));
+      const c = window.__chamadas.filter((x) => x.op === 'contextMenu').pop();
+      return c.itens.filter((i) => i.id).map((i) => [i.id, !!i.disabled]);
+    })()`);
+    const mapa = Object.fromEntries(r);
+    assert.equal(mapa.mostrar, true, 'o item está habilitado sobre um vídeo sem arquivo');
+    assert.equal(mapa['yt-atualizar'], false, 'atualizar o yt-dlp não depende do que está tocando');
+  });
+
+test('"Sobre o Palco" DIZ a versão instalada', seNaoTem, async () => {
+  // ⚠ **O portão que teria encurtado uma sessão inteira de investigação.** Veio um relato de que
+  // a miniatura não aparecia e a lista mostrava só a primeira página — a descrição exata do
+  // comportamento de uma versão ANTERIOR ao conserto de tudo isso. Não havia como distinguir
+  // "instalou o velho" de "o conserto não pegou" sem entrar no servidor, e as duas conclusões
+  // levam a trabalhos opostos.
+  //
+  // É a mesma fronteira da tag `v4`: o que roda no servidor é outro arquivo do que está no disco
+  // de quem escreve, e ninguém percorre as duas pontas.
+  respostaDeHealthz = 'ok\nversao: 0.1.31\nyt-dlp: 2026.07.04\nidioma: pt\n';
+  const p = await nav.novaPagina(origem.url);
+  const r = await p.avaliar(`(async () => {
+    window.__escolha = 'sobre';
+    document.querySelector('.menubar [data-menu="ferramentas"]').click();
+    await new Promise((r) => setTimeout(r, 600));
+    const a = window.__chamadas.filter((x) => x.op === 'alert').pop();
+    const c = window.__chamadas.filter((x) => x.op === 'contextMenu').pop();
+    return { texto: a ? a.m : null, itens: c.itens.map((i) => i.label).filter(Boolean) };
+  })()`);
+
+  assert.ok(r.itens.includes('Sobre o Palco'), `o item não está no menu: ${r.itens}`);
+  assert.ok(r.texto, 'o diálogo não abriu');
+  // As três respostas que a investigação precisou e não tinha.
+  assert.match(r.texto, /0\.1\.31/, `não diz a versão do app: ${r.texto}`);
+  assert.match(r.texto, /2026\.07\.04/, `não diz a versão do yt-dlp: ${r.texto}`);
+  assert.match(r.texto, /pt/, `não diz o idioma negociado: ${r.texto}`);
+  // O `ok` é para o supervisor, e não diz nada a quem abriu o diálogo.
+  assert.ok(!/^ok$/m.test(r.texto), `o "ok" do healthz vazou para a tela: ${r.texto}`);
+});
+
+test('"Sobre o Palco" não fica em branco quando o backend não responde', seNaoTem, async () => {
+  // Um diálogo vazio seria pior que a ausência do item: ele afirma que não há nada a dizer.
+  const p = await nav.novaPagina(origem.url);
+  const texto = await p.avaliar(`(async () => {
+    window.fetch = () => Promise.reject(new Error('sem rede'));
+    window.__escolha = 'sobre';
+    document.querySelector('.menubar [data-menu="ferramentas"]').click();
+    await new Promise((r) => setTimeout(r, 500));
+    const a = window.__chamadas.filter((x) => x.op === 'alert').pop();
+    return a ? a.m : null;
+  })()`);
+  assert.match(texto || '', /servidor/, `a frase de recuo sumiu: ${texto}`);
 });

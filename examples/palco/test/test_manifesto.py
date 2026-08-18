@@ -25,6 +25,28 @@ with open(os.path.join(_AQUI, "..", "vssh-app.json"), encoding="utf-8") as _fh:
     MANIFESTO = json.load(_fh)
 
 
+class TestAVersaoQueOAppRePORTA(unittest.TestCase):
+    """O `/healthz` diz a versão do pacote INSTALADO, e ela sai deste arquivo.
+
+    ⚠ A pergunta "isto que estou vendo é o conserto de ontem?" não tinha resposta, e sem resposta
+    um app velho e um conserto que não funcionou são indistinguíveis — que é a mesma fronteira da
+    tag `v4`, e custou uma sessão inteira de investigação. O `--version` do CI reescreve este campo
+    no manifesto empacotado, então o número aqui é o número publicado.
+    """
+
+    def test_o_manifesto_esta_onde_o_main_o_procura(self):
+        # `main.py` lê `os.path.join(<backend>, "..", "vssh-app.json")`. Mover um dos dois faz o
+        # `/healthz` reportar `?` para sempre, sem erro nenhum — e é exatamente nesse momento que
+        # alguém precisaria dele.
+        do_main = os.path.join(_AQUI, "..", "backend", "..", "vssh-app.json")
+        self.assertTrue(os.path.isfile(do_main), do_main)
+
+    def test_a_version_tem_a_forma_que_o_CI_reescreve(self):
+        # O `publish-apps.yml` deriva `<maior>.<menor>.<contagem de commits>` do que está aqui, e
+        # recusa a publicação se o começo não casar `\d+\.\d+`.
+        self.assertRegex(MANIFESTO.get("version", ""), r"^\d+\.\d+(\.|$)")
+
+
 class TestOQueOAmbienteVaiMandar(unittest.TestCase):
     def test_o_manifesto_e_o_codigo_abrem_as_MESMAS_extensoes(self):
         # ⚠ A divergência é silenciosa nos dois sentidos, e as duas doem:

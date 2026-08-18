@@ -98,6 +98,20 @@ function montarPalco() {
   let aleatorio = false;
   let filtro = '';
 
+  // ── O idioma de quem assiste ────────────────────────────────────────────
+  //
+  // ⚠ **Sem isto o YouTube devolve o título TRADUZIDO**, e não uma interface em inglês. O yt-dlp
+  // fixa `hl: "en"` quando ninguém diz o contrário; medido buscando "receita de bolo", os mesmos
+  // vídeos brasileiros voltam como "I MADE IT IN 4 MINUTES!! THE SIMPLEEST AND CHEAPEST CAKE".
+  // Quem busca em português recebe uma grade em inglês macarrônico e conclui que o app procurou
+  // no lugar errado.
+  //
+  // ⚠ E o valor vai CRU de propósito: `navigator.language` devolve `pt-BR`, que o YouTube **não
+  // aceita** — quem negocia (`pt-BR` → `pt`) é o servidor, contra a lista que mora dentro do
+  // yt-dlp e muda com ele. Traduzir aqui congelaria uma cópia dessa lista no navegador.
+  const IDIOMA = navigator.language || '';
+  const comIdioma = (rota) => (IDIOMA ? `${rota}&hl=${encodeURIComponent(IDIOMA)}` : rota);
+
   const api = (rota, opts) => fetch(rota, opts).then((r) => {
     if (!r.ok) throw new Error(`${rota}: ${r.status}`);
     return r.json();
@@ -338,7 +352,7 @@ function montarPalco() {
 
     let r;
     try {
-      r = await api(`api/yt/abrir?url=${encodeURIComponent(url)}`);
+      r = await api(comIdioma(`api/yt/abrir?url=${encodeURIComponent(url)}`));
     } catch (e) {
       if (minha !== geracao) return;
       mostrarPreparando(false);
@@ -350,9 +364,6 @@ function montarPalco() {
     }
     if (minha !== geracao) return;
 
-    // ⚠ `!r` faz parte da guarda, e não é paranoia: um corpo `null` é JSON válido, então o `fetch`
-    // resolve, o `.json()` resolve, e a linha seguinte levanta `TypeError` sem que nada tenha
-    // "falhado" — a pessoa fica com o spinner e o link some. Custou um teste que media nada.
     // ⚠ `!r` faz parte da guarda, e não é paranoia: um corpo `null` é JSON válido, então o `fetch`
     // resolve, o `.json()` resolve, e a linha seguinte levanta `TypeError` sem que nada tenha
     // "falhado" — a pessoa fica com o spinner e o link some. Custou um teste que media nada.
@@ -394,6 +405,18 @@ function montarPalco() {
     $('agora-nome').textContent = r.titulo;
     document.title = `${r.titulo} — Palco`;
 
+    // ⚠ **A URL do manifesto vai ABSOLUTA, e é o dash.js quem obriga.** Ele resolve o `<BaseURL>`
+    // contra o endereço do MANIFESTO e propaga o que recebeu: dando-lhe uma URL relativa, todo
+    // segmento fica relativo também, e aí o CMCD faz `new URL(<relativa>)` a cada resposta e
+    // registra `Failed to construct 'URL': Invalid URL` no console — uma linha por segmento,
+    // enterrando qualquer erro de verdade que apareça no meio.
+    //
+    // ⚠ `document.baseURI`, e não `location.href` com um caminho qualquer: o app é servido sob
+    // `/<serverId>/proxy/app/palco/`, e é essa base — a mesma que resolve todo `fetch` relativo
+    // deste arquivo — que tem de valer aqui. Foi uma barra a mais que já custou uma reprodução
+    // inteira (`/api/yt/mpd`) e uma barra a menos que custou outra (`api/yt/api/yt/bytes`).
+    const manifesto = new URL(r.mpd, document.baseURI).href;
+
     dashPlayer = dashjs.MediaPlayer().create();
     // ⚠ **Sem este ouvinte a tela fica presa em "Preparando" para sempre**, e o defeito só apareceu
     // ao investigar por que uma mutação não mordia. Quem esconde a faixa no caminho normal são os
@@ -429,7 +452,7 @@ function montarPalco() {
           mostrarPreparando(false);
           avisar(`A reprodução deste vídeo do YouTube falhou${m2 ? ` (${m2})` : ''}.`);
         });
-        dashPlayer.initialize(video, r.mpd, true);
+        dashPlayer.initialize(video, manifesto, true);
         if (onde > 0) dashPlayer.seek(onde);
         return;
       }
@@ -437,10 +460,16 @@ function montarPalco() {
       mostrarPreparando(false);
       avisar(`A reprodução deste vídeo do YouTube falhou${msg ? ` (${msg})` : ''}.`);
     });
-    dashPlayer.initialize(video, r.mpd, true);
-    if (r.t) dashPlayer.seek(r.t);
+    dashPlayer.initialize(video, manifesto, true);
 
-    mostrarRetomar(0);
+    // ⚠ O `&t=` do link GANHA da marca, e a ordem não é arbitrária: quem compartilhou "o vídeo a
+    // partir dos 4:12" está dizendo onde começar, e sobrepor isso com "onde EU parei" ignoraria o
+    // pedido de quem mandou o link — sem nada na tela explicando por que ele caiu noutro lugar.
+    const de = o.doInicio ? 0 : (r.t || r.retomarEm || 0);
+    if (de) dashPlayer.seek(de);
+
+    aplicarLegendasDoYoutube(r);
+    mostrarRetomar(o.doInicio || r.t ? 0 : r.retomarEm);
     porMediaSession({ nome: r.titulo, origem: r.canal });
     // ⚠ **Declarar é obrigatório aqui, e não cortesia.** A fonte deste `<video>` é um `blob:` do
     // MediaSource — não há nome de arquivo em URL nenhuma para o ambiente ler. Sem esta linha a
@@ -490,7 +519,7 @@ function montarPalco() {
   async function carregarFila(lista, videoAtual, minha) {
     const url = `https://www.youtube.com/playlist?list=${lista}`;
     try {
-      const r = await api(`api/yt/listar?url=${encodeURIComponent(url)}`);
+      const r = await api(comIdioma(`api/yt/listar?url=${encodeURIComponent(url)}`));
       if (minha !== geracao) return;
       $('bib-pasta').textContent = r.titulo || 'Playlist';
       porFila((r.itens || []).map((i) => ({ nome: i.titulo, videoId: i.id })), videoAtual, minha);
@@ -542,9 +571,42 @@ function montarPalco() {
     for (const t of video.textTracks) t.mode = 'disabled';
   }
 
+  /**
+   * As legendas de um vídeo do YouTube — mesmo `<track>`, mesma lista, mesmo menu.
+   *
+   * ⚠ **A URL não pode ser a do YouTube**, e não é uma escolha: `<track>` é sujeito à mesma origem
+   * e o host das legendas não responde CORS. Ela vem pelo nosso servidor, como todo o resto.
+   *
+   * ⚠ E o `<track>` entra DEPOIS do `initialize` do dash.js. Ele é filho do mesmo `<video>` que o
+   * dash.js está montando, e acrescentar filhos a um elemento no meio de uma troca de fonte é
+   * pedir para descobrir a ordem por acidente.
+   */
+  function aplicarLegendasDoYoutube(r) {
+    for (const t of [...video.querySelectorAll('track')]) t.remove();
+    for (const l of r.legendas || []) {
+      const t = document.createElement('track');
+      t.kind = 'subtitles';
+      // O `(automática)` no rótulo é o que permite decidir: legenda automática de fala espontânea
+      // erra nomes próprios e pontuação, e sem a marca a escolha entre "Português" e "Português"
+      // seria no escuro.
+      const nome = l.nome || nomeDeIdioma(l.idioma) || l.idioma;
+      t.label = l.automatica ? `${nome} (automática)` : nome;
+      if (l.idioma) t.srclang = l.idioma;
+      t.src = `api/yt/legenda?v=${encodeURIComponent(r.id)}`
+            + `&idioma=${encodeURIComponent(l.idioma)}${l.automatica ? '&auto=1' : ''}`;
+      video.appendChild(t);
+    }
+    for (const t of video.textTracks) t.mode = 'disabled';
+  }
+
+  // Os de TRÊS letras vêm do ffmpeg (arquivo local); os de DUAS, do YouTube. Os dois idiomas de
+  // código convivem porque as duas origens convivem no mesmo menu.
   const IDIOMAS = { por: 'Português', pob: 'Português (BR)', eng: 'Inglês', spa: 'Espanhol',
                     fra: 'Francês', fre: 'Francês', deu: 'Alemão', ger: 'Alemão', ita: 'Italiano',
-                    jpn: 'Japonês', kor: 'Coreano', rus: 'Russo', zho: 'Chinês', chi: 'Chinês' };
+                    jpn: 'Japonês', kor: 'Coreano', rus: 'Russo', zho: 'Chinês', chi: 'Chinês',
+                    pt: 'Português', 'pt-br': 'Português (BR)', 'pt-pt': 'Português (PT)',
+                    en: 'Inglês', es: 'Espanhol', fr: 'Francês', de: 'Alemão', it: 'Italiano',
+                    ja: 'Japonês', ko: 'Coreano', ru: 'Russo', zh: 'Chinês' };
   const nomeDeIdioma = (c) => (c ? (IDIOMAS[c.toLowerCase()] || c.toUpperCase()) : null);
 
   function rotuloDeFaixa(f) {
@@ -628,10 +690,26 @@ function montarPalco() {
   // A cada 15 s e ao pausar/sair. ⚠ `visibilitychange` e não `unload`: num iframe de desktop a
   // janela fecha sem passar por `unload` de forma confiável, e a marca do último trecho some.
 
+  /**
+   * Sob que nome este vídeo é lembrado — o caminho do arquivo, ou o id do vídeo do YouTube.
+   *
+   * ⚠ **Isto respondia 400 quinze em quinze segundos durante toda reprodução do YouTube.** No DASH
+   * `atual.caminho` é `null` — não existe arquivo —, e o `null` ia no corpo assim mesmo. O único
+   * sinal era uma linha vermelha no console de quem tivesse as ferramentas do navegador abertas;
+   * na tela, nada. E o efeito colateral era o recurso inteiro faltando: um vídeo longo do YouTube
+   * nunca lembrava onde a pessoa parou.
+   */
+  function chaveDaMarca() {
+    if (!atual) return null;
+    if (atual.caminho) return atual.caminho;
+    return atual.youtube?.id ? `yt:${atual.youtube.id}` : null;
+  }
+
   function marcar() {
-    if (!atual || !video.duration) return;
+    const chave = chaveDaMarca();
+    if (!chave || !video.duration) return;
     navigator.sendBeacon?.('api/marca', new Blob([JSON.stringify({
-      caminho: atual.caminho, seg: Math.floor(agoraReal()), dur: duracaoReal(),
+      caminho: chave, seg: Math.floor(agoraReal()), dur: duracaoReal(),
     })], { type: 'application/json' }));
   }
   setInterval(marcar, 15000);
@@ -699,11 +777,63 @@ function montarPalco() {
     },
     ferramentas: () => [
       { id: 'info', label: 'Informações do arquivo', disabled: !atual },
-      { id: 'mostrar', label: 'Mostrar no gerenciador de arquivos', disabled: !atual },
+      // ⚠ `atual.caminho`, e não `atual`: um vídeo do YouTube não tem arquivo, e o item habilitado
+      // levava um `TypeError` sobre `null.replace` — o menu fechava e nada acontecia.
+      { id: 'mostrar', label: 'Mostrar no gerenciador de arquivos', disabled: !atual?.caminho },
       { separator: true },
       { id: 'esquecer', label: 'Esquecer onde parei', disabled: !atual },
+      { separator: true },
+      { id: 'yt-atualizar', label: 'Atualizar o yt-dlp' },
+      { id: 'sobre', label: 'Sobre o Palco' },
     ],
   };
+
+  /**
+   * Baixa o yt-dlp mais novo e o põe em uso, sem reabrir o app.
+   *
+   * ⚠ **É o que impede o Palco de funcionar por um mês e depois parar.** O YouTube quebra extractor
+   * toda semana, e o `pip install` da instalação congela a versão; sem esta saída, a única resposta
+   * para "parou de abrir vídeo" seria entrar no servidor como root.
+   *
+   * A frase final diz a VERSÃO, e não "pronto": quando o extractor já estava atualizado, o conserto
+   * é outro, e um "pronto" mandaria a pessoa procurar o defeito no lugar errado.
+   */
+  async function atualizarYtdlp() {
+    mostrarPreparando(true, 'Atualizando o yt-dlp…');
+    try {
+      const r = await api('api/yt/atualizar', { method: 'POST' });
+      avisar(r.mudou ? `yt-dlp atualizado: ${r.antes || 'ausente'} → ${r.versao}.`
+                     : `O yt-dlp já estava na versão mais nova (${r.versao}).`);
+    } catch (e) {
+      avisar(`Não consegui atualizar o yt-dlp${e.corpo?.detalhe ? ` (${e.corpo.detalhe})` : ''}.`);
+    } finally {
+      mostrarPreparando(false);
+    }
+  }
+
+  /**
+   * Que versão está rodando — do app, do extractor e do idioma escolhido.
+   *
+   * ⚠ **Existe porque a pergunta não tinha resposta, e sem ela um app velho e um conserto que não
+   * funcionou são indistinguíveis.** Foi exatamente o que aconteceu: um relato de "a thumbnail
+   * ainda não aparece e a lista ainda mostra só a primeira página" descrevia com precisão o
+   * comportamento de uma versão anterior à do conserto — e não havia como distinguir isso de um
+   * conserto que não pegou, a não ser entrando no servidor.
+   *
+   * É a mesma fronteira da tag `v4`: o que roda no servidor é outro arquivo do que está no disco
+   * de quem escreve, e ninguém percorre as duas pontas.
+   */
+  async function sobre() {
+    let texto = 'Não consegui falar com o servidor do Palco.';
+    try {
+      const r = await fetch('healthz');
+      texto = (await r.text()).trim();
+    } catch { /* fica a frase de cima */ }
+    // O `healthz` é texto de linhas `chave: valor`. A primeira é o `ok` que o supervisor lê, e
+    // ela não diz nada a quem abriu este diálogo.
+    const linhas = texto.split('\n').filter((l) => l && l !== 'ok');
+    vssh.dialog.alert(linhas.join('\n') || texto, 'Sobre o Palco');
+  }
 
   // ⚠ Sete valores, com o 1× no meio. Ciclar num botão só exigia quatro cliques para chegar ao
   // vizinho e escondia quais são as opções — velocidade é coisa que se troca dezenas de vezes numa
@@ -735,10 +865,15 @@ function montarPalco() {
       info: informacoes,
       mostrar: () => atual && vssh.openFolder(atual.caminho.replace(/[^/\\]+$/, '')),
       esquecer: () => {
-        if (!atual) return;
-        fetch(`api/marca?caminho=${encodeURIComponent(atual.caminho)}`, { method: 'DELETE' });
+        // A MESMA chave de `marcar()`. Duas formas de nomear a mesma coisa dariam um "esquecer"
+        // que apaga uma entrada que ninguém gravou, deixando a de verdade no lugar.
+        const chave = chaveDaMarca();
+        if (!chave) return;
+        fetch(`api/marca?caminho=${encodeURIComponent(chave)}`, { method: 'DELETE' });
         $('retomar').hidden = true;
       },
+      'yt-atualizar': atualizarYtdlp,
+      sobre,
     };
     (acoes[id] || (() => {}))();
   }
@@ -1083,7 +1218,7 @@ function montarPalco() {
   // ⚠ Ela recebe o Palco por parâmetro, e não o contrário: quem toca é o player que já existe, e a
   // aba só sabe pedir. Sem essa direção seriam dois donos do mesmo `<video>` — que é exatamente o
   // desenho que faz um "app com YouTube dentro" virar dois apps colados.
-  const yt = window.montarYoutube ? montarYoutube({ abrirYoutube, irPara }) : null;
+  const yt = window.montarYoutube ? montarYoutube({ abrirYoutube, irPara, comIdioma }) : null;
 
   porRepetir('nao');
   velocidade(1);

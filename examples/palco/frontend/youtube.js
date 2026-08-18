@@ -23,6 +23,8 @@
  * Reproduzindo. É a diferença entre um miniapp e dois apps colados.
  */
 function montarYoutube(palco) {
+  // O ajudante vem do `palco.js` — a regra do idioma mora num lugar só.
+  const comIdioma = palco.comIdioma || ((rota) => rota);
   'use strict';
 
   const $ = (id) => document.getElementById(id);
@@ -179,7 +181,7 @@ function montarYoutube(palco) {
 
     let r;
     try {
-      r = await api(`api/yt/listar?url=${encodeURIComponent(url)}`);
+      r = await api(comIdioma(`api/yt/listar?url=${encodeURIComponent(url)}`));
     } catch (e) {
       if (minha !== consulta) return;
       // ⚠ A frase vem do servidor quando ele soube dizer o que houve — e ele distingue "este canal
@@ -222,7 +224,7 @@ function montarYoutube(palco) {
     let r;
     try {
       const proxima = p.de + POR_PAGINA;
-      r = await api(`api/yt/listar?url=${encodeURIComponent(p.url)}&de=${proxima}`);
+      r = await api(comIdioma(`api/yt/listar?url=${encodeURIComponent(p.url)}&de=${proxima}`));
     } catch {
       // ⚠ Silêncio, e uma porta que não fecha: uma falha ao buscar MAIS não é uma falha do que já
       // está na tela. Trocar a grade cheia por uma mensagem de erro perderia os trinta resultados

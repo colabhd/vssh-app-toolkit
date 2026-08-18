@@ -134,23 +134,43 @@ def metadados(info):
     }
 
 
-def legendas_de(info, idiomas=None):
+# O `<track>` do navegador lê VTT e mais nada. O YouTube oferece sete formatos por idioma e o VTT
+# é o ÚLTIMO deles — ver `_FORMATOS`, abaixo, para por que essa ordem importa tanto.
+_FORMATOS = ("vtt",)
+
+
+def _mesma_lingua(a, b):
+    """`pt` casa com `pt-BR`, e `pt` não casa com `pl`."""
+    return str(a).lower().split("-")[0] == str(b).lower().split("-")[0]
+
+
+def legendas_de(info, auto_em=None):
     """As faixas de legenda oferecíveis, as manuais antes das automáticas.
 
     ⚠ A ordem não é estética. Legenda automática de fala espontânea erra nomes próprios e pontuação;
     quando existe a manual, ela é outra qualidade de texto. Oferecer as duas misturadas faria a
     pessoa escolher no escuro entre "Português" e "Português", e o `auto` no rótulo é o que permite
     decidir.
+
+    ⚠ **`auto_em` não é filtro opcional, é o que torna o menu utilizável.** Medido em dois vídeos
+    quaisquer: `automatic_captions` traz **157 idiomas**. Sem recorte, o menu Legenda ganharia 157
+    entradas e o `<video>` 157 elementos `<track>` — e a legenda que a pessoa quer, a do idioma
+    dela, ficaria perdida no meio. As manuais passam todas: são as que alguém escreveu de
+    propósito, e um vídeo bem legendado tem dezenas, não centenas.
+
+    ⚠ **E o formato é `vtt` e SÓ ele.** A lista do YouTube vem
+    `['json3','srv1','srv2','srv3','ttml','srt','vtt']` — com o `srt` ANTES do `vtt` — então um
+    `ext in ("vtt","srt")` escolhe sempre o SRT. A rota o serviria como `text/vtt`, o navegador não
+    parsearia nada, e o efeito na tela seria uma legenda que aparece no menu, liga, e não escreve
+    uma palavra: a forma mais cara de falhar que existe, porque não deixa erro em lugar nenhum.
     """
     info = info or {}
     saida = []
     for chave, automatica in (("subtitles", False), ("automatic_captions", True)):
         for lang, faixas in (info.get(chave) or {}).items():
-            if idiomas and lang not in idiomas:
+            if automatica and not (auto_em and any(_mesma_lingua(lang, x) for x in auto_em)):
                 continue
-            # Só as que já são texto temporizado. O yt-dlp oferece `json3`, `srv1`… e converter
-            # cada formato seria trabalho para chegar ao mesmo VTT que ele entrega direto.
-            f = next((x for x in faixas if x.get("ext") in ("vtt", "srt")), None)
+            f = next((x for x in (faixas or []) if x.get("ext") in _FORMATOS), None)
             if not f:
                 continue
             saida.append({
@@ -219,7 +239,7 @@ class Resolvedor:
     """
 
     def __init__(self, extrair, ler_cabecalho, listar=None, agora=time.time,
-                 paralelas=_PARALELAS):
+                 paralelas=_PARALELAS, idioma=None):
         self._extrair = extrair
         self._ler = ler_cabecalho
         # ⚠ Listar é uma terceira função, e não o mesmo `extrair` com outra opção: as duas chamadas
@@ -228,6 +248,9 @@ class Resolvedor:
         # para 8. Uma função só, com um parâmetro de modo, esconderia isso de quem lê a chamada.
         self._listar = listar
         self._agora = agora
+        # O idioma de quem assiste, já negociado. Ele decide UMA coisa aqui — de que idiomas as
+        # legendas automáticas são oferecidas —, e o resto do efeito dele mora no `Mundo`.
+        self._idioma = idioma or None
         self._paralelas = max(1, int(paralelas))
         self._resolucoes = {}   # vid → Resolucao (morre com o `expire` da URL)
         self._ranges = {}       # (vid, itag) → Ranges (não morre: é do arquivo)
@@ -284,7 +307,10 @@ class Resolvedor:
             trilhas=trilhas,
             urls={str(f["format_id"]): f["url"] for f in formatos if f.get("url")},
             cabecalhos={str(f["format_id"]): (f.get("http_headers") or {}) for f in formatos},
-            legendas=legendas_de(info),
+            # A do idioma de quem assiste, mais a original do vídeo — que é a que existe quando o
+            # canal não legendou nada e é o caso mais comum de todos.
+            legendas=legendas_de(info, auto_em={x for x in (self._idioma,
+                                                            info.get("language")) if x}),
             expira=expira,
         )
         self._resolucoes[vid] = r

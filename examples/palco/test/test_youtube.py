@@ -124,21 +124,70 @@ class TestOsMetadados(unittest.TestCase):
 
 
 class TestAsLegendas(unittest.TestCase):
+    # ⚠ A ORDEM dos formatos aqui é a que o YouTube devolve de verdade — medida em dois vídeos com
+    # legenda, idioma por idioma, e idêntica nos dois. Ela é o teste inteiro: um duble que
+    # colocasse o `vtt` primeiro aprovaria a escolha errada e não haveria como saber.
+    COMO_O_YOUTUBE_MANDA = ["json3", "srv1", "srv2", "srv3", "ttml", "srt", "vtt"]
+
+    def _faixas(self, nome=None):
+        return [{"ext": e, "name": nome, "url": f"https://x/{e}"}
+                for e in self.COMO_O_YOUTUBE_MANDA]
+
     def test_manual_antes_de_automatica(self):
         # Legenda automática de fala espontânea erra nomes próprios e pontuação. Misturadas, a
         # pessoa escolheria no escuro entre "Português" e "Português".
         info = {
-            "subtitles": {"pt": [{"ext": "vtt", "name": "Português"}]},
-            "automatic_captions": {"en": [{"ext": "vtt", "name": "English (auto)"}]},
+            "subtitles": {"pt": self._faixas("Português")},
+            "automatic_captions": {"en": self._faixas("English (auto)")},
         }
-        ls = legendas_de(info)
+        ls = legendas_de(info, auto_em={"en"})
         self.assertEqual([x["automatica"] for x in ls], [False, True])
         self.assertEqual(ls[0]["idioma"], "pt")
+
+    def test_o_formato_escolhido_e_VTT_e_nao_o_PRIMEIRO_que_serve(self):
+        # ⚠ Este é o defeito que a medição achou, e ele não deixa erro em lugar nenhum: com
+        # `ext in ("vtt", "srt")` a escolha cai no SRT, que vem antes na lista. A rota o serve como
+        # `text/vtt`, o navegador não parseia nada, e a legenda liga no menu sem escrever uma
+        # palavra na tela.
+        ls = legendas_de({"subtitles": {"pt": self._faixas()}})
+        self.assertEqual([x["ext"] for x in ls], ["vtt"])
+        self.assertEqual(ls[0]["url"], "https://x/vtt")
+
+    def test_so_SRT_disponivel_e_melhor_NAO_oferecer(self):
+        # Uma legenda que aparece e não escreve nada é pior que uma que não aparece: a segunda
+        # manda a pessoa procurar outra saída, a primeira a convence de que o player é quebrado.
+        self.assertEqual(legendas_de({"subtitles": {"pt": [{"ext": "srt"}]}}), [])
 
     def test_formato_que_nao_e_texto_temporizado_fica_de_fora(self):
         # `json3`/`srv1` exigiriam conversão para chegar ao mesmo VTT que o yt-dlp entrega direto.
         info = {"subtitles": {"pt": [{"ext": "json3"}, {"ext": "srv1"}]}}
         self.assertEqual(legendas_de(info), [])
+
+    # ── o recorte das automáticas ────────────────────────────────────────────
+
+    def test_as_automaticas_sao_CENTO_E_CINQUENTA_E_SETE_sem_recorte(self):
+        # ⚠ O número é medido, e é ele que transforma "filtro opcional" em requisito: 157 entradas
+        # no menu Legenda e 157 elementos `<track>` no `<video>`, com a única que interessa perdida
+        # no meio. As manuais passam todas — quem escreveu legenda de propósito escreveu poucas.
+        muitas = {f"l{i}": [{"ext": "vtt"}] for i in range(157)}
+        self.assertEqual(len(legendas_de({"automatic_captions": muitas}, auto_em={"pt"})), 0)
+        self.assertEqual(len(legendas_de({"subtitles": muitas})), 157)
+
+    def test_a_automatica_do_idioma_de_quem_assiste_PASSA(self):
+        info = {"automatic_captions": {"pt": [{"ext": "vtt"}], "de": [{"ext": "vtt"}]}}
+        self.assertEqual([x["idioma"] for x in legendas_de(info, auto_em={"pt"})], ["pt"])
+
+    def test_pt_casa_com_ptBR_e_nao_com_pl(self):
+        # ⚠ O YouTube mistura as duas grafias entre os idiomas de `automatic_captions`, e uma
+        # comparação exata deixaria de fora exatamente a legenda que a pessoa pediu.
+        info = {"automatic_captions": {"pt-BR": [{"ext": "vtt"}], "pl": [{"ext": "vtt"}]}}
+        self.assertEqual([x["idioma"] for x in legendas_de(info, auto_em={"pt"})], ["pt-BR"])
+
+    def test_sem_idioma_nenhum_declarado_NAO_oferece_automatica(self):
+        # Sem saber o idioma de quem assiste, oferecer "alguma" seria sortear entre 157.
+        info = {"automatic_captions": {"pt": [{"ext": "vtt"}]}}
+        for vazio in (None, set(), {""}):
+            self.assertEqual(legendas_de(info, auto_em=vazio), [])
 
     def test_sem_legendas_devolve_lista_vazia_e_nao_None(self):
         self.assertEqual(legendas_de({}), [])
