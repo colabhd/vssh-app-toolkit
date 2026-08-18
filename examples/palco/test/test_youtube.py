@@ -430,15 +430,59 @@ class TestNenhumaUrlSAI_ABSOLUTA(unittest.TestCase):
         for b in bases:
             self.assertFalse(b.startswith("/"), f"{b!r} sai do prefixo do app")
 
-    def test_o_MAIN_monta_o_BaseURL_relativo(self):
+    def test_o_BaseURL_RESOLVIDO_cai_na_rota_de_bytes(self):
+        """⚠ **A regra que quase ninguém tem na cabeça, e ela custou a segunda tentativa.**
+
+        Um `<BaseURL>` relativo do DASH é resolvido contra a URL do **MANIFESTO**, não contra a da
+        página. O MPD é servido em `…/api/yt/mpd`, cujo diretório é `…/api/yt/` — então um
+        `api/yt/bytes` vira `…/api/yt/api/yt/bytes`, e todo segmento leva 404.
+
+        Medido em uso: o manifesto carregava, o player pedia dezoito segmentos, e todos voltavam
+        com o caminho duplicado no meio.
+
+        ⚠ E o teste tem de MEDIR A RESOLUÇÃO, não o texto: `"bytes?v=…"` e `"api/yt/bytes?v=…"` são
+        os dois relativos, os dois passam em qualquer conferência de "não começa com barra", e um
+        deles não funciona. Foi por isso que o portão anterior — que só olhava a barra inicial —
+        aprovou o valor errado.
+        """
+        import xml.etree.ElementTree as ET
+        from urllib.parse import urljoin
+
+        from dash import montar_mpd
+
+        # Exatamente onde a rota vive, com o prefixo do portal no meio.
+        URL_DO_MPD = ("https://vssh.exemplo.org/servidor01/proxy/app/palco"
+                      "/api/yt/mpd?v=3JyMN1ZWqQo")
+        ESPERADO = "https://vssh.exemplo.org/servidor01/proxy/app/palco/api/yt/bytes"
+
+        mundo = Mundo()
+        v = mundo.resolvedor().video("3JyMN1ZWqQo")
+        raiz = ET.fromstring(montar_mpd(v.duracao, v.trilhas, "bytes?v=3JyMN1ZWqQo&f="))
+        ns = {"m": "urn:mpeg:dash:schema:mpd:2011"}
+        bases = [b.text for b in raiz.findall(".//m:BaseURL", ns)]
+        self.assertGreaterEqual(len(bases), 15, "o piso caiu: o manifesto ficou sem BaseURL")
+        for b in bases:
+            resolvida = urljoin(URL_DO_MPD, b)
+            self.assertTrue(resolvida.startswith(ESPERADO + "?"),
+                            f"{b!r} resolve para {resolvida!r}, e não para a rota de bytes")
+
+    def test_o_MAIN_monta_o_BaseURL_com_o_valor_que_RESOLVE(self):
         # ⚠ O teste acima passa o prefixo à mão — mede o gerador, não quem o chama. Este lê a
         # linha do `main.py`, que é onde o valor de verdade é escolhido, e é onde ele estava errado.
         with open(os.path.join(AQUI, "..", "backend", "main.py"), encoding="utf-8") as fh:
             fonte = fh.read()
         chamadas = re.findall(r"montar_mpd\([^)]*?f\"([^\"]+)\"", fonte)
         self.assertEqual(len(chamadas), 1, f"esperava uma chamada a montar_mpd, achei {chamadas}")
-        self.assertFalse(chamadas[0].startswith("/"),
-                         f"o main.py monta o BaseURL como {chamadas[0]!r} — sai do prefixo")
+        valor = chamadas[0]
+        self.assertFalse(valor.startswith("/"),
+                         f"o main.py monta o BaseURL como {valor!r} — sai do prefixo do app")
+        # ⚠ E a segunda metade, que a primeira versão não tinha: relativo NÃO basta. O MPD mora em
+        # `…/api/yt/mpd`, então o BaseURL é resolvido a partir de `…/api/yt/` — e repetir o
+        # `api/yt/` ali duplica o caminho. As duas rotas são irmãs; o valor tem de dizer isso.
+        from urllib.parse import urljoin
+        resolvida = urljoin("https://h/pre/app/api/yt/mpd?v=X", valor.replace("{vid}", "X") + "134")
+        self.assertEqual(resolvida, "https://h/pre/app/api/yt/bytes?v=X&f=134",
+                         f"o main.py monta {valor!r}, que resolve para {resolvida!r}")
 
 
 class TestOMPDDoFimAoFim(unittest.TestCase):

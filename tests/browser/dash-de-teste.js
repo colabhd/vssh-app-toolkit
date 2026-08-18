@@ -55,11 +55,17 @@ const TRILHAS = [
  * Monta os fMP4 e o MPD.
  *
  * `baseUrl` é o prefixo que o `BaseURL` de cada representação recebe, com o itag concatenado —
- * `'/bytes/'` vira `<BaseURL>/bytes/134</BaseURL>`.
+ * `'bytes?f='` vira `<BaseURL>bytes?f=134</BaseURL>`.
+ *
+ * ⚠ **O padrão é RELATIVO de propósito, e quem chama tem de servir o MPD no caminho real.** Um
+ * `<BaseURL>` do DASH é resolvido contra a URL do MANIFESTO, não contra a da página — e a primeira
+ * versão desta bancada servia o MPD em `/manifesto.mpd`, na raiz, onde qualquer valor resolve
+ * certo por acaso. O backend servia em `…/api/yt/mpd`, e ali o mesmo texto duplicava o caminho.
+ * Mais uma vez: o duble não vinha do código.
  *
  * Devolve `{ dir, mpd, duracao, itags, servirBytes(req,res,itag), limpar() }`.
  */
-function montar(baseUrl = '/bytes/') {
+function montar(baseUrl = 'bytes?f=') {
   const motivo = motivoDoSkip();
   if (motivo) throw new Error(motivo);
 

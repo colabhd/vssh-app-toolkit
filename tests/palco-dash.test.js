@@ -102,7 +102,7 @@ for f in json.load(sys.stdin):
     ranges[f["format_id"]] = r
     formatos.append(f)
 trilhas = escolher_formatos(formatos, ranges)
-sys.stdout.write(montar_mpd(${DURACAO}, trilhas, "/bytes/"))
+sys.stdout.write(montar_mpd(${DURACAO}, trilhas, "bytes?f="))
 `;
   const r = spawnSync(PY, ['-c', script], { input: JSON.stringify(arquivos), encoding: 'utf8' });
   assert.equal(r.status, 0, `o gerador de MPD falhou:\n${r.stderr}`);
@@ -143,15 +143,16 @@ before(async () => {
   const http = require('node:http');
   servidor = http.createServer((req, res) => {
     const u = new URL(req.url, 'http://x');
-    pedidos.push({ caminho: u.pathname, range: req.headers.range || null });
+    pedidos.push({ caminho: u.pathname, itag: u.searchParams.get('f'),
+                   range: req.headers.range || null });
 
-    if (u.pathname === '/manifesto.mpd') {
+    if (u.pathname === '/api/yt/mpd') {
       res.writeHead(200, { 'content-type': 'application/dash+xml' });
       return res.end(mpd);
     }
-    const m = u.pathname.match(/^\/bytes\/(\d+)$/);
+    const m = /^\/api\/yt\/bytes$/.test(u.pathname) && u.searchParams.get('f');
     if (m) {
-      const arq = path.join(dir, `${m[1]}.mp4`);
+      const arq = path.join(dir, `${m}.mp4`);
       if (!fs.existsSync(arq)) { res.writeHead(404); return res.end(); }
       const total = fs.statSync(arq).size;
       const faixa = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range || '');
@@ -213,7 +214,7 @@ async function tocar(alvoSegundos = 1.5) {
     const p = dashjs.MediaPlayer().create();
     p.updateSettings({ streaming: { abr: { autoSwitchBitrate: { video: false, audio: false } } } });
     p.on(dashjs.MediaPlayer.events.ERROR, (e) => erros.push(JSON.stringify(e.error || e)));
-    p.initialize(v, '/manifesto.mpd', true);
+    p.initialize(v, '/api/yt/mpd', true);
 
     const ate = Date.now() + 20000;
     while (Date.now() < ate) {
@@ -284,13 +285,12 @@ test('os ranges certos custam o mínimo: nenhum byte é pedido duas vezes', seNa
   // o índice, depois a inicialização, depois os dados. Sobreposição é retrabalho, sempre.
   const porTrilha = new Map();
   for (const p of pedidos) {
-    const m = p.caminho.match(/^\/bytes\/(\d+)$/);
-    if (!m || !p.range) continue;
+    if (p.caminho !== '/api/yt/bytes' || !p.itag || !p.range) continue;
     const f = /^bytes=(\d+)-(\d*)$/.exec(p.range);
     if (!f) continue;
     const faixa = [Number(f[1]), f[2] ? Number(f[2]) : Infinity];
-    if (!porTrilha.has(m[1])) porTrilha.set(m[1], []);
-    porTrilha.get(m[1]).push(faixa);
+    if (!porTrilha.has(p.itag)) porTrilha.set(p.itag, []);
+    porTrilha.get(p.itag).push(faixa);
   }
   assert.ok(porTrilha.size >= 2, `poucas trilhas pedidas: ${porTrilha.size}`);
 
@@ -311,7 +311,7 @@ test('os ranges certos custam o mínimo: nenhum byte é pedido duas vezes', seNa
 test('ele pede os ranges que o manifesto declara, e não o arquivo inteiro', seNaoTem, () => {
   // ⚠ É a medida que separa "tocou" de "tocou pelo motivo certo". Um servidor que ignorasse o
   // Range faria o dash.js baixar tudo e funcionar por acidente — com todos os `indexRange` errados.
-  const bytes = pedidos.filter((p) => p.caminho.startsWith('/bytes/'));
+  const bytes = pedidos.filter((p) => p.caminho === '/api/yt/bytes');
   assert.ok(bytes.length >= 4, `poucos pedidos de mídia: ${bytes.length}`);
   const semRange = bytes.filter((p) => !p.range);
   assert.deepEqual(semRange, [], 'houve pedido de mídia sem Range — o SegmentBase não foi usado');
@@ -321,11 +321,10 @@ test('ele pede os ranges que o manifesto declara, e não o arquivo inteiro', seN
   for (const itag of ['133', '140']) {
     const rep = new RegExp(`<Representation id="${itag}"[\\s\\S]*?indexRange="(\\d+-\\d+)"`);
     const esperado = rep.exec(mpd)[1];
-    const pedidoDoIndice = bytes.some((p) => p.caminho === `/bytes/${itag}`
-      && p.range === `bytes=${esperado}`);
+    const pedidoDoIndice = bytes.some((p) => p.itag === itag && p.range === `bytes=${esperado}`);
     assert.ok(pedidoDoIndice,
       `ninguém pediu o índice ${esperado} de ${itag}. Pedidos: `
-      + JSON.stringify(bytes.filter((p) => p.caminho.endsWith(itag)).map((p) => p.range)));
+      + JSON.stringify(bytes.filter((p) => p.itag === itag).map((p) => p.range)));
   }
 });
 
@@ -342,7 +341,7 @@ test('o manifesto sobrevive a uma busca — o seek usa a tabela do sidx', seNaoT
     const erros = [];
     const p = dashjs.MediaPlayer().create();
     p.on(dashjs.MediaPlayer.events.ERROR, (e) => erros.push(JSON.stringify(e.error || e)));
-    p.initialize(v, '/manifesto.mpd', true);
+    p.initialize(v, '/api/yt/mpd', true);
     const espera = (ms) => new Promise((r) => setTimeout(r, ms));
     let ate = Date.now() + 15000;
     while (Date.now() < ate && v.currentTime < 0.5 && !erros.length) await espera(100);

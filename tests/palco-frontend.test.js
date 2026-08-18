@@ -545,7 +545,10 @@ const seNaoTemMidia = { skip: seNaoTem.skip || semMidia || false };
 
 before(() => {
   if (seNaoTemMidia.skip) return;
-  midia = dashDeTeste.montar('/api/yt/bytes?v=aaaaaaaaaaa&f=');
+  // ⚠ RELATIVO, como o backend monta. Um `/api/yt/bytes?…` absoluto resolveria certo em qualquer
+  // caminho e esconderia o defeito que a bancada existe para pegar: o `<BaseURL>` do DASH é
+  // resolvido contra a URL do MANIFESTO, e o MPD é servido em `…/api/yt/mpd`.
+  midia = dashDeTeste.montar('bytes?v=aaaaaaaaaaa&f=');
 });
 after(() => { if (midia) midia.limpar(); });
 

@@ -610,10 +610,15 @@ class Handler(BaseHTTPRequestHandler):
         # ⚠ O `BaseURL` aponta para NÓS, e é obrigatório: a URL do googlevideo é presa ao IP de quem
         # a pediu (o servidor) e o host não responde CORS — o preflight de `Range` leva 400. Ver o
         # cabeçalho de `dash.py`, onde as duas medidas estão escritas.
-        # ⚠ Relativa, pelo mesmo motivo do `mpd` em `youtube.py` — e aqui o efeito seria pior: o
-        # manifesto carregaria e NENHUM segmento baixaria, que na tela é um vídeo eternamente
-        # "carregando" em vez de um erro.
-        corpo = montar_mpd(v.duracao, v.trilhas, f"api/yt/bytes?v={vid}&f=").encode("utf-8")
+        # ⚠ **`bytes?…`, e NÃO `api/yt/bytes?…`** — e a diferença é a regra que quase ninguém tem na
+        # cabeça: um `<BaseURL>` relativo do DASH é resolvido contra a URL do MANIFESTO, não contra
+        # a da página. Esta rota é servida em `…/api/yt/mpd`, cujo diretório é `…/api/yt/`, então
+        # um `api/yt/bytes` vira `…/api/yt/api/yt/bytes` e todo segmento leva 404.
+        #
+        # As duas rotas são irmãs, e é exatamente isso que o valor diz: "o `bytes` ao lado do
+        # `mpd`". Foi medido em uso — o manifesto carregava, o player pedia dezoito segmentos, e
+        # todos voltavam 404 com o caminho duplicado no meio.
+        corpo = montar_mpd(v.duracao, v.trilhas, f"bytes?v={vid}&f=").encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/dash+xml")
         self.send_header("Content-Length", str(len(corpo)))
