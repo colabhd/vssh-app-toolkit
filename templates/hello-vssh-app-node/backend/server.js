@@ -39,7 +39,7 @@ const { setTray, clearTray, clearTrayOnExit } = require('vssh-app-toolkit/tray')
 const { createAppFs, createFsHandler } = require('vssh-app-toolkit/fs');
 
 // Onde este backend escuta é decisão do lifecycle, não deste arquivo: socket unix em
-// $VSSH_APP_SOCKET (o padrão desde a Onda 9) ou TCP em $VSSH_APP_PORT. Quem lê as duas variáveis,
+// $VSSH_APP_SOCKET. Quem lê a variável,
 // limpa socket órfão e falha alto quando não veio nenhuma é o `escutar()`, lá no fim.
 //
 // Base só para PARSING de URL relativa. Ela era `http://127.0.0.1:${PORT}` e isso amarrava o
@@ -336,7 +336,7 @@ function segredo() {
  * caso que a versão anterior já cobria e o único. VAAPI atravessa Intel, AMD e NVIDIA, e roda
  * contra o render node do DRM — o mesmo caminho genérico que a descoberta usa. E `ffmpeg` é um
  * pacote, não um SDK: por isso este template o DECLARA em `requiredPackages`, e o ambiente confere
- * antes de instalar. As três metades da Onda 4 se encontram aqui.
+ * antes de instalar.
  *
  * **O número útil é a RAZÃO.** "180 fps" sozinho não diz nada — depende do vídeo, do preset, da
  * máquina. O mesmo trabalho em CPU e em GPU, medido em seguida, responde a pergunta que se tem de
@@ -526,7 +526,7 @@ const server = http.createServer(async (req, res) => {
 
   try {
     // O healthcheck é pollado pelo lifecycle do portal DIRETO na porta, até 15x/1s, bloqueando o
-    // clique de "abrir app". Desde a Onda 4 a sondagem vai COM o X-Vssh-App-Token, então gatear
+    // clique de "abrir app". A sondagem vai COM o X-Vssh-App-Token, então gatear
     // esta rota seria permitido — o comentário anterior aqui dizia que isentá-la era obrigatório,
     // e isso estava errado. Ela fica isenta por outro motivo, que continua valendo: responde `ok`
     // sem tocar em nada, e assim o healthcheck não depende do token estar certo para dizer se o

@@ -119,12 +119,57 @@ test('todo botão de ícone tem nome acessível', () => {
     + 'tela ouve só "botão"');
 });
 
-test('o tooltip por atributo é exercitado', () => {
-  // Ele não é classe, então escapa dos dois testes acima — e é justamente a peça que NÃO existe no
-  // shell, ou seja, a que menos gente vai reparar se sumir.
-  const css = semComentarios(ler(path.join(TUFF, 'tuff.css')));
-  assert.match(css, /\[data-tuff-dica\]/, 'o tooltip saiu da biblioteca');
-  assert.match(ler(CATALOGO), /data-tuff-dica="/, 'o catálogo não exercita o tooltip');
+test('todo gancho `data-tuff-*` da biblioteca aparece no catálogo, e vice-versa', () => {
+  // Parte do vocabulário não é classe: o tooltip e as peças de mídia são achados por ATRIBUTO. Eles
+  // escapam dos dois testes acima e têm o mesmo modo de falha — um atributo que a folha não estiliza
+  // (ou que o catálogo não exercita) não faz nada e não avisa.
+  //
+  // A junção é sobre o conjunto, e não sobre um nome: renomear o gancho nos dois lados continua
+  // verde, apagá-lo de um só fica vermelho. É o que separa esta pergunta de "a linha X ainda está
+  // escrita?".
+  const declarados = new Set();
+  for (const nome of FOLHAS) {
+    for (const m of semComentarios(ler(path.join(TUFF, nome))).matchAll(/\[data-(tuff-[\w-]+)[\]=]/g)) {
+      declarados.add(m[1]);
+    }
+  }
+  // Um gancho é DECLARADO pela folha que o estiliza **ou** pelo script que o lê — as duas são
+  // formas de a biblioteca prometer que aquele atributo faz alguma coisa. O `[data-tuff-dica]` é o
+  // primeiro caso; os controles de mídia são o segundo, e nenhum deles tem regra de CSS própria.
+  for (const nome of ['tuff.js', 'tuff-midia.js']) {
+    const js = ler(path.join(TUFF, nome)).replace(/\/\/[^\n]*/g, '');
+    for (const m of js.matchAll(/data-(tuff-[\w-]+)/g)) declarados.add(m[1]);
+  }
+
+  // Sem exigir o `=`: um gancho booleano (`<button data-tuff-play>`) não tem valor, e cobrá-lo
+  // deixaria de fora exatamente os controles de mídia — que é o que este teste existe para alcançar.
+  const exercitados = new Set(
+    [...ler(CATALOGO).matchAll(/\bdata-(tuff-[\w-]+)/g)].map((m) => m[1]),
+  );
+
+  assert.ok(declarados.size >= 5,
+    `só ${declarados.size} ganchos lidos da biblioteca — o parser parou de enxergar a fonte`);
+
+  // A ÚNICA exceção, e ela é estrutural: o relógio tem duas formas mutuamente exclusivas.
+  // `data-tuff-tempo` escreve `15:47 / 41:37` num elemento só; o par `-atual`/`-total` escreve em
+  // dois. Um player demonstra uma ou outra, nunca as duas — então cobrar as três num catálogo é
+  // cobrar o impossível. A exceção some sozinha se o par sumir da biblioteca.
+  const FORMA_ALTERNATIVA = ['tuff-tempo-atual', 'tuff-tempo-total'];
+  for (const g of FORMA_ALTERNATIVA) {
+    assert.ok(declarados.has(g),
+      `'${g}' está isento aqui e não existe mais na biblioteca — a isenção virou autorização sem dono`);
+    assert.ok(declarados.has('tuff-tempo'),
+      'o par -atual/-total está isento por ser a forma ALTERNATIVA de `data-tuff-tempo`, e '
+      + '`data-tuff-tempo` sumiu — a isenção perdeu o argumento');
+    declarados.delete(g);
+  }
+
+  assert.deepEqual([...declarados].filter((g) => !exercitados.has(g)).sort(), [],
+    'a biblioteca promete ganchos que o catálogo não exercita: eles não podem ser conferidos '
+    + 'olhando, e o critério 3.3 se decide olhando');
+  assert.deepEqual([...exercitados].filter((g) => !declarados.has(g)).sort(), [],
+    'o catálogo usa ganchos `data-tuff-*` que a biblioteca não declara: o elemento nasce inerte, '
+    + 'sem erro nenhum');
 });
 
 test('os componentes leem tokens, e não cores escritas à mão', () => {

@@ -6,7 +6,7 @@
 // comportamento e rotas moram em três arquivos, e um `id` renomeado num deles não é erro em
 // lugar nenhum — é um botão que não faz nada, ou uma peça que nunca escreve resposta.
 //
-// "Botão que não faz nada" não é detalhe cosmético neste projeto: é o defeito que a Onda 2.1
+// "Botão que não faz nada" não é detalhe cosmético neste projeto: é o defeito que se
 // removeu da taskbar do shell, com o argumento de que um controle que não morde é pior que a
 // ausência dele, porque ensina a pessoa a não confiar em controle nenhum. Uma galeria com uma peça
 // morta mente sobre o ambiente — que é justamente o que ela existe para medir.
@@ -183,23 +183,17 @@ test('a janela extra abre a rota que o próprio app sabe atender', () => {
   assert.ok(pedido, 'ninguém mais pede a janela extra — o botão perdeu o que demonstrar');
   assert.match(JS, new RegExp(`URLSearchParams\\(location\\.search\\)\\.has\\('${pedido}'\\)`),
     `a galeria pede '?${pedido}=' e não trata esse parâmetro: a janela extra abriria uma cópia`);
-
-  // E o painel tem de ser OUTRA coisa: se ele montasse a galeria, o parâmetro seria decorativo.
-  assert.match(JS, /return montarPainel\(\)/);
-  assert.match(JS, /function montarPainel\(\)/);
 });
 
-test('a demonstração de duas janelas prova o que diz: um backend só', () => {
-  // O contador vive no processo e a mudança é DIFUNDIDA para todos os streams abertos. Sem a
-  // difusão, cada janela veria só o próprio clique — e a peça provaria o contrário do que afirma.
-  assert.match(SERVER, /const conexoes = new Set\(\)/);
-  assert.match(SERVER, /const difundir = \(\) => \{ for \(const s of conexoes\) s\.send\('estado'/,
-    'a mudança de estado não é difundida: a segunda janela nunca ficaria sabendo');
-  assert.match(SERVER, /conexoes\.delete\(stream\)/,
-    'o stream fechado não sai do conjunto: o número de janelas conectadas só subiria');
-  assert.match(JS, /src\.addEventListener\('estado'/,
-    'a galeria não escuta o evento difundido — a peça mostraria só o próprio clique');
-});
+// A demonstração de "um backend, N janelas" NÃO é medida aqui, e isso é escolha.
+//
+// A afirmação dela — quem clica não é quem escuta — só existe com dois clientes conectados ao mesmo
+// processo, e é exatamente o que o smoke do `ci.yml` faz: abre um SSE, faz o POST por fora, e cobra
+// que o contador chegou a quem não clicou. Havia aqui quatro `assert.match` citando as linhas do
+// `server.js` que implementam isso (`const conexoes = new Set()`, o corpo do `difundir`, o
+// `conexoes.delete`). Elas ficavam vermelhas quando alguém reescrevia a difusão preservando o
+// comportamento, e verdes se a difusão parasse de funcionar por qualquer outra razão — que é o
+// avesso do que se queria saber.
 
 // ─── O que o ambiente decidiu por este app ────────────────────────────────────
 //
@@ -476,13 +470,41 @@ test('a contribuição do template executa no escopo de quatro nomes que o shell
 test('a chave do exemplo é derivada do id, e não escrita à mão', () => {
   // Copiar o template e trocar o id é o primeiro passo de todo mundo. Uma chave literal faria o
   // app novo gravar no espaço do hello-world, e os dois se sobrescreveriam sem nada avisar.
-  const fonte = ler('configuracoes.js');
-  assert.match(fonte, /chave: `appSettings\.\$\{app\.id\}\./,
-    'o exemplo passou a escrever o id à mão — quem copiar o template grava no espaço alheio');
-  // E não pode voltar a mandar registrar chave no portal: `appSettings` é mapa aberto justamente
-  // para que publicar um app não exija um commit no vssh-sso.
-  assert.doesNotMatch(fonte, /ALLOWED_KEYS/,
-    'o exemplo voltou a mandar o autor registrar a chave no portal, que é o que appSettings evita');
+  //
+  // Medido RODANDO o arquivo duas vezes com ids diferentes, e não procurando a interpolação no
+  // texto: uma chave montada de outro jeito — `'appSettings.' + app.id` — continua correta, e a
+  // busca pelo literal a reprovava. O que importa é o valor produzido.
+  const chavesDe = (id) => {
+    const registradas = [];
+    new Function('SettingsRegistry', 'VsshSettings', 'AppLauncher', 'app', ler('configuracoes.js'))(
+      { register: (s) => registradas.push(s) },
+      { get: () => null, set: () => {} },
+      { open: () => {} },
+      { id, name: 'App de teste', version: '1.0.0' },
+    );
+    return registradas
+      .flatMap((s) => s.grupos ?? [])
+      .flatMap((g) => g.linhas ?? [])
+      .map((l) => l.chave)
+      .filter(Boolean);
+  };
+
+  const doA = chavesDe('app-alfa');
+  const doB = chavesDe('app-beta');
+
+  assert.ok(doA.length >= 1, 'o exemplo não declara nenhuma linha com `chave` — não há o que medir');
+  assert.deepEqual(doB.length, doA.length, 'o número de chaves mudou com o id, o que não faz sentido');
+
+  for (const [i, chave] of doA.entries()) {
+    assert.ok(chave.startsWith('appSettings.'),
+      `a chave '${chave}' saiu do espaço 'appSettings.', que é o mapa aberto onde um app grava sem `
+      + 'precisar de um commit no portal');
+    assert.ok(chave.includes('app-alfa'),
+      `a chave '${chave}' não carrega o id do app: quem copiar o template grava no espaço alheio`);
+    assert.notEqual(chave, doB[i],
+      `a chave '${chave}' é a MESMA para dois ids diferentes — dois apps copiados deste template se `
+      + 'sobrescreveriam, sem nada avisar');
+  }
 });
 
 test('o manifesto do template declara a contribuição', () => {

@@ -36,22 +36,22 @@ abaixo, o que costuma ser pedido:
 | Substituir um launcher embutido (terminal, editor, navegador…) | baixo | `handles` |
 | Preferências dentro da tela de Configurações do ambiente | baixo | `contributes.settings` |
 | Item no menu de contexto do ambiente (arquivo, pasta, área de trabalho) | baixo | `contributes.contextMenu` — ver [`api.md`](api.md#ter-item-próprio-no-menu-de-contexto-do-ambiente) |
-| Item no menu do ícone no Launchpad (jump list) | **não existe** | falta o segundo verbo, não a superfície — item 4 da [Onda 9](roadmap/08-editor-do-ambiente.md) |
+| Item no menu do ícone no Launchpad (jump list) | baixo | `contributes.contextMenu` com `superficie: "icone-do-app"` e `acao: "abrirRota"` — ver [`api.md`](api.md#ter-item-próprio-no-menu-de-contexto-do-ambiente) |
+| Ser aberto por um link de um site (`youtube.com/…`) | baixo | `opens.urls` |
+| Oferecer uma capacidade a outros apps | baixo | `provides: ["thumbnail/v1"]` |
 
-> **⚠ Duas linhas desta tabela estavam certas e ficaram erradas.** Ela dizia que
-> `contributes.settings` era *"o único mecanismo de contribuição completo que existe hoje"* e que
-> item de menu de contexto *"não existe"*. As duas eram verdade quando foram escritas; o item 4 da
-> Onda 9 acrescentou `contributes.contextMenu`, e o que continua sem existir é só a **jump list**
-> do ícone do Launchpad — por falta de um segundo verbo, e não da superfície.
+> **Contribuir é opt-in, e a tabela acima é a lista inteira.** Um app que não declara nada continua
+> funcionando — ele só não aparece em superfície nenhuma do ambiente além da própria janela. Os dois
+> templates declaram uma contribuição cada um, e é de lá que se copia a forma.
 
 **A regra que sai daí:** um app que respondeu "nada" à segunda pergunta não está pronto para ser
-portado — está pronto para ser **redesenhado**. É o mesmo formato do critério 3.2 em
-[`roadmap/criterios.md`](roadmap/criterios.md), e pela mesma razão.
+portado — está pronto para ser **redesenhado**. É o mesmo formato do critério 2 em
+[`decisoes/criterios-de-projeto.md`](decisoes/criterios-de-projeto.md), e pela mesma razão.
 
 ### 3. Ele vai *parecer* uma janela do ambiente? — decide o custo de **pertencer**
 
 > **⚠ Esta pergunta faltava nesta página, e a omissão tinha nome.** O critério 3.3
-> ([`roadmap/criterios.md`](roadmap/criterios.md#33--está-belo)) é condição de pronto — *"a promessa
+> ([`decisoes/criterios-de-projeto.md`](decisoes/criterios-de-projeto.md#3--está-belo)) é condição de pronto — *"a promessa
 > é que o usuário esqueça que está num navegador"* — e ele registra, com todas as letras, que
 > **nenhum vssh-app passava por ele**, porque *"vssh-app não é item de onda: é pacote publicado por
 > fora, e a única página que quem porta lê inteira é `porting.md`"*. Ou seja: o critério que existe
@@ -93,7 +93,7 @@ O que o modo web costuma pedir é acesso a arquivos — e é exatamente o que o 
 **sem o app rodar backend de filesystem nenhum**.
 
 > **⚠ E a coluna "IndexedDB" não é um ponto ganho — este texto a vendia como se fosse.** Pelo
-> critério 3.2 ([`roadmap/criterios.md`](roadmap/criterios.md#32--isso-sobrevive-à-troca-de-máquina)),
+> critério 2 ([`decisoes/criterios-de-projeto.md`](decisoes/criterios-de-projeto.md#2--isso-sobrevive-à-troca-de-máquina)),
 > **todo estado guardado no navegador é dívida**: quem troca de máquina perde. A leitura certa é que
 > o modo web te poupa de **implementar** persistência agora, não que a persistência esteja resolvida.
 > A verdade vai para o ambiente remoto; o que fica no navegador é cache reconstruível. Um port que
@@ -218,7 +218,7 @@ grep -rn "#\[tauri::command\]" src-tauri/ | wc -l
 
 ## Onde o backend do port escuta
 
-**Um vssh-app não escuta numa porta.** Desde a Onda 9 o endereço é um **socket unix** em
+**Um vssh-app não escuta numa porta.** O endereço é um **socket unix** em
 `$VSSH_APP_SOCKET` (`~/.vssh-apps/<id>/app.sock`), derivado da identidade — não alocado. Se o seu
 backend é Node, a linha é uma:
 
@@ -234,12 +234,14 @@ sempre tem uma flag de porta e nenhuma de socket. Os três desfechos, em ordem d
 |---|---|
 | aceita bindar socket unix (a maioria dos runtimes HTTP) | passe `$VSSH_APP_SOCKET` e acabou |
 | não aceita, mas você serve a página | **sirva você** e deixe a ferramenta no protocolo dela — foi o caminho do motor X11 |
-| não aceita mesmo | declare `backend.transport: "tcp"` no manifesto e receba `$VSSH_APP_PORT` |
+| não aceita mesmo | ponha um proxy de uma linha na frente dela: o seu processo binda o socket e repassa para a porta que a ferramenta abriu em `127.0.0.1` |
 
-A terceira linha **não é neutra, e o custo está medido**: o loopback não tem dono. Numa sondagem
-do ambiente, 23 portas de app estavam escutando, **14 responderam a um `GET /` sem token nenhum**
-(10×200, 4×500) e **12 delas eram de outras contas Linux** da mesma máquina. Declarar `tcp` é
-escolher isso — por isso a escolha fica escrita no manifesto em vez de ser um default silencioso.
+**Não há terceira saída, e a ausência é deliberada.** O manifesto já teve um `backend.transport:
+"tcp"`, e o schema hoje o **recusa** — publicar com ele é erro de validação. O custo do loopback foi
+medido: numa sondagem do ambiente, 23 portas de app estavam escutando, **14 responderam a um `GET /`
+sem token nenhum** (10×200, 4×500) e **12 delas eram de outras contas Linux** da mesma máquina. O
+socket unix mora num diretório 0700, e a permissão de arquivo faz o que a conferência de token só
+promete.
 
 > No desenvolvimento local, um socket não tem URL para abrir no navegador. `socat
 > TCP-LISTEN:8080,fork UNIX-CONNECT:$VSSH_APP_SOCKET` resolve — na sua máquina, que é onde a porta
@@ -265,7 +267,7 @@ publicado existem de verdade no diretório instalado.
 
 **Healthcheck e token — e o que estava escrito aqui estava errado.** Esta página dizia *"o
 healthcheck é pollado direto na porta, sem passar pelo proxy, então não carrega
-`X-Vssh-App-Token`; isente essa rota do seu gate"*. **Isso mudou na Onda 4**: a sondagem vai **com**
+`X-Vssh-App-Token`; isente essa rota do seu gate"*. **Isso está errado**: a sondagem vai **com**
 o header, o mesmo que o proxy injeta. Você **pode** gatear a rota de healthcheck como qualquer
 outra, e não há motivo para deixar uma rota aberta. Isentar continua funcionando — é uma rota a
 menos protegida, não um erro.
@@ -289,7 +291,7 @@ dava a regra de como forkar. Quem lê as duas junto chega onde deveria — o for
 **rodar**, é às vezes o custo de **integrar**, e aparece quando a segunda pergunta precisa de algo
 que o upstream não expõe por opção nenhuma. Quando aparecer, a regra acima é o teto: se a lista de
 patches deixa de ser "informar o ambiente" e passa a ser "trocar uma camada", o desenho está errado,
-não o upstream. O caso trabalhado é a [Onda 9](roadmap/08-editor-do-ambiente.md), onde uma constante
+não o upstream. O caso trabalhado é o port do VS Code, onde uma constante
 de módulo do VS Code (`extensionGalleryService.ts:35`) não é alcançável por nenhuma opção de
 construção — e o patch que a corrige tem uma linha.
 

@@ -110,7 +110,7 @@ function renderizar(origem, destino) {
     execFile(bin, args, { timeout: 60000 }, (err, _out, stderr) => {
       if (err) {
         // O stderr do chromium é o que diz o que aconteceu. Devolver a linha de comando em vez do
-        // motivo foi um defeito que a Onda 4 já pagou uma vez, no benchmark de GPU.
+        // motivo foi um defeito que o benchmark de GPU já pagou uma vez.
         const linha = String(stderr || err.message || '').trim().split('\n').filter(Boolean).pop();
         return resolve({ ok: false, motivo: 'falhou', detalhe: (linha || '').slice(0, 300) });
       }
@@ -178,7 +178,7 @@ const servidor = http.createServer(async (req, res) => {
   json(res, 404, { erro: 'rota' });
 });
 
-// Onde escutar é decisão do lifecycle: socket unix em $VSSH_APP_SOCKET (o padrão desde a Onda 9)
+// Onde escutar é decisão do lifecycle: socket unix em $VSSH_APP_SOCKET
 // ou TCP em $VSSH_APP_PORT. `escutar()` lê as duas, limpa socket órfão de um processo morto a
 // SIGKILL — que com TCP não existe, porque a porta o kernel devolve sozinho — e falha alto quando
 // não veio endereço nenhum.

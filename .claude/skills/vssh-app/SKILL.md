@@ -25,7 +25,7 @@ falta num app concreto.
 
 - **Precisa de lógica própria no servidor, ou é só HTML/CSS/JS estático?** Mesmo estático, ainda
   precisa de um processo escutando — o proxy do portal encaminha para o endereço do app, não serve
-  um diretório diretamente. Esse endereço é um **socket unix** desde a Onda 9 (ver abaixo).
+  um diretório diretamente. Esse endereço é um **socket unix** (ver abaixo).
 - **Precisa de estado que sobreviva entre execuções** (índice, cache, arquivos gerados)? Vai em
   `VSSH_APP_DATA_DIR`. Nunca escreva em `/opt/vssh-apps/<id>/` — é root-owned e somente leitura.
 - **Precisa de tempo real (WebSocket)?** O proxy encaminha WS automaticamente, sem configuração
@@ -70,13 +70,12 @@ falta num app concreto.
   "category": "Utility",              // a seção do Start Menu/Launchpad onde o app aparece. Use um
                                        // nome de categoria do menu freedesktop ("Development",
                                        // "Office", "Graphics", "Utility", "System"…) pra cair junto
-                                       // do que faz a mesma coisa; sem declarar, o app vai pra
-                                       // "Other". ⚠ **Era só informativo, e não é mais**: até a
-                                       // Onda 9 o cliente jogava TODO vssh-app numa seção fixa
-                                       // "Apps Integrados" e este campo não valia nada — resquício
-                                       // de quando o ambiente X11 era o padrão e um vssh-app era a
-                                       // exceção em destaque (não gera .desktop/XDG — ver "Como o
-                                       // app aparece no menu" abaixo)
+                                       // do que faz a mesma coisa; sem declarar, o app cai em
+                                       // "Other", que é onde ninguém procura. O agrupamento é por
+                                       // este campo e nada mais — não há seção que recolha
+                                       // vssh-app por ser vssh-app, porque isso separaria por
+                                       // PROCEDÊNCIA o que o usuário procura por FUNÇÃO (não gera
+                                       // .desktop/XDG — ver "Como o app aparece no menu" abaixo)
   "description": "...",
   "handles": null,                    // opcional: "terminal"|"editor"|"fileBrowser"|"ide"|
                                        // "browser" — registra este app como substituto de um
@@ -224,10 +223,10 @@ falta num app concreto.
                                        // fica, porque quem o mantém vivo é o trabalho e não a
                                        // janela (dono de sessão de terceiro — um servidor de
                                        // notebooks, um build em curso).
-                                       // Até a Onda 9 não havia contrato: fechar a janela não
-                                       // encerrava NADA, e a conta escalava por (usuário × app já
-                                       // aberto uma vez) — um app aberto em março seguia ocupando
-                                       // RAM em agosto, em toda sessão daquela conta.
+                                       // O default é "encerrar" porque um padrão que vaza memória
+                                       // tem de ser o que se ESCOLHE: sem ele a conta escala por
+                                       // (usuário × app já aberto uma vez), e um app aberto uma
+                                       // vez segue ocupando RAM em toda sessão daquela conta.
                                        // kind:"service" IGNORA este campo: um daemon não morre
                                        // com uma janela, por definição.
                                        // ARMADILHA: se o seu app segura processo caro que o
@@ -285,12 +284,11 @@ servidor). Vendorizar = commitar; se quiser reconstruir no alvo, deixe a pasta n
 
 | Variável | Descrição |
 |---|---|
-| `VSSH_APP_SOCKET` | **O endereço, desde a Onda 9.** Caminho de um socket unix em `~/.vssh-apps/<id>/`, diretório que já é 0700. É onde o backend **deve** bindar. |
-| `VSSH_APP_PORT` | Só chega a apps que declaram `backend.transport: "tcp"`. Porta TCP em `127.0.0.1`. |
+| `VSSH_APP_SOCKET` | **O endereço.** Caminho de um socket unix em `~/.vssh-apps/<id>/`, diretório que já é 0700. É onde o backend **deve** bindar. |
 | `VSSH_APP_BASE_PATH` | Valor literal `/proxy/app/<id>/` (**sem** serverId) — é o que o processo do backend recebe (`key-provisioner.ts`, `startApp`). **NÃO** é a URL pública completa que o navegador usa: essa inclui o serverId (`/<serverId>/proxy/app/<id>/`, ver `src/proxy.ts`). Só importa se o backend emitir URLs absolutas; com `fetch()` relativo não precisa — não construa link absoluto a partir desta variável sem prefixar o serverId separadamente (você não tem como saber o serverId aqui de qualquer forma). |
 | `VSSH_APP_DATA_DIR` | `~/.vssh-apps/<id>/data` — único diretório gravável garantido. |
 | `VSSH_APP_ID` | O próprio `id` do manifest. |
-| `VSSH_APP_TOKEN` | Opcional/defesa-em-profundidade: valor opaco gerado por instância de app rodando, injetado pelo proxy como header `X-Vssh-App-Token` em toda requisição/upgrade que ele encaminha pra esse app. Apps que concedem acesso sensível (shell, arquivos) podem checar esse header e recusar qualquer conexão que não tenha vindo pelo proxy autenticado — útil porque o socket é 0600 do dono, mas ainda alcançável por outro processo do MESMO usuário Linux (e, até a Onda 9, o endereço era uma porta de loopback — alcançável por QUALQUER conta da máquina, o que foi medido e é a razão da troca). Apps que não se importam (ex. `hello-world`) simplesmente não checam nada. |
+| `VSSH_APP_TOKEN` | Opcional/defesa-em-profundidade: valor opaco gerado por instância de app rodando, injetado pelo proxy como header `X-Vssh-App-Token` em toda requisição/upgrade que ele encaminha pra esse app. Apps que concedem acesso sensível (shell, arquivos) podem checar esse header e recusar qualquer conexão que não tenha vindo pelo proxy autenticado — útil porque o socket é 0600 do dono, mas ainda alcançável por outro processo do MESMO usuário Linux (um endereço de loopback seria alcançável por QUALQUER conta da máquina, o que foi medido e é a razão de o endereço ser um socket). Apps que não se importam (ex. `hello-world`) simplesmente não checam nada. |
 
 Sem modelo de permissão além de "roda como o usuário Linux dono da sessão" — mesmo modelo de
 confiança que code-server e Xpra usam para qualquer outro processo do usuário.
@@ -310,10 +308,11 @@ com permissão de arquivo o que a conferência de `X-Vssh-App-Token` só promete
 Quem usa as libs não faz nada disto à mão: `escutar(server)` do `vssh-app-toolkit/listen` lê o
 endereço, limpa socket órfão (só `SIGKILL` deixa um) e falha alto quando não veio endereço nenhum.
 
-> **Um app novo não precisa mais pensar em porta.** Se o seu runtime não souber bindar socket unix,
-> declare `backend.transport: "tcp"` no manifesto: aí — e só aí — o portal aloca uma porta por
-> (usuário, app) e a entrega em `$VSSH_APP_PORT`. Hoje há **um** caso assim no ambiente, o xpra,
-> cujo listener de WebSocket só aceita `HOST:PORT` (medido na 6.5.2).
+> **Um app não pensa em porta, e não há como pedir uma.** O manifesto já teve um
+> `backend.transport: "tcp"`; o schema hoje o **recusa**, e publicar com ele é erro de validação. Se
+> o seu runtime não souber bindar socket unix, o caminho é um proxy de uma linha: o seu processo
+> binda o socket que o lifecycle mandou e repassa para a porta que a ferramenta abriu em
+> `127.0.0.1`, que aí é assunto interno do app.
 
 ### Rastreamento de processo (PID file)
 
@@ -548,7 +547,7 @@ COM o header `X-Vssh-App-Token`**, então você pode gatear a rota de healthchec
 outra — não precisa isentá-la. (Isentar continua funcionando; é uma rota a menos protegida, não um
 erro.)
 
-> Isto mudou na Onda 4, e vale saber por quê: antes a sondagem ia sem header nenhum, um app com
+> Vale saber por quê: uma sondagem sem header nenhum obrigaria um app com
 > gate respondia `403`, e `403` não é 5xx — **contava como pronto**. O portal declarava servindo um
 > app do qual nunca tinha visto uma resposta de verdade. Hoje `401`/`403` na sondagem significam
 > "recusou uma requisição credenciada", e portanto **não** contam como pronto.
@@ -694,7 +693,7 @@ em servidor + iframe sem ninguém ter decidido isso. O gatilho que faltava é o 
   hospedeiro servir a própria página?". Muitas expõem — o VS Code chama isso de *embedder*, e é o
   que o github.dev usa.
 
-O caso trabalhado é a [Onda 9](../../../docs/roadmap/08-editor-do-ambiente.md): o code-server aceita
+O caso trabalhado é a o port do VS Code: o code-server aceita
 iframe sem reclamar, e por isso passou anos como servidor + iframe; o que decidiu a extração foi a
 segunda pergunta, não a primeira.
 

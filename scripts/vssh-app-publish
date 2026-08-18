@@ -38,8 +38,8 @@ PKG="${WORKDIR}/pkg"
 #
 # Num log corrido, um aviso é uma linha entre mil — e isso não é hipótese: foi exatamente assim que
 # o `aviso: schema não encontrado` passou despercebido em vários repos de app, que publicaram por
-# meses com validação mínima achando que estavam validando (ver a Onda 0 em
-# docs/roadmap/03-toolkit.md). No GitHub Actions, `::warning::` sobe para o resumo do run e para a
+# meses com validação mínima achando que estavam validando (ver docs/decisoes/publicacao.md).
+# No GitHub Actions, `::warning::` sobe para o resumo do run e para a
 # aba de anotações do PR; fora dele, stderr é o lugar certo mesmo.
 anotar() {   # anotar <warning|notice> <título> <mensagem...>
   local nivel="$1" titulo="$2"; shift 2

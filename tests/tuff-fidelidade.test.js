@@ -130,7 +130,7 @@ const ADIANTE_DO_SHELL = {
 const NAO_TRAZIDOS = {
   '--ds-fundo-padrao': 'o papel de parede da área de trabalho — um app nunca desenha a área de trabalho',
   '--ds-statusbar-bg': 'a barra de status do shell, que não existe dentro da janela de um app',
-  '--ds-accent-glow': 'resquício do tema `neon`, removido na Onda 0c: vale `none` em todo lugar',
+  '--ds-accent-glow': 'resquício de um tema que não existe mais: vale `none` em todo lugar',
   '--ds-bg-glass': 'igual a --ds-bg num sistema que declara --ds-blur: none — um nome que promete '
     + 'vidro onde não há vidro mente para quem ler depois',
 };

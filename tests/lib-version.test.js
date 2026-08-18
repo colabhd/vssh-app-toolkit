@@ -16,26 +16,28 @@
 // package.json → shim.
 
 const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { test } = require('node:test');
 
-const ROOT = path.resolve(__dirname, '..');
-const SHIM = path.join(ROOT, 'lib', 'web', 'vssh-app-shim.js');
-
-/** O literal, lido do jeito que o resto do mundo o lê. */
-function versaoDoShim() {
-  const src = fs.readFileSync(SHIM, 'utf8');
-  const m = /^\s*const LIB_VERSION = '([^']*)';/m.exec(src);
-  return m ? m[1] : null;
+/** O `npm` desta máquina. No Windows ele é um `.cmd`, que `execFileSync` não executa sem shell. */
+function npmDoSistema() {
+  return process.platform === 'win32' ? 'npm.cmd' : 'npm';
 }
 
-test('o LIB_VERSION do shim é o version do package.json', () => {
+const ROOT = path.resolve(__dirname, '..');
+const { vsshCarregado } = require('../lib/web/test/_superficie.js');
+
+test('a versão que o shim ENTREGA é o version do package.json', () => {
+  // Lida do `vssh` carregado, e não recortada do fonte: o literal pode existir com o nome certo e
+  // não chegar ao app (um segundo `LIB_VERSION` mais abaixo, um `capabilities()` que devolve outra
+  // coisa), e é o que chega ao app que responde "que libs este aqui está carregando?".
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-  const doShim = versaoDoShim();
-  assert.ok(doShim, 'não achei o literal LIB_VERSION em lib/web/vssh-app-shim.js');
-  assert.equal(doShim, pkg.version,
-    `o shim declara ${doShim} e o package.json diz ${pkg.version} — bumpe os dois`);
+  const entregue = vsshCarregado().libVersion;
+  assert.ok(entregue, 'o `vssh` carregado não publica `libVersion`');
+  assert.equal(entregue, pkg.version,
+    `o shim entrega ${entregue} e o package.json diz ${pkg.version} — bumpe os dois`);
 });
 
 // ── O pacote npm ──────────────────────────────────────────────────────────────
@@ -104,24 +106,35 @@ test('a versão do pyproject é a mesma do package.json', () => {
     `o pyproject declara ${m[1]} e o package.json diz ${PKG.version} — bumpe os dois`);
 });
 
-test('a bancada de lib/web/ não viaja nos pacotes publicados', () => {
+test('a bancada de lib/web/ não viaja no pacote npm', () => {
   // 147 KB de `node --test` — mais que as próprias libs de navegador (156 KB) — no disco de todo
-  // app instalado, para rodar num lugar onde ninguém roda teste. Estava entrando no npm desde
-  // sempre, por `files: ["lib"]`, e só ficou visível quando o wheel Python passou a mapear
-  // diretórios: ali a bancada apareceu de uma vez, e a pergunta valia para os dois pacotes.
-  assert.ok(PKG.files.includes('!lib/web/test'),
+  // app instalado, para rodar num lugar onde ninguém roda teste. Entrava por `files: ["lib"]`.
+  //
+  // Medido pelo PACOTE, e não pela declaração que deveria produzi-lo: `npm pack --dry-run` devolve
+  // a lista real de arquivos, com as regras do npm aplicadas — inclusive as que não estão no
+  // `files` (o `.npmignore`, os defaults). Uma asserção sobre a linha `'!lib/web/test'` ficava
+  // verde com a linha presente e sem efeito, que é o único caso interessante.
+  const saida = execFileSync(npmDoSistema(), ['pack', '--dry-run', '--json'], {
+    cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  const empacotados = JSON.parse(saida)[0].files.map((f) => f.path.replace(/\\/g, '/'));
+
+  assert.ok(empacotados.length >= 10,
+    `só ${empacotados.length} arquivos no pacote — o \`npm pack\` mudou de formato e isto virou decoração`);
+
+  const bancada = empacotados.filter((p) => p.startsWith('lib/web/test/'));
+  assert.deepEqual(bancada, [],
     'a bancada voltou ao pacote npm: são 147 KB no node_modules de todo app, sem consumidor');
 
-  const pyproject = fs.readFileSync(path.join(ROOT, 'pyproject.toml'), 'utf8');
-  const bloco = pyproject.split('[tool.hatch.build.targets.wheel.force-include]')[1] || '';
-  assert.doesNotMatch(bloco, /^"lib\/web\/test/m,
-    'a bancada foi mapeada para dentro do wheel Python');
-
-  // ⚠ E não adianta tentar resolver por exclusão: `force-include` do hatchling IGNORA `exclude`,
-  // no alvo e global. Medido. É por isso que a raiz de `lib/web/` é listada arquivo a arquivo em
-  // vez de mapeada inteira — e é por isso que o teste abaixo existe.
-  assert.doesNotMatch(bloco, /^"lib\/web"\s*=/m,
-    'lib/web mapeado inteiro: isso arrasta a bancada junto, porque force-include ignora exclude');
+  // O lado positivo da mesma pergunta: o que o `exports` promete tem de estar DENTRO do pacote.
+  // Sem isto, cortar demais no `files` passaria despercebido até o primeiro `require` de um app.
+  const faltando = Object.values(PKG.exports)
+    .filter((alvo) => !alvo.includes('*'))
+    .map((alvo) => alvo.replace(/^\.\//, ''))
+    .filter((alvo) => !empacotados.includes(alvo));
+  assert.deepEqual(faltando, [],
+    'o `exports` aponta para arquivos que o pacote npm não leva: funciona no clone, funciona no '
+    + 'CI, e o app instalado recebe ERR_PACKAGE_PATH_NOT_EXPORTED');
 });
 
 test('toda entrada da raiz de lib/web/ chega ao pacote Python', () => {

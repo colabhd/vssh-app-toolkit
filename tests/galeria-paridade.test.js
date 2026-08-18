@@ -125,14 +125,15 @@ test('os manifestos declaram as mesmas capacidades', () => {
   assert.notEqual(b.id, a.id);
 });
 
-test('o template Python NÃO lê VSSH_APP_PORT — foi assim que ele parou de subir', () => {
-  // A regressão que este arquivo existe para impedir de voltar. `VSSH_APP_PORT` só chega a apps
-  // com `transport: "tcp"`, valor que o schema já não aceita; ler essa variável direto do ambiente
-  // é o defeito exato que deixou o template congelado na v2 sem nada acusar.
-  const main = ler(path.join(PY, 'backend', 'main.py'));
-  assert.doesNotMatch(main, /environ\s*\[\s*["']VSSH_APP_PORT/,
-    'o backend voltou a ler VSSH_APP_PORT: ele morre com KeyError num servidor atual');
-  assert.match(main, /criar_servidor\(/,
-    'o backend parou de usar o `criar_servidor()` do toolkit — e com ele vão embora a limpeza do '
-    + 'socket órfão, o modo 0600 e o erro nomeado de "já está escutando"');
-});
+// As duas afirmações sobre o backend Python — que ele não lê `VSSH_APP_PORT`, e que quem abre o
+// endereço é o `criar_servidor()` do toolkit — são medidas EXECUTANDO, em
+// `tests/python/test_template.py`:
+//
+//   - o `carregar_backend()` de lá importa o `main.py` com o ambiente ZERADO (`clear=True`), então
+//     uma leitura de `VSSH_APP_PORT` levanta `KeyError` e derruba o arquivo inteiro;
+//   - `OEnderecoVemDoToolkit` troca o `criar_servidor` dentro do módulo do toolkit e chama o
+//     `main()`: um servidor montado à mão não passa pelo dublê.
+//
+// Havia aqui um `doesNotMatch` e um `match` sobre o texto do `main.py` dizendo as mesmas duas
+// coisas. Eles ficavam verdes com o defeito presente escrito de outro jeito (`os.getenv`,
+// `environ.get`, o import com apelido) e vermelhos numa reescrita que preservava o comportamento.

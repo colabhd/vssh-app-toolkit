@@ -6,7 +6,7 @@ name: Publish App (reusable)
 #
 #   jobs:
 #     publish:
-#       uses: colabhd/vssh-app-toolkit/.github/workflows/_publish-app-reusable.yml@main
+#       uses: colabhd/vssh-app-toolkit/.github/workflows/_publish-app-reusable.yml@v4
 #       with:
 #         app_dir: "."
 #         repo_api: "https://vssh-repo.colabh.org"
@@ -15,12 +15,15 @@ name: Publish App (reusable)
 #
 # Faz checkout do repo do app (chamador) + deste toolkit (só scripts/) e roda vssh-app-publish.
 #
-# POR QUE `main` E NÃO `@v1`:
+# POR QUE UMA TAG, E NUNCA `main`:
+#   Puxar de um branch faz a validação do CI de quem publica mudar debaixo dele a cada commit deste
+#   repositório — inclusive num push que ele não viu. Não é "validar menos": é não ter alvo estável.
+#
+# POR QUE NUNCA `@v1`:
 #   A tag `v1` é do toolkit ORIGINAL, anterior à criação de `lib/`, `schema/` e `docs/` — ela não
 #   contém `schema/vssh-app.schema.json`. Um repo pinado em `@v1` publica com validação MÍNIMA e só
-#   avisa numa linha do log (`aviso: schema não encontrado; validando só o mínimo`), o que é fácil de
-#   não ver. Enquanto não existir uma tag `v2`, `main` é a única ref que valida de verdade.
-#   Ver docs/roadmap/03-toolkit.md, item 0.1.
+#   avisa numa linha do log (`aviso: schema não encontrado; validando só o mínimo`), o que é fácil
+#   de não ver. Ver docs/decisoes/publicacao.md.
 
 on:
   workflow_call:
@@ -40,9 +43,8 @@ on:
       tools_ref:
         description: 'Ref deste toolkit de onde puxar o script de publish (precisa conter schema/)'
         type: string
-        # `v2`: uma tag, e não um branch. Puxar de `main` fazia a validação do seu CI mudar
-        # debaixo de você a cada commit deste repositório — inclusive num push que você não viu.
-        # Bumps compatíveis movem a `v2`; uma mudança incompatível cria a `v3`.
+        # Uma tag, e não um branch — a razão está no cabeçalho deste arquivo. Bumps compatíveis
+        # movem a `v4`; uma mudança incompatível cria a `v5`.
         default: 'v4'
     secrets:
       publish_token:
@@ -68,9 +70,9 @@ jobs:
           # schema/vssh-app.schema.json, que é a fonte da verdade. Sem ele o script degrada para
           # as checagens mínimas (id/runtime/entrypoint) em vez de recusar a publicação — então um
           # repo pinado num ref antigo continua funcionando, só valida menos.
-          # `package.json` junto: desde a Onda 3 o vssh-app-publish confere a idade das libs
-          # vendorizadas do app contra a versão DESTE toolkit, e é dali que ele a lê. Sem o
-          # arquivo a conferência é pulada — e dita em voz alta, para não se achar feita.
+          # `package.json` junto: o vssh-app-publish confere a geração das libs que o app
+          # instalou contra a versão DESTE toolkit, e é dali que ele a lê. Sem o arquivo a
+          # conferência é pulada — e dita em voz alta, para não se achar feita.
           sparse-checkout: |
             scripts
             schema

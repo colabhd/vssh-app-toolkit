@@ -39,8 +39,8 @@ class TestEndereco(unittest.TestCase):
 
     def test_port_sozinho_e_servidor_antigo_e_diz_isso(self):
         # O erro tem código PRÓPRIO porque o conserto é outro: não é "faltou variável", é um
-        # servidor cujo lifecycle é anterior à Onda 9. Dizer isso pelo nome poupa quem for depurar
-        # de procurar o defeito dentro do app.
+        # servidor cujo lifecycle é velho demais. Dizer isso pelo nome poupa quem for depurar de
+        # procurar o defeito dentro do app.
         with self.assertRaises(ErroDeEndereco) as ctx:
             endereco_do_ambiente({"VSSH_APP_PORT": "8080"})
         self.assertEqual(ctx.exception.codigo, VSSH_APP_SERVIDOR_ANTIGO)

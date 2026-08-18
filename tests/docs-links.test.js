@@ -1,14 +1,12 @@
 // Link relativo e ÂNCORA da documentação — os dois, e a âncora é a que faltava.
 //
-// O que este arquivo existe para impedir: a roadmap é o artefato que o projeto inteiro
-// consulta, e ela se referencia por seção. Renomear um cabeçalho não quebra nada visível —
-// o link continua abrindo o arquivo certo e para no topo, e quem clicou nem percebe que
-// deveria ter caído noutro lugar.
+// O que este arquivo existe para impedir: a documentação se referencia por SEÇÃO, e renomear um
+// cabeçalho não quebra nada visível — o link continua abrindo o arquivo certo e para no topo, e
+// quem clicou nem percebe que deveria ter caído noutro lugar.
 //
-// Aconteceu na Onda 2.2: o cabeçalho "O relógio — porque o ambiente não tem um" virou
-// "O relógio" quando o relógio ficou pronto, e três arquivos continuaram apontando para a
-// âncora antiga. O verificador de links usado até então validava só a PARTE DO ARQUIVO,
-// e passou verde.
+// Já aconteceu: um cabeçalho perdeu a segunda metade do título quando a coisa que ele descrevia
+// ficou pronta, e três arquivos continuaram apontando para a âncora antiga. O verificador de links
+// usado então validava só a PARTE DO ARQUIVO, e passou verde.
 //
 // ── A regra de slug do GitHub, que é onde quase toda checagem caseira erra ──
 //
@@ -26,9 +24,16 @@ import { dirname, join, resolve, relative } from 'node:path';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
+// ⚠ `.claude/` entra na varredura, e a exceção é nominal de propósito. A regra de pular tudo que
+// começa com ponto existe para não descer em `.git/` — e ela estava deixando de fora a `SKILL.md`,
+// que é uma das cinco coisas que este repositório publica e a primeira que um agente lê. Um link
+// quebrado ali é lido com a autoridade de uma referência de autoria.
+const OCULTOS_QUE_ENTRAM = new Set(['.claude', '.github']);
+
 function markdowns(dir, out = []) {
   for (const nome of readdirSync(dir)) {
-    if (nome === 'node_modules' || nome.startsWith('.')) continue;
+    if (nome === 'node_modules') continue;
+    if (nome.startsWith('.') && !OCULTOS_QUE_ENTRAM.has(nome)) continue;
     const p = join(dir, nome);
     if (statSync(p).isDirectory()) markdowns(p, out);
     else if (nome.endsWith('.md')) out.push(p);
@@ -66,9 +71,15 @@ const ANCORAS = new Map([...CONTEUDO].map(([p, s]) => [p, ancorasDe(s)]));
 
 const LINK = /\[[^\]]*\]\(([^)\s#]*)(#[^)\s]*)?\)/g;
 
-test('a varredura acha os arquivos da roadmap — senão ela não prova nada', () => {
+test('a varredura acha a documentação — senão ela não prova nada', () => {
+  // O PISO. Sem ele, um `markdowns()` que parasse de descer diretório deixaria os dois testes
+  // abaixo verdes sobre uma lista vazia. Os três nomes são os que existem para SEREM lidos de fora:
+  // a porta de entrada, a referência de API e a página que quem porta lê inteira.
   const nomes = ARQUIVOS.map(p => relative(ROOT, p).replace(/\\/g, '/'));
-  assert.ok(nomes.includes('docs/roadmap/README.md'), 'a roadmap tem de estar na varredura');
+  for (const obrigatorio of ['README.md', 'docs/api.md', 'docs/porting.md',
+                             '.claude/skills/vssh-app/SKILL.md']) {
+    assert.ok(nomes.includes(obrigatorio), `${obrigatorio} tem de estar na varredura`);
+  }
   assert.ok(nomes.length >= 10, `esperava dezenas de .md, achei ${nomes.length}`);
 });
 

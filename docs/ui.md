@@ -16,7 +16,7 @@ Enquanto não havia por onde, quem quis se parecer com o ambiente pagou à mão.
 **já apodreceu**: ela escuta uma mensagem (`{type:'vssh-theme'}`) que foi removida do shell e cita um
 caminho que não existe mais. Nada acusou.
 
-Do outro lado, o [critério 3.3](roadmap/criterios.md#33--está-belo) é condição de pronto para todo
+Do outro lado, o [critério 3](decisoes/criterios-de-projeto.md#3--está-belo) é condição de pronto para todo
 vssh-app — *"a promessa é que o usuário esqueça que está num navegador"*.
 
 ## Ligando

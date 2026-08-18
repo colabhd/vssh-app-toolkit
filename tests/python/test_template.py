@@ -254,5 +254,55 @@ class TestManifesto(unittest.TestCase):
         self.assertNotIn("git+", cmd)
 
 
+class OEnderecoVemDoToolkit(BaseTemplate):
+    """Quem abre o endereço é o `criar_servidor()` do toolkit, e não um servidor montado à mão.
+
+    A diferença não aparece num smoke: um `UnixStreamServer` escrito à mão binda o socket e serve a
+    página igual. O que se perde é o que a lib faz em volta — limpar o socket órfão por tentativa de
+    CONEXÃO (nunca por `exists`, que derrubaria a instância viva), o modo 0600 contra o umask, e o
+    erro nomeado de "já está escutando", que o lifecycle trata como sucesso em vez de como falha.
+
+    Medido substituindo a função DENTRO do módulo do toolkit, que é de onde o template a importa: se
+    ele passar a montar o servidor por conta própria, o dublê não é chamado e o teste fica vermelho.
+    """
+
+    def test_o_main_pega_o_servidor_do_toolkit(self):
+        # O import vem DEPOIS do `carregar()`: é ele que põe `lib/python` no `sys.path`.
+        modulo = self.carregar()
+        import vssh_app_toolkit.listen as listen
+
+        class Parou(Exception):
+            pass
+
+        class ServidorDeMentira:
+            endereco_vssh = {"transport": "socket", "socket": "/tmp/x.sock"}
+
+            def serve_forever(self):
+                raise Parou()
+
+            def server_close(self):
+                pass
+
+        chamadas = []
+        # O `main()` registra "listening" antes de servir, e o log do template escreve em stdout por
+        # padrão — o que sujaria a saída da suíte com uma linha de NDJSON por execução.
+        modulo.log = lambda *a, **kw: None
+        original = listen.criar_servidor
+        try:
+            listen.criar_servidor = lambda *a, **kw: (chamadas.append(a), ServidorDeMentira())[1]
+            # O template importa o nome, então rebindar só o módulo não basta: é o nome DELE que
+            # importa, e é por isso que o dublê entra nos dois lugares.
+            modulo.criar_servidor = listen.criar_servidor
+            with self.assertRaises(Parou):
+                modulo.main()
+        finally:
+            listen.criar_servidor = original
+
+        self.assertEqual(len(chamadas), 1,
+                         "o backend do template não pediu o servidor ao toolkit")
+        self.assertIs(chamadas[0][0], modulo.Handler,
+                      "o servidor foi criado com outro handler que não o do template")
+
+
 if __name__ == "__main__":
     unittest.main()
