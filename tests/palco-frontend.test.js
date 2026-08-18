@@ -150,6 +150,17 @@ function servir(req, res) {
     // ⚠ `null` aqui NÃO serve para simular falha: `JSON.stringify(null)` é `"null"`, que é JSON
     // perfeitamente válido — o `fetch` resolve, o `.json()` resolve, e quem recebe leva um
     // `TypeError` ao ler um campo. Foi assim que a primeira versão deste teste mediu nada.
+    // Um servidor LENTO, para medir o que a tela mostra ENQUANTO se espera. Sem ele o duble
+    // responde na mesma volta do laço de eventos e não existe "enquanto".
+    if (respostaDeYt === 'DEMORAR') {
+      setTimeout(() => {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ tipo: 'video', id: 'aaaaaaaaaaa', titulo: 'Um vídeo',
+                                 canal: 'C', duracao: 6, mpd: 'api/yt/mpd?v=aaaaaaaaaaa',
+                                 legendas: [], qualidades: [90] }));
+      }, 2000);
+      return true;
+    }
     if (respostaDeYt === 'FALHAR') {
       // ⚠ O corpo do 502 é o que o backend manda de VERDADE — frase e conserto, já classificados.
       // Um `{}` aqui aprovaria um cliente que ignora os dois, que era o estado anterior.
@@ -1925,4 +1936,212 @@ test('abrir um vídeo SOLTO desdeclara a fila do que tocava antes', seNaoTemMidi
   assert.deepEqual({ anterior: r.depois[0].anterior, proximo: r.depois[0].proximo },
     { anterior: false, proximo: false },
     `o vídeo solto foi declarado com fila: ${JSON.stringify(r.depois[0])}`);
+});
+
+// ── Onde a reprodução COMEÇA ────────────────────────────────────────────────
+
+test('um `&t=` no link começa ali, e não mata o resto da abertura', seNaoTemMidia, async () => {
+  // ⚠ **Dois defeitos numa linha só, e o segundo é pior que o que apareceu na tela.** O código fazia
+  // `dashPlayer.initialize(...)` e `dashPlayer.seek(t)` na linha seguinte. Mas o `seek` do dash.js
+  // abre com `if (!streamingInitialized) throw`, e essa inicialização é assíncrona — ela espera o
+  // manifesto. A linha seguinte é sempre cedo demais.
+  //
+  //   · dentro do ouvinte de erro (a retomada), a exceção morre no despachante do dash.js, o seek
+  //     não acontece, e o vídeo REINICIA DO ZERO no meio da reprodução;
+  //   · aqui, no caminho normal, a exceção rejeita `abrirYoutube` e mata tudo que vem depois:
+  //     legendas, `mostrarRetomar`, `porMediaSession`, `vssh.media.agora` e a fila. Em silêncio.
+  //
+  // Este teste mede as DUAS metades, e a segunda é a que ninguém veria: um vídeo que começa no
+  // lugar certo e chega à central de mídia sem título nem capa não parece um defeito de `seek`.
+  respostaDeYtFixa = true;
+  respostaDeYt = {
+    tipo: 'video', id: 'aaaaaaaaaaa', titulo: 'Um vídeo', canal: 'Um canal',
+    duracao: dashDeTeste.DURACAO, mpd: 'api/yt/mpd?v=aaaaaaaaaaa', qualidades: [90],
+    t: 3,
+    legendas: [{ idioma: 'pt', nome: 'Português', automatica: false }],
+  };
+  bytesRecusados = false;
+  const p = await comUrlAberta('https://youtu.be/aaaaaaaaaaa?t=3', respostaDeYt);
+  const r = await p.avaliar(`(async () => {
+    const v = document.getElementById('video');
+    const prazo = Date.now() + 15000;
+    while (Date.now() < prazo && !(v.readyState >= 2 && v.currentTime > 0)) {
+      await new Promise((r) => setTimeout(r, 120));
+    }
+    return {
+      tempo: v.currentTime,
+      // A cauda de \`abrirYoutube\`, peça por peça. Qualquer uma ausente significa que a função
+      // morreu no meio.
+      faixas: document.querySelectorAll('#video track').length,
+      agora: window.__chamadas.filter((x) => x.op === 'agora').pop() || null,
+      transporte: window.__chamadas.filter((x) => x.op === 'transporte').pop() || null,
+    };
+  })()`);
+
+  assert.ok(r.tempo >= 2.5,
+    `começou em ${r.tempo}s em vez de 3s — o \`startTime\` não foi honrado`);
+  // ⚠ E a metade invisível: sem ela, um `seek` que lança deixaria isto tudo de fora.
+  assert.equal(r.faixas, 1, 'as legendas não foram aplicadas — a abertura morreu antes delas');
+  assert.ok(r.agora, 'a central de mídia nunca soube o que está tocando');
+  assert.equal(r.agora.titulo, 'Um vídeo');
+  assert.equal(r.agora.subtitulo, 'Um canal');
+  assert.ok(r.transporte, 'a fila nunca foi declarada');
+});
+
+// ── O clique direito, e o feedback de quem clicou ──────────────────────────
+
+/** Dispara um `contextmenu` sobre o primeiro elemento que casa o seletor. */
+const CLIQUE_DIREITO = (sel) => `(async () => {
+  const el = document.querySelector(${JSON.stringify(sel)});
+  if (!el) return { achou: false };
+  const r = el.getBoundingClientRect();
+  window.__escolha = null;
+  el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true,
+    clientX: Math.round(r.left + 4), clientY: Math.round(r.top + 4) }));
+  await new Promise((r) => setTimeout(r, 250));
+  const c = window.__chamadas.filter((x) => x.op === 'contextMenu').pop();
+  return { achou: true, x: c && c.x, y: c && c.y,
+           itens: c ? c.itens.map((i) => (i.separator ? '───' : i.label)) : null,
+           subs: c ? c.itens.filter((i) => i.submenu).map((i) => i.label) : [] };
+})()`;
+
+test('o clique direito no palco abre o menu do AMBIENTE, no ponto do clique', seNaoTem,
+  async () => {
+    // ⚠ **Um programa de reprodução sem clique direito não parece um programa.** É onde a mão vai
+    // primeiro num player de desktop, e o VLC, o mpv e o Windows Media Player têm todos o mesmo.
+    // Sem ele, trocar de velocidade ou de legenda custava uma viagem até a barra de menu no topo.
+    const p = await comArquivoAberto();
+    const r = await p.avaliar(CLIQUE_DIREITO('#palco'));
+
+    assert.ok(r.achou, 'não achei o palco');
+    assert.ok(r.itens, 'o clique direito não pediu menu ao ambiente');
+    // As peças que fazem dele um menu de player, e não uma lista qualquer.
+    for (const esperado of ['Voltar 10 segundos', 'Avançar 10 segundos', 'Velocidade',
+                            'Legenda', 'Tela cheia', 'Janela flutuante', 'Anterior', 'Próximo']) {
+      assert.ok(r.itens.includes(esperado), `falta "${esperado}": ${r.itens.join(' · ')}`);
+    }
+    // ⚠ O rótulo diz o que o clique VAI fazer, e por isso ele depende do estado — nesta bancada o
+    // navegador recusa autoplay, então o certo aqui é "Reproduzir". Exigir um dos dois mede a regra
+    // (é um botão, não um indicador) sem fixar o estado da máquina que roda o teste.
+    assert.equal(r.itens.filter((t) => t === 'Reproduzir' || t === 'Pausar').length, 1,
+      `o menu não oferece tocar/pausar, ou oferece os dois: ${r.itens.join(' · ')}`);
+    // ⚠ Velocidade e Legenda são SUBMENUS — sete velocidades soltas no primeiro nível empurrariam
+    // tela cheia e informações para fora do alcance.
+    assert.deepEqual(r.subs, ['Velocidade', 'Legenda']);
+    // No ponto do clique, e não num canto: um menu que aparece longe da mão é um menu que se
+    // persegue.
+    assert.ok(r.x > 0 && r.y > 0, `o menu foi pedido em (${r.x}, ${r.y})`);
+  });
+
+test('o clique direito numa linha da biblioteca age sobre a linha APONTADA', seNaoTem,
+  async () => {
+    // ⚠ A tabela não tem seleção. Sem levar o índice no DOM, o menu agiria sobre a linha que está
+    // TOCANDO — e "Reproduzir" sobre o arquivo que já está tocando é um comando que não faz nada.
+    const p = await comArquivoAberto();
+    await p.avaliar(`(async () => {
+      document.querySelector('[data-aba="biblioteca"]').click();
+      await new Promise((r) => setTimeout(r, 150));
+    })()`);
+    const r = await p.avaliar(CLIQUE_DIREITO('.linha-arq:last-child'));
+
+    assert.ok(r.itens, 'a linha não pediu menu');
+    assert.deepEqual(r.itens, ['Reproduzir', 'Mostrar no gerenciador de arquivos']);
+
+    // E escolher "Mostrar" tem de apontar para a pasta DAQUELA linha.
+    const abriu = await p.avaliar(`(async () => {
+      const el = document.querySelector('.linha-arq:last-child');
+      const i = el.dataset.i;
+      window.__escolha = 'pasta:' + i;
+      el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true,
+        clientX: 10, clientY: 10 }));
+      await new Promise((r) => setTimeout(r, 250));
+      return { i, pasta: (window.__chamadas.filter((x) => x.op === 'openFolder').pop() || {}).p };
+    })()`);
+    assert.ok(abriu.i, 'a linha não carrega o índice no DOM');
+    assert.ok(abriu.pasta, 'a escolha não chegou ao ambiente');
+  });
+
+test('um campo de texto MANTÉM o menu do navegador', seNaoTem, async () => {
+  // ⚠ Tomar o clique direito de uma caixa de busca tiraria "colar" dela. O `preventDefault` só
+  // acontece quando temos menu melhor para aquele alvo.
+  const p = await comArquivoAberto();
+  const r = await p.avaliar(`(async () => {
+    const el = document.getElementById('bib-busca');
+    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true,
+      clientX: 10, clientY: 10 });
+    const antes = window.__chamadas.length;
+    el.dispatchEvent(ev);
+    await new Promise((r) => setTimeout(r, 200));
+    return { impediu: ev.defaultPrevented, pediuMenu: window.__chamadas.length > antes };
+  })()`);
+  assert.equal(r.impediu, false, 'o app tomou o clique direito de um campo de texto');
+  assert.equal(r.pediuMenu, false, 'abriu menu do app sobre um campo de texto');
+});
+
+test('o cartão do YouTube oferece assistir aqui OU abrir no YouTube', seNaoTem, async () => {
+  // ⚠ A segunda saída é a que faltava em qualquer lugar do app: um vídeo que o Palco não toca —
+  // com DRM, por exemplo — só ia para o navegador DEPOIS de falhar. Poder mandá-lo direto é
+  // escolha, e não consolo.
+  respostaDeListar = paginada({ total: 30 });
+  const p = await comAbaAberta();
+  await p.avaliar(BUSCAR('gatos', 'false'));
+  await ateChegarem(1);
+  await p.avaliar(`(async () => {
+    const prazo = Date.now() + 5000;
+    while (Date.now() < prazo && !document.querySelector('.yt-cartao')) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  })()`);
+  const r = await p.avaliar(CLIQUE_DIREITO('.yt-cartao'));
+  assert.ok(r.itens, 'o cartão não pediu menu');
+  assert.deepEqual(r.itens, ['Assistir aqui', 'Abrir no YouTube']);
+
+  const foi = await p.avaliar(`(async () => {
+    const el = document.querySelector('.yt-cartao');
+    window.__escolha = 'navegador';
+    el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true,
+      clientX: 10, clientY: 10 }));
+    await new Promise((r) => setTimeout(r, 250));
+    return window.__chamadas.filter((x) => x.op === 'openUrl').pop() || null;
+  })()`);
+  assert.ok(foi, '"Abrir no YouTube" não devolveu o link ao ambiente');
+  assert.equal(foi.destino, 'navegador');
+  assert.match(foi.u, /youtube\.com\/watch\?v=vid0+1$/);
+});
+
+test('clicar num cartão dá feedback IMEDIATO, e ele diz qual vídeo', seNaoTem, async () => {
+  // ⚠ **O `mostrarPreparando` do player desenha sobre `#palco`, que está ESCONDIDO enquanto a aba
+  // do YouTube está aberta.** Então clicar num cartão não produzia nada visível pelos dois segundos
+  // até a troca de aba — e dois segundos de nada ensinam a clicar de novo, o que abre outro vídeo.
+  //
+  // A frase diz QUAL porque a grade tem dezenas de cartões: "carregando" sozinho não responde à
+  // pergunta que a pessoa tem, que é "o meu clique pegou?".
+  respostaDeListar = paginada({ total: 30 });
+  respostaDeYtFixa = true;
+  respostaDeYt = 'DEMORAR';
+  const p = await comAbaAberta();
+  await p.avaliar(BUSCAR('gatos', 'false'));
+  await ateChegarem(1);
+  const r = await p.avaliar(`(async () => {
+    const prazo = Date.now() + 5000;
+    while (Date.now() < prazo && !document.querySelector('.yt-cartao')) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    const nome = document.querySelector('.yt-nome').textContent;
+    document.querySelector('.yt-cartao').dispatchEvent(
+      new MouseEvent('dblclick', { bubbles: true }));
+    // 250 ms: o que a pessoa aceita como "respondeu". A resposta do servidor demora de propósito.
+    await new Promise((r) => setTimeout(r, 250));
+    const pilula = document.getElementById('yt-carregando');
+    return { nome, visivel: !pilula.hidden,
+             texto: document.getElementById('yt-carregando-t').textContent,
+             gradeVisivel: !document.getElementById('yt-grade').hidden };
+  })()`);
+
+  assert.equal(r.visivel, true, 'nada apareceu na tela nos primeiros 250 ms do clique');
+  assert.ok(r.texto.includes(r.nome),
+    `a frase não diz qual vídeo: "${r.texto}" para "${r.nome}"`);
+  // ⚠ E a grade CONTINUA à vista: esconder tudo no instante do clique apaga a única confirmação
+  // visual de onde a pessoa clicou.
+  assert.equal(r.gradeVisivel, true, 'a grade sumiu no clique');
 });

@@ -464,6 +464,24 @@ function montarPalco() {
     // é barato e pega exatamente esse caso: as trilhas são as mesmas, as URLs são as nossas, e o
     // backend entrega credenciais novas. Uma tentativa, e só: um erro que persiste é um erro de
     // verdade, e insistir para sempre seria um vídeo que nunca diz que não vai tocar.
+    // ⚠ **`seek()` logo depois de `initialize()` LANÇA, e foi assim que um vídeo voltou sozinho
+    // para o começo no meio da reprodução.** O `seek` do dash.js abre com
+    // `if (!streamingInitialized) throw` — e a inicialização do streaming é assíncrona: ela espera o
+    // manifesto chegar. Chamá-lo na linha seguinte é sempre cedo demais.
+    //
+    // Os dois efeitos foram medidos no fonte da biblioteca, e o segundo é pior que o relatado:
+    //
+    //   · na RETOMADA (dentro do ouvinte de erro) a exceção morre no despachante de eventos do
+    //     dash.js, o `seek` não acontece, e o vídeo reinicia do zero. É o "do nada ele parou e
+    //     voltou pro começo";
+    //   · no caminho NORMAL a exceção rejeita `abrirYoutube` e mata tudo que vem depois — legendas,
+    //     `mostrarRetomar`, `porMediaSession`, `vssh.media.agora` e a fila. Sem uma linha na tela.
+    //     Só não mordia sempre porque só acontece quando há um `&t=` no link ou uma marca gravada.
+    //
+    // A saída é a própria API: `initialize(view, source, autoPlay, startTime)` — o quarto parâmetro
+    // (`r = NaN` na assinatura de 5.2.1) desce até o `attachSource`, e é aplicado quando o stream
+    // fica pronto, que é o único momento em que ele pode ser aplicado.
+    const DO_COMECO = NaN;   // o que a assinatura da biblioteca usa para "não busque nada"
     let jaTentouDeNovo = false;
     dashPlayer.on(dashjs.MediaPlayer.events.ERROR, (e) => {
       if (minha !== geracao) return;
@@ -483,21 +501,18 @@ function montarPalco() {
           mostrarPreparando(false);
           avisar(`A reprodução deste vídeo do YouTube falhou${m2 ? ` (${m2})` : ''}.`);
         });
-        dashPlayer.initialize(video, manifesto, true);
-        if (onde > 0) dashPlayer.seek(onde);
+        dashPlayer.initialize(video, manifesto, true, onde > 0 ? onde : DO_COMECO);
         return;
       }
 
       mostrarPreparando(false);
       avisar(`A reprodução deste vídeo do YouTube falhou${msg ? ` (${msg})` : ''}.`);
     });
-    dashPlayer.initialize(video, manifesto, true);
-
     // ⚠ O `&t=` do link GANHA da marca, e a ordem não é arbitrária: quem compartilhou "o vídeo a
     // partir dos 4:12" está dizendo onde começar, e sobrepor isso com "onde EU parei" ignoraria o
     // pedido de quem mandou o link — sem nada na tela explicando por que ele caiu noutro lugar.
     const de = o.doInicio ? 0 : (r.t || r.retomarEm || 0);
-    if (de) dashPlayer.seek(de);
+    dashPlayer.initialize(video, manifesto, true, de > 0 ? de : DO_COMECO);
 
     aplicarLegendasDoYoutube(r);
     mostrarRetomar(o.doInicio || r.t ? 0 : r.retomarEm);
@@ -878,6 +893,18 @@ function montarPalco() {
     if (id.startsWith('rep:')) return porRepetir(id.slice(4));
     if (id.startsWith('aud:')) return trocarAudio(parseInt(id.slice(4), 10));
     if (id.startsWith('leg:')) return trocarLegenda(parseInt(id.slice(4), 10));
+    // Do menu de contexto de uma linha da biblioteca: ela diz QUAL, porque o menu foi aberto sobre
+    // ela e não sobre a que estava marcada.
+    if (id.startsWith('arq:')) {
+      const alvo = vizinhos[parseInt(id.slice(4), 10)];
+      if (alvo) { abrir(alvo.caminho); irPara('reproduzindo'); }
+      return undefined;
+    }
+    if (id.startsWith('pasta:')) {
+      const alvo = vizinhos[parseInt(id.slice(6), 10)];
+      if (alvo) vssh.openFolder(alvo.caminho.replace(/[^/\\]+$/, ''));
+      return undefined;
+    }
 
     const acoes = {
       abrir: escolherArquivo,
@@ -912,6 +939,81 @@ function montarPalco() {
   for (const b of document.querySelectorAll('.menubar button')) {
     b.addEventListener('click', () => menu(b, MENUS[b.dataset.menu]()));
   }
+
+  // ── O menu de botão direito ─────────────────────────────────────────────
+  //
+  // ⚠ **Um programa de reprodução sem clique direito não parece um programa.** É onde a mão vai
+  // primeiro num player de desktop, e o VLC, o mpv e o Windows Media Player têm todos o mesmo. Sem
+  // ele, cada troca de velocidade ou de legenda custava uma viagem até a barra de menu no topo.
+  //
+  // Quem DESENHA continua sendo o ambiente, pelo mesmo `vssh.contextMenu` da barra de menu — então
+  // o menu do Palco se parece com o do gerenciador de arquivos porque é o mesmo menu. E o conteúdo
+  // depende de ONDE o clique caiu: um menu único para a janela inteira ofereceria "Mostrar no
+  // gerenciador" sobre um cartão do YouTube.
+  //
+  // ⚠ O `preventDefault` só acontece quando temos menu para aquele alvo. Sobre um campo de texto o
+  // menu do navegador (colar, selecionar tudo) é melhor que qualquer coisa que façamos aqui.
+
+  function menuEm(x, y, itens) {
+    vssh.contextMenu(x, y, itens).then((escolha) => { if (escolha) executar(escolha); });
+  }
+
+  /** O menu do palco: o que se faz com o que está tocando. */
+  function menuDoPalco() {
+    const faixas = [...video.textTracks];
+    return [
+      { id: 'tocar', label: video.paused ? 'Reproduzir' : 'Pausar', disabled: !atual },
+      { id: 'v-10', label: 'Voltar 10 segundos', disabled: !atual },
+      { id: 'a-10', label: 'Avançar 10 segundos', disabled: !atual },
+      { separator: true },
+      { id: 'anterior', label: 'Anterior', disabled: indice <= 0 },
+      { id: 'proximo', label: 'Próximo',
+        disabled: indice < 0 || indice + 1 >= vizinhos.length },
+      { separator: true },
+      { id: 'veloc', label: 'Velocidade', submenu: VELOCIDADES.map((v) => ({
+        id: `vel:${v}`, label: rotuloVelocidade(v), checked: video.playbackRate === v })) },
+      // ⚠ Submenu de UM nível só — o contrato de `VsshItemDeMenu` não aceita mais, e uma
+      // legenda aninhada duas vezes sumiria sem erro.
+      { id: 'leg', label: 'Legenda', submenu: [
+        { id: 'leg:-1', label: 'Sem legenda',
+          checked: !faixas.some((t) => t.mode === 'showing') },
+        ...faixas.map((t, i) => ({ id: `leg:${i}`, label: t.label,
+                                   checked: t.mode === 'showing' })),
+      ] },
+      { separator: true },
+      { id: 'tela', label: 'Tela cheia', checked: !!document.fullscreenElement },
+      { id: 'pip', label: 'Janela flutuante', checked: !!document.pictureInPictureElement,
+        disabled: !document.pictureInPictureEnabled },
+      { separator: true },
+      { id: 'info', label: 'Informações do arquivo', disabled: !atual },
+    ];
+  }
+
+  document.addEventListener('contextmenu', (e) => {
+    // Campo de texto: o menu do navegador serve melhor, e tomar o clique dali seria tirar
+    // "colar" de uma caixa de busca.
+    if (e.target.closest('input, textarea, [contenteditable]')) return;
+
+    const linha = e.target.closest('.linha-arq');
+    if (linha) {
+      e.preventDefault();
+      // O clique direito SELECIONA antes de abrir, como em qualquer lista: sem isso o menu agiria
+      // sobre a linha que estava marcada, e não sobre a que a pessoa apontou.
+      const i = Number(linha.dataset.i);
+      const alvo = vizinhos[i];
+      if (!alvo) return;
+      menuEm(e.clientX, e.clientY, [
+        { id: `arq:${i}`, label: 'Reproduzir' },
+        { id: `pasta:${i}`, label: 'Mostrar no gerenciador de arquivos' },
+      ]);
+      return;
+    }
+
+    if (e.target.closest('#palco, #transporte')) {
+      e.preventDefault();
+      menuEm(e.clientX, e.clientY, menuDoPalco());
+    }
+  });
 
   // ── Os controles do transporte ──────────────────────────────────────────
 
@@ -1182,6 +1284,9 @@ function montarPalco() {
       linha.setAttribute('role', 'row');
       linha.tabIndex = 0;
       linha.setAttribute('aria-selected', String(it.i === indice));
+      // O ÍNDICE no DOM: é o que permite ao clique direito agir sobre a linha apontada em vez da
+      // marcada. Sem ele, o menu precisaria de uma seleção — e a tabela não tem uma.
+      linha.dataset.i = String(it.i);
       const ponto = it.nome.lastIndexOf('.');
       for (const [cls, txt] of [['col-n', String(it.i + 1)], ['col-nome', it.nome],
                                 ['col-fmt', ponto > 0 ? it.nome.slice(ponto + 1).toUpperCase() : '']]) {

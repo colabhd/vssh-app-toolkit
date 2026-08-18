@@ -54,9 +54,32 @@ function montarYoutube(palco) {
     return j;
   }));
 
+  /**
+   * A pílula de "abrindo", sobre a grade — sem esconder a grade.
+   *
+   * ⚠ `mostrar('carregando')` NÃO serve aqui: ele esconde a grade inteira, e o que a pessoa
+   * acabou de fazer foi apontar para um cartão. Tirar a grade da frente no instante do clique
+   * apaga a única confirmação visual de ONDE ela clicou.
+   */
+  function abrindo(titulo) {
+    const pilula = $('yt-carregando');
+    if (!titulo) {
+      // Só devolve a pílula ao estado de espera se ela ainda estiver dizendo "abrindo" — uma
+      // consulta nova pode ter assumido a pílula no meio.
+      if (pilula.dataset.modo === 'abrindo') { pilula.hidden = true; delete pilula.dataset.modo; }
+      return;
+    }
+    pilula.dataset.modo = 'abrindo';
+    $('yt-carregando-t').textContent = `Abrindo “${titulo}”…`;
+    pilula.hidden = false;
+  }
+
   function mostrar(qual, titulo, msg) {
     grade.hidden = qual !== 'grade';
-    $('yt-carregando').hidden = qual !== 'carregando';
+    const pilula = $('yt-carregando');
+    delete pilula.dataset.modo;
+    if (qual === 'carregando') $('yt-carregando-t').textContent = 'Consultando o YouTube…';
+    pilula.hidden = qual !== 'carregando';
     $('yt-vazio').hidden = qual !== 'vazio';
     if (titulo) $('yt-vazio-titulo').textContent = titulo;
     if (msg !== undefined) $('yt-vazio-msg').textContent = msg;
@@ -81,6 +104,9 @@ function montarYoutube(palco) {
 
     const cartao = document.createElement('div');
     cartao.className = 'yt-cartao';
+    // O id no DOM, para o clique direito saber sobre QUAL cartão ele abriu. A grade é
+    // virtualizada, então o índice da célula não é estável; o id do vídeo é.
+    cartao.dataset.id = item.id;
 
     const capa = document.createElement('div');
     capa.className = 'yt-capa';
@@ -145,6 +171,28 @@ function montarYoutube(palco) {
     return entraram;
   }
 
+  // ⚠ O menu do cartão oferece as DUAS saídas, e a segunda é a que faltava em qualquer lugar do
+  // app: um vídeo que o Palco não toca — protegido por DRM, por exemplo — só abria no navegador
+  // depois de falhar aqui. Poder mandar direto para lá é escolha, e não consolo.
+  grade.addEventListener('contextmenu', (e) => {
+    const no = e.target.closest('.yt-cartao');
+    if (!no) return;
+    e.preventDefault();
+    const item = itens.find((x) => x.id === no.dataset.id);
+    if (!item) return;
+    const url = `https://www.youtube.com/watch?v=${item.id}`;
+    vssh.contextMenu(e.clientX, e.clientY, [
+      { id: 'assistir', label: 'Assistir aqui' },
+      { id: 'navegador', label: 'Abrir no YouTube' },
+    ]).then((escolha) => {
+      if (escolha === 'assistir') {
+        palco.abrirYoutube(url, { fila: itens.map((x) => ({ nome: x.titulo, videoId: x.id })) });
+      } else if (escolha === 'navegador') {
+        vssh.openUrl(url, { destino: 'navegador' });
+      }
+    });
+  });
+
   function desenhar() {
     if (gradeViva) gradeViva.destruir();
     gradeViva = TuffMidia.grade(grade, {
@@ -153,9 +201,17 @@ function montarYoutube(palco) {
       // 118 de capa (16:9 sobre 210) + duas linhas de título + a linha do canal.
       altura: 190,
       montar: montarCartao,
-      aoAbrir: (i) => {
+      aoAbrir: async (i) => {
         const item = itens[i];
         if (!item) return;
+        // ⚠ **O feedback tem de ser AQUI, e não no palco.** O `mostrarPreparando` do player desenha
+        // sobre `#palco`, que está escondido enquanto esta aba está aberta — então clicar num
+        // cartão não produzia nada visível pelos dois segundos até a troca de aba. Dois segundos de
+        // nada ensinam a clicar de novo, e clicar de novo abre outro vídeo.
+        //
+        // A frase diz QUAL, porque a grade tem dezenas de cartões e "carregando" sozinho não
+        // responde "o meu clique pegou?".
+        abrindo(item.titulo);
         // ⚠ **A lista que está na tela vira a FILA.** Abrir o quarto resultado de uma busca e
         // depois apertar "próximo" tem de dar o quinto — e não o próximo arquivo da última pasta
         // local aberta, que é o que aconteceria se a fila não viajasse junto. Os itens vão na mão
@@ -163,7 +219,13 @@ function montarYoutube(palco) {
         // reconstruir o que acabou de ser exibido.
         // A fila viaja no formato INTERNO do player — quem conhece a origem converte.
         const fila = itens.map((x) => ({ nome: x.titulo, videoId: x.id }));
-        palco.abrirYoutube(`https://www.youtube.com/watch?v=${item.id}`, { fila });
+        // O `finally` é o que impede a pílula de ficar presa quando o vídeo não abre — e ele abre
+        // no navegador, então a aba continua aqui, com a grade por baixo.
+        try {
+          await palco.abrirYoutube(`https://www.youtube.com/watch?v=${item.id}`, { fila });
+        } finally {
+          abrindo(null);
+        }
       },
     });
     mostrar('grade');
