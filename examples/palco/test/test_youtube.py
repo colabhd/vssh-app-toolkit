@@ -365,6 +365,64 @@ class TestOQueAsRotasDECIDEM(unittest.TestCase):
         self.assertIn("Content-Range", CABECALHOS_REPASSADOS)
 
 
+class TestOResolvedorPagina(unittest.TestCase):
+    """O que o resolvedor PEDE ao yt-dlp para cada página."""
+
+    def mundo_com_listar(self, quantos=30):
+        chamadas = []
+
+        def listar(url, de, ate):
+            chamadas.append({"url": url, "de": de, "ate": ate})
+            return {"title": "resultados", "entries": [
+                {"_type": "url", "ie_key": "Youtube", "id": f"{i:011d}"[-11:],
+                 "title": f"Vídeo {i}", "duration": 60,
+                 "thumbnails": [{"url": "https://x/t.jpg", "height": 180}]}
+                for i in range(de, de + quantos)]}
+
+        mundo = Mundo()
+        return Resolvedor(mundo.extrair, mundo.ler, listar=listar,
+                          agora=lambda: mundo.t), chamadas
+
+    def test_a_primeira_pagina_pede_de_1(self):
+        r, chamadas = self.mundo_com_listar()
+        lst = r.listar(analisar("https://www.youtube.com/results?search_query=gatos"))
+        self.assertEqual(chamadas[0]["de"], 1)
+        self.assertEqual(chamadas[0]["ate"], 30)
+        self.assertEqual(chamadas[0]["url"], "ytsearch30:gatos")
+        self.assertEqual(lst.de, 1)
+        self.assertTrue(lst.tem_mais)
+
+    def test_a_segunda_pagina_pede_o_INTERVALO_seguinte_e_amplia_a_busca(self):
+        # ⚠ As duas metades importam: `de/ate` recortam, e o `ytsearchN` cresce. Sem a segunda, o
+        # yt-dlp buscaria trinta e o recorte 31–60 devolveria nada — uma rolagem que simplesmente
+        # para, sem erro.
+        r, chamadas = self.mundo_com_listar()
+        r.listar(analisar("https://www.youtube.com/results?search_query=gatos"), de=31)
+        self.assertEqual((chamadas[0]["de"], chamadas[0]["ate"]), (31, 60))
+        self.assertEqual(chamadas[0]["url"], "ytsearch60:gatos")
+
+    def test_numa_playlist_a_URL_nao_muda_entre_paginas(self):
+        r, chamadas = self.mundo_com_listar()
+        alvo = analisar("https://www.youtube.com/playlist?list=PLabc123")
+        r.listar(alvo, de=1)
+        r.listar(alvo, de=31)
+        self.assertEqual(chamadas[0]["url"], chamadas[1]["url"])
+        self.assertEqual(chamadas[1]["de"], 31)
+
+    def test_uma_pagina_incompleta_diz_que_acabou(self):
+        r, _ = self.mundo_com_listar(quantos=7)
+        lst = r.listar(analisar("https://www.youtube.com/results?search_query=gatos"))
+        self.assertEqual(len(lst.itens), 7)
+        self.assertFalse(lst.tem_mais, "a rolagem continuaria pedindo uma lista que acabou")
+
+    def test_sem_o_injetado_de_listagem_nada_estoura(self):
+        # Um `Resolvedor` montado só para resolver vídeos — o caso de um teste, ou de um caminho
+        # que não precisa de listagem.
+        mundo = Mundo()
+        r = Resolvedor(mundo.extrair, mundo.ler, agora=lambda: mundo.t)
+        self.assertIsNone(r.listar(analisar("https://www.youtube.com/results?search_query=x")))
+
+
 class TestNenhumaUrlSAI_ABSOLUTA(unittest.TestCase):
     """⚠ **O portão que faltava, e a falta custou a primeira reprodução de verdade.**
 

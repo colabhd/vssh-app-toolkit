@@ -161,20 +161,26 @@ function servir(req, res) {
   const bytes = /^\/api\/yt\/bytes$/.test(p) && u.searchParams.get('f');
   if (bytes) {
     pedidosDeBytes += 1;
+    if (bytesRecusados) { res.writeHead(502); res.end('{}'); return true; }
     if (!midia) { res.writeHead(503); res.end(); return true; }
     midia.servirBytes(req, res, bytes);
     return true;
   }
 
   if (p === '/api/yt/listar') {
-    listagens.push(u.searchParams.get('url'));
+    const de = Number(u.searchParams.get('de') || 1);
+    listagens.push({ url: u.searchParams.get('url'), de });
     if (respostaDeListar instanceof Error) {
       res.writeHead(respostaDeListar.status || 502, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ erro: respostaDeListar.message }));
       return true;
     }
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify(respostaDeListar));
+    // ⚠ Uma FUNÇÃO quando o teste quer paginar: um objeto fixo devolveria a mesma página para
+    // sempre, e a rolagem infinita "funcionaria" mostrando trinta cópias do mesmo resultado. O
+    // duble tem de responder ao que foi pedido, senão mede o duble.
+    res.end(JSON.stringify(typeof respostaDeListar === 'function'
+      ? respostaDeListar(de) : respostaDeListar));
     return true;
   }
   if (p === '/api/yt/miniatura') {
@@ -222,6 +228,8 @@ let pedidosDoDash = 0;
 let respostaDeListar = null;
 let listagens = [];
 let pedidosDeBytes = 0;
+// Faz o proxy de bytes recusar, como um servidor que perdeu a credencial do googlevideo.
+let bytesRecusados = false;
 let midia = null;
 // ⚠ Quantas vezes o app pediu para abrir. É o que mede "ele avançou de arquivo" sem ambiguidade: a
 // bancada responde sempre o mesmo `nome`, então ler a tela não distingue avançar de ficar parado.
@@ -836,7 +844,7 @@ test('buscar desenha cartões com capa, duração e canal', seNaoTem, async () =
   assert.deepEqual(r.aoVivo, ['AO VIVO'], 'a transmissão ao vivo não foi marcada');
   assert.equal(r.vazio, true, 'o estado vazio ficou por cima da grade');
   assert.equal(listagens.length, 1);
-  assert.match(listagens[0], /results\?search_query=gatos/);
+  assert.match(listagens[0].url, /results\?search_query=gatos/);
 });
 
 test('uma busca nova NÃO deixa os cartões da anterior na tela', seNaoTem, async () => {
@@ -920,7 +928,7 @@ test('um link de PLAYLIST abre a aba, e não o player vazio', seNaoTem, async ()
   assert.equal(r.titulo, 'Minha lista');
   assert.equal(r.openUrl, 0, 'a playlist foi devolvida ao navegador — o deeplink virou beco');
   assert.equal(listagens.length, 1);
-  assert.match(listagens[0], /playlist\?list=PLabc123/);
+  assert.match(listagens[0].url, /playlist\?list=PLabc123/);
 });
 
 test('um link de CANAL também abre a aba', seNaoTem, async () => {
@@ -1177,4 +1185,256 @@ test('a URL do MPD que o app pede fica DENTRO do prefixo do app', seNaoTem, asyn
     assert.ok(caminho.startsWith('/sub/prefixo/'),
       `o MPD foi pedido em ${caminho} — fora do prefixo do app`);
   }
+});
+
+// ── A rolagem infinita ──────────────────────────────────────────────────────
+//
+// ⚠ **A busca REPETE itens entre páginas** — medido com o yt-dlp de verdade: pedindo 1–20 e 21–40
+// da mesma busca, DOIS ids aparecem nas duas. O ranking do YouTube não é determinístico entre
+// chamadas. Numa playlist a sobreposição é zero.
+//
+// Por isso o duble abaixo repete de propósito: um servidor de mentira que devolvesse páginas
+// perfeitamente disjuntas aprovaria um cliente sem deduplicação, e o defeito só apareceria na tela
+// de quem rolasse uma busca de verdade.
+
+const POR_PAGINA_TESTE = 30;
+
+/** Uma listagem paginada, com `repetidos` itens da página anterior no começo de cada página. */
+function paginada({ total = 90, repetidos = 2 } = {}) {
+  return (de) => {
+    const inicio = Math.max(1, de - (de > 1 ? repetidos : 0));
+    const itens = [];
+    for (let n = inicio; n < de + POR_PAGINA_TESTE && n <= total; n += 1) {
+      itens.push({
+        id: `vid${String(n).padStart(8, '0')}`,
+        titulo: `Resultado ${n}`,
+        duracao: 60,
+        canal: 'Canal',
+        miniatura: `api/yt/miniatura?v=vid${String(n).padStart(8, '0')}`,
+      });
+    }
+    return { tipo: 'busca', titulo: 'gatos', de, itens, temMais: de + POR_PAGINA_TESTE <= total };
+  };
+}
+
+/** Rola a grade até o fim e espera a contagem de cartões parar de crescer. */
+const ROLAR_ATE_O_FIM = `(async () => {
+  const g = document.getElementById('yt-grade');
+  let antes = -1;
+  for (let volta = 0; volta < 40; volta += 1) {
+    g.scrollTop = g.scrollHeight;
+    await new Promise((r) => setTimeout(r, 250));
+    const agora = document.querySelectorAll('.yt-nome').length;
+    const fim = g.scrollHeight - g.scrollTop - g.clientHeight;
+    if (agora === antes && fim < 4) break;
+    antes = agora;
+  }
+})()`;
+
+test('rolar até o fim traz a página seguinte', seNaoTem, async () => {
+  respostaDeListar = paginada({ total: 90 });
+  listagens = [];
+  const p = await comAbaAberta();
+  await p.avaliar(BUSCAR('gatos', "document.querySelector('.yt-cartao')"));
+
+  const antes = await p.avaliar("document.querySelectorAll('.yt-nome').length");
+  await p.avaliar(ROLAR_ATE_O_FIM);
+  const r = await p.avaliar(`(() => {
+    const nomes = [...document.querySelectorAll('.yt-nome')].map((e) => e.textContent);
+    return { desenhados: nomes.length, ultimo: nomes[nomes.length - 1] };
+  })()`);
+
+  // A grade é VIRTUALIZADA: ela nunca desenha tudo. O sinal de que a página seguinte chegou não é
+  // "há 90 cartões no DOM" — é que a rolagem passou do fim da primeira página.
+  assert.ok(listagens.length >= 2,
+    `só ${listagens.length} consulta(s): a página seguinte nunca foi pedida`);
+  assert.equal(listagens[0].de, 1);
+  assert.equal(listagens[1].de, 1 + POR_PAGINA_TESTE,
+    `a segunda página foi pedida em ${listagens[1].de}`);
+  assert.ok(r.desenhados > 0, 'a grade ficou vazia depois de rolar');
+  assert.match(r.ultimo, /Resultado (3[1-9]|[4-9]\d)/,
+    `o fim da grade ainda é da primeira página: ${r.ultimo}`);
+  assert.ok(antes > 0);
+});
+
+test('os itens REPETIDOS entre páginas não viram cartões duplicados', seNaoTem, async () => {
+  // ⚠ É o teste que a medição contra o YouTube real tornou obrigatório. Sem deduplicar por id, os
+  // dois itens que reaparecem em cada página viram cartões repetidos na grade — e quanto mais a
+  // pessoa rola, mais eles se acumulam.
+  respostaDeListar = paginada({ total: 90, repetidos: 5 });
+  const p = await comAbaAberta();
+  await p.avaliar(BUSCAR('gatos', "document.querySelector('.yt-cartao')"));
+  await p.avaliar(ROLAR_ATE_O_FIM);
+
+  const nomes = await p.avaliar(`(() => {
+    const g = document.getElementById('yt-grade');
+    // Passa por toda a grade recolhendo os nomes: ela é virtualizada, então só o que está na
+    // janela existe no DOM a cada instante.
+    const vistos = [];
+    return new Promise((ok) => {
+      let y = 0;
+      const passo = () => {
+        g.scrollTop = y;
+        setTimeout(() => {
+          for (const e of document.querySelectorAll('.yt-nome')) vistos.push(e.textContent);
+          y += g.clientHeight;
+          if (y > g.scrollHeight) ok(vistos); else passo();
+        }, 60);
+      };
+      passo();
+    });
+  })()`);
+
+  const unicos = new Set(nomes);
+  assert.ok(unicos.size > POR_PAGINA_TESTE,
+    `a grade não passou da primeira página: ${unicos.size} itens distintos`);
+  // Cada nome aparece uma vez POR POSIÇÃO na grade; o que não pode é o mesmo nome ocupar duas
+  // posições ao mesmo tempo. Recolhemos por janelas sobrepostas, então a checagem é sobre a lista
+  // ordenada de posições, não sobre a contagem bruta.
+  // ⚠ Só as células VISÍVEIS. A grade recicla nós: os que sobram ficam com `display:none` e
+  // guardam o conteúdo da posição anterior. Um `querySelectorAll('.yt-nome')` cru os inclui, e a
+  // primeira versão deste teste acusou "repetidos" que ninguém vê na tela.
+  const posicoes = await p.avaliar(`[...document.querySelectorAll('.tuff-miniatura')]
+    .filter((n) => n.style.display !== 'none')
+    .map((n) => (n.querySelector('.yt-nome') || {}).textContent)
+    .filter(Boolean)`);
+  assert.equal(new Set(posicoes).size, posicoes.length,
+    `a mesma janela da grade mostra nomes repetidos: ${posicoes.join(' | ')}`);
+});
+
+test('a rolagem PARA quando a lista acaba, em vez de pedir para sempre', seNaoTem, async () => {
+  // ⚠ Duas condições no cliente, e a segunda é a que morde aqui: uma página inteira de repetidos
+  // significa que a lista acabou, por mais que o servidor diga "tem mais". Sem ela, cada rolagem
+  // dispararia outra consulta — para sempre, contra o YouTube, sem nada aparecer na tela.
+  respostaDeListar = (de) => ({
+    tipo: 'busca',
+    titulo: 'gatos',
+    de,
+    // Sempre os MESMOS trinta, e sempre dizendo que há mais. É o servidor mentindo.
+    itens: Array.from({ length: 30 }, (_, i) => ({
+      id: `vid${String(i).padStart(8, '0')}`,
+      titulo: `Resultado ${i}`,
+      duracao: 60,
+      canal: 'Canal',
+      miniatura: `api/yt/miniatura?v=vid${String(i).padStart(8, '0')}`,
+    })),
+    temMais: true,
+  });
+  listagens = [];
+  const p = await comAbaAberta();
+  await p.avaliar(BUSCAR('gatos', "document.querySelector('.yt-cartao')"));
+
+  // ⚠ Rolagens FORÇADAS, e não `ROLAR_ATE_O_FIM`. Aquele laço para quando a contagem de cartões
+  // estabiliza — o que acontece na segunda volta justamente porque a lista não cresce, e assim ele
+  // nunca chegava a pedir muitas páginas. O teste passava sem a guarda: media a saída do laço, e
+  // não a teimosia do cliente. Achado refutando.
+  await p.avaliar(`(async () => {
+    const g = document.getElementById('yt-grade');
+    for (let volta = 0; volta < 10; volta += 1) {
+      g.scrollTop = 0;
+      await new Promise((r) => setTimeout(r, 30));
+      g.scrollTop = g.scrollHeight;
+      await new Promise((r) => setTimeout(r, 160));
+    }
+  })()`);
+
+  assert.ok(listagens.length <= 3,
+    `pediu ${listagens.length} páginas de uma lista que não cresce — a rolagem não sabe parar`);
+});
+
+test('trocar de busca ZERA a grade e a paginação', seNaoTem, async () => {
+  // ⚠ Sem zerar `vistos`, buscar "gatos", rolar, e depois buscar "cachorros" traria uma grade
+  // vazia: todo id novo seria comparado com o conjunto da busca anterior, e por azar de colisão —
+  // ou por um vídeo que aparece nas duas — sumiria sem explicação.
+  respostaDeListar = paginada({ total: 90 });
+  const p = await comAbaAberta();
+  await p.avaliar(BUSCAR('gatos', "document.querySelector('.yt-cartao')"));
+  await p.avaliar(ROLAR_ATE_O_FIM);
+
+  // A segunda busca devolve EXATAMENTE os mesmos ids da primeira — o pior caso para um `Set` que
+  // não fosse zerado, e um caso real: duas buscas parecidas trazem vídeos em comum.
+  listagens = [];
+  // ⚠ Esperar `.yt-cartao` aqui não espera NADA: os cartões da busca anterior ainda estão na tela.
+  // A condição tem de ser a chegada da resposta NOVA — e foi essa corrida que fez este teste
+  // falhar uma vez em duas execuções. Um teste instável é pior que um teste ausente: ele ensina a
+  // ignorar o vermelho.
+  await p.avaliar(BUSCAR('gatos de novo',
+    "document.getElementById('yt-grade').scrollTop === 0"
+    + " && document.querySelector('.yt-cartao')"));
+  const r = await p.avaliar(`(() => ({
+    desenhados: document.querySelectorAll('.yt-nome').length,
+    topo: document.getElementById('yt-grade').scrollTop,
+  }))()`);
+
+  assert.ok(r.desenhados > 0, 'a busca nova veio vazia — o conjunto de vistos não foi zerado');
+  assert.equal(r.topo, 0, 'a busca nova começou no meio da rolagem anterior');
+  assert.equal(listagens[0].de, 1, 'a busca nova continuou de onde a anterior parou');
+});
+
+test('uma falha de segmento é RETOMADA uma vez, e não mata a reprodução', seNaoTemMidia,
+  async () => {
+    // ⚠ **O defeito medido em uso:** o vídeo ficou parado um tempo e, ao voltar, a pessoa recebeu
+    // "A reprodução deste vídeo do YouTube falhou". A causa provável é a credencial do googlevideo
+    // — ela vale 6 h e o YouTube gira chaves antes disso — e o servidor já resolve isso sozinho.
+    // O que faltava era o cliente: o manifesto aponta para NÓS, então refazê-lo do mesmo ponto é
+    // barato e pega exatamente esse caso.
+    //
+    // Aqui a falha é produzida do jeito que ela acontece: os bytes param de responder por um
+    // tempo, e voltam. Uma tentativa é o bastante.
+    respostaDeListar = LISTAGEM;
+    respostaDeYtFixa = true;
+    respostaDeYt = {
+      tipo: 'video', id: 'aaaaaaaaaaa', titulo: 'Um vídeo', canal: 'C',
+      duracao: dashDeTeste.DURACAO, mpd: 'api/yt/mpd?v=aaaaaaaaaaa', legendas: [], qualidades: [90],
+    };
+    bytesRecusados = true;                 // o proxy recusando, como um 502 do servidor
+    const p = await comUrlAberta('https://youtu.be/aaaaaaaaaaa', respostaDeYt);
+
+    // Espera o aviso OU a recuperação — o que vier primeiro.
+    await p.avaliar(`(async () => {
+      const prazo = Date.now() + 8000;
+      while (Date.now() < prazo && document.getElementById('aviso').hidden) {
+        await new Promise((r) => setTimeout(r, 120));
+      }
+    })()`);
+
+    // Agora o servidor volta a responder, e a retomada tem de pegar.
+    bytesRecusados = false;
+    const r = await p.avaliar(`(async () => {
+      const v = document.getElementById('video');
+      const prazo = Date.now() + 20000;
+      while (Date.now() < prazo && v.currentTime < 0.5) await new Promise((r) => setTimeout(r, 150));
+      return { tempo: v.currentTime, altura: v.videoHeight };
+    })()`);
+
+    assert.ok(r.tempo >= 0.5,
+      `a reprodução não se recuperou depois de os bytes voltarem: ${JSON.stringify(r)}`);
+    assert.ok(r.altura > 0, 'nada foi desenhado depois da retomada');
+  });
+
+test('um erro que PERSISTE acaba dizendo que falhou', seNaoTemMidia, async () => {
+  // ⚠ A outra metade, e sem ela o conserto acima vira um vídeo que nunca admite não ir tocar.
+  // Uma tentativa, e só.
+  respostaDeYtFixa = true;
+  respostaDeYt = {
+    tipo: 'video', id: 'aaaaaaaaaaa', titulo: 'Um vídeo', canal: 'C',
+    duracao: dashDeTeste.DURACAO, mpd: 'api/yt/mpd?v=aaaaaaaaaaa', legendas: [], qualidades: [90],
+  };
+  bytesRecusados = true;
+  const p = await comUrlAberta('https://youtu.be/aaaaaaaaaaa', respostaDeYt);
+  const r = await p.avaliar(`(async () => {
+    const prazo = Date.now() + 20000;
+    while (Date.now() < prazo && document.getElementById('aviso').hidden) {
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return {
+      aviso: document.getElementById('aviso').hidden,
+      texto: document.getElementById('aviso-t').textContent,
+      preparando: document.getElementById('preparando').hidden,
+    };
+  })()`);
+  bytesRecusados = false;
+  assert.equal(r.aviso, false, 'o erro persistente nunca foi dito na tela');
+  assert.match(r.texto, /falhou/i);
+  assert.equal(r.preparando, true, '"Retomando" ficou preso para sempre');
 });

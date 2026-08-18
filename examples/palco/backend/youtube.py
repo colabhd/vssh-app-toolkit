@@ -290,21 +290,28 @@ class Resolvedor:
         self._resolucoes[vid] = r
         return r
 
-    def listar(self, alvo, por_pagina=None):
-        """Busca, playlist ou canal → `listas.Listagem`, ou `None` se o alvo não é listagem.
+    def listar(self, alvo, de=1, por_pagina=None):
+        """Uma PÁGINA de busca, playlist ou canal — ou `None` se o alvo não é listagem.
 
         ⚠ **Sem cache, e é decisão.** As três listagens são exatamente as coisas que mudam: uma
         busca tem de refletir o que existe agora, um canal acabou de publicar, uma playlist foi
         reordenada. Guardá-las trocaria 700 ms por uma tela que mente — e o que custa caro (resolver
         o vídeo escolhido) já é cacheado do outro lado.
+
+        `de` é 1-based, como o `playliststart` do yt-dlp — e manter a mesma origem que a biblioteca
+        de baixo evita o `+1`/`-1` no meio, que é onde este tipo de contagem apodrece.
         """
         from listas import POR_PAGINA, normalizar, url_de_listagem
 
-        url = url_de_listagem(alvo, por_pagina or POR_PAGINA)
+        n = int(por_pagina or POR_PAGINA)
+        de = max(1, int(de or 1))
+        ate = de + n - 1
+
+        url = url_de_listagem(alvo, ate)
         if url is None or self._listar is None:
             return None
-        info = self._listar(url, por_pagina or POR_PAGINA)
-        return normalizar(info, alvo.tipo, lista=alvo.lista)
+        info = self._listar(url, de, ate)
+        return normalizar(info, alvo.tipo, lista=alvo.lista, de=de, pedidos=n)
 
     def url_de(self, vid, itag):
         """A URL assinada de um formato, re-resolvendo se a que temos está perto de vencer.

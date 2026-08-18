@@ -27,7 +27,7 @@ decidisse sozinho, por tabela, transcodificaria a 180% de CPU para metade das m�
     GET    /api/yt/mpd     ?v=                → o manifesto DASH, com as URLs apontando para nós
     GET    /api/yt/bytes   ?v=&f=             → o proxy de Range (obrigatório — ver `dash.py`)
     GET    /api/yt/legenda ?v=&idioma=&auto=  → VTT
-    GET    /api/yt/listar  ?url=              → busca, playlist ou canal, para a grade
+    GET    /api/yt/listar  ?url=&de=          → uma página de busca, playlist ou canal
     GET    /api/yt/miniatura ?v=              → a capa do cartão, pelo nosso proxy
 
 Uma dependência, e ela é o toolkit. O resto é stdlib — **mais o yt-dlp, que é opcional**: sem ele o
@@ -411,7 +411,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._yt_legenda(um("v"), um("idioma"), um("auto") == "1")
 
             if caminho_url == "/api/yt/listar" and self.command in ("GET", "HEAD"):
-                return self._yt_listar(um("url"))
+                return self._yt_listar(um("url"), um("de"))
 
             if caminho_url == "/api/yt/miniatura" and self.command in ("GET", "HEAD"):
                 return self._yt_miniatura(um("v"))
@@ -654,11 +654,18 @@ class Handler(BaseHTTPRequestHandler):
             # pode ser recusada antes do prazo — o YouTube gira chaves, e uma reprodução longa
             # atravessa isso. Sem a segunda tentativa, o vídeo para no meio e do nosso lado nada
             # falhou, que é o pior formato de defeito que existe.
-            log("yt-bytes-retry", {"id": vid, "itag": itag, "erro": repr(e)[:200]})
+            log("yt-bytes-retry", {"id": vid, "itag": itag, "faixa": faixa,
+                                   "status": getattr(e, "code", None), "erro": repr(e)[:200]})
             try:
                 r = tentar(True)
             except Exception as e2:  # noqa: BLE001
-                log("yt-bytes-erro", {"id": vid, "itag": itag, "erro": repr(e2)[:200]})
+                # ⚠ O `status` é o que separa as causas, e sem ele o log não decide nada: **403** é
+                # credencial recusada (a chave girou, e re-resolver deveria ter bastado — se não
+                # bastou, o problema é nosso), **404** é o formato que sumiu do lado do YouTube, e
+                # um erro sem código é rede. Três consertos diferentes atrás da mesma frase.
+                log("yt-bytes-erro", {"id": vid, "itag": itag, "faixa": faixa,
+                                      "status": getattr(e2, "code", None),
+                                      "erro": repr(e2)[:200]})
                 return self._json(502, {"erro": "o YouTube recusou este trecho"})
 
         if r is None:
@@ -685,8 +692,8 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             resposta.close()
 
-    def _yt_listar(self, url):
-        """Busca, playlist ou canal — o que a grade da aba desenha."""
+    def _yt_listar(self, url, de=None):
+        """Uma página de busca, playlist ou canal — o que a grade da aba desenha."""
         resolvedor, _ = yt()
         if resolvedor is None:
             return self._sem_ytdlp()
@@ -696,7 +703,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(400, {"erro": "este endereço não é uma listagem do YouTube"})
 
         try:
-            listagem = resolvedor.listar(alvo)
+            inicio = int(de) if de and re.fullmatch(r"\d{1,5}", str(de)) else 1
+            listagem = resolvedor.listar(alvo, de=inicio)
         except Exception as e:  # noqa: BLE001
             # ⚠ A mensagem tem de distinguir "não existe" de "quebrou", porque o conserto é
             # diferente: um canal sem aba de vídeos é uma resposta legítima do YouTube (medido:

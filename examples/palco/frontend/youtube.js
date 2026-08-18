@@ -31,6 +31,16 @@ function montarYoutube(palco) {
 
   let itens = [];
   let gradeViva = null;
+  // A consulta que produziu o que está na tela, para pedir a página seguinte dela.
+  let paginaAtual = null;   // { url, de, temMais, carregando }
+  // ⚠ **Os ids já vistos, e esta peça NÃO é opcional** — foi medido: pedindo 1–20 e 21–40 da mesma
+  // busca, DOIS ids aparecem nas duas páginas. O ranking do YouTube não é determinístico entre
+  // chamadas. Sem deduplicar, rolar mostra o mesmo vídeo duas vezes e a grade parece bugada.
+  // Numa playlist a sobreposição é zero, mas a regra vale para as três: o custo é um `Set`.
+  let vistos = new Set();
+  // O mesmo teto do backend. Ele manda `de` na resposta, então este número só decide o PEDIDO —
+  // e a resposta corrige se um dia divergirem.
+  const POR_PAGINA = 30;
   // ⚠ Toda consulta ganha um número, pelo mesmo motivo que as aberturas do player: digitar uma
   // busca nova enquanto a anterior volta faria a resposta velha — que chega depois — sobrescrever
   // a grade da nova. O sintoma é uma lista que não corresponde ao que está escrito na caixa.
@@ -115,6 +125,24 @@ function montarYoutube(palco) {
    *
    * `atualizar()` continua servindo para o caso em que ela foi feita: mais itens da MESMA lista.
    */
+  /**
+   * Acrescenta uma página à grade, ignorando o que já está nela.
+   *
+   * Devolve quantos itens NOVOS entraram — e quem chama usa isso para decidir se ainda vale pedir
+   * mais: uma página inteira de repetidos significa que a lista acabou de verdade, por mais que o
+   * servidor diga que "tem mais".
+   */
+  function acrescentar(novos) {
+    let entraram = 0;
+    for (const i of novos || []) {
+      if (!i || !i.id || vistos.has(i.id)) continue;
+      vistos.add(i.id);
+      itens.push(i);
+      entraram += 1;
+    }
+    return entraram;
+  }
+
   function desenhar() {
     if (gradeViva) gradeViva.destruir();
     gradeViva = TuffMidia.grade(grade, {
@@ -145,6 +173,9 @@ function montarYoutube(palco) {
     mostrar('carregando');
     $('yt-titulo').textContent = o.titulo || '';
     $('yt-voltar').hidden = !o.podeVoltar;
+    itens = [];
+    vistos = new Set();
+    paginaAtual = null;
 
     let r;
     try {
@@ -162,7 +193,8 @@ function montarYoutube(palco) {
     }
     if (minha !== consulta) return;
 
-    itens = r.itens || [];
+    acrescentar(r.itens);
+    paginaAtual = { url, de: r.de || 1, temMais: !!r.temMais, carregando: false };
     $('yt-titulo').textContent = o.titulo || r.titulo || '';
     if (!itens.length) {
       mostrar('vazio', 'Nada encontrado',
@@ -170,7 +202,55 @@ function montarYoutube(palco) {
       return;
     }
     desenhar();
+    grade.scrollTop = 0;
   }
+
+  /**
+   * A página seguinte da consulta que está na tela.
+   *
+   * ⚠ **Ela cresce a grade em vez de refazê-la.** `atualizar(n)` é exatamente o caso para o qual
+   * ela foi feita — mais itens da MESMA lista, com os índices existentes intactos —, e refazer aqui
+   * jogaria a rolagem de volta ao topo a cada página: a pessoa rola até o fim, chegam trinta
+   * cartões, e ela é devolvida ao começo. O oposto do que pediu.
+   */
+  async function maisUma() {
+    const p = paginaAtual;
+    if (!p || !p.temMais || p.carregando) return;
+    p.carregando = true;
+    const minha = consulta;
+
+    let r;
+    try {
+      const proxima = p.de + POR_PAGINA;
+      r = await api(`api/yt/listar?url=${encodeURIComponent(p.url)}&de=${proxima}`);
+    } catch {
+      // ⚠ Silêncio, e uma porta que não fecha: uma falha ao buscar MAIS não é uma falha do que já
+      // está na tela. Trocar a grade cheia por uma mensagem de erro perderia os trinta resultados
+      // que a pessoa já estava usando. `carregando` volta a falso, então rolar de novo tenta de
+      // novo — que é o que alguém faz naturalmente quando nada apareceu.
+      p.carregando = false;
+      return;
+    }
+    if (minha !== consulta || paginaAtual !== p) return;   // trocaram de busca no meio
+
+    const entraram = acrescentar(r.itens);
+    p.de = r.de || (p.de + POR_PAGINA);
+    // ⚠ Duas condições, e a segunda é a que importa: uma página INTEIRA de repetidos significa que
+    // a lista acabou de verdade, por mais que o servidor diga que "tem mais". Sem ela, uma busca
+    // que já entregou tudo ficaria pedindo a mesma página para sempre a cada rolagem — e a
+    // sobreposição entre páginas de busca é medida, não hipotética.
+    p.temMais = !!r.temMais && entraram > 0;
+    p.carregando = false;
+    if (entraram && gradeViva) gradeViva.atualizar(itens.length);
+  }
+
+  // ⚠ A `TuffMidia.grade` não tem gancho de fim de rolagem — ela virtualiza, e quem sabe que existe
+  // uma página seguinte é este arquivo. Duas alturas de folga: pedir só ao tocar o fim faz a pessoa
+  // esperar olhando o vazio, e é a diferença entre "rolagem infinita" e "rolagem com pausa".
+  grade.addEventListener('scroll', () => {
+    const faltam = grade.scrollHeight - grade.scrollTop - grade.clientHeight;
+    if (faltam < grade.clientHeight * 2) maisUma();
+  }, { passive: true });
 
   // ── A porta de entrada da aba ────────────────────────────────────────────
 

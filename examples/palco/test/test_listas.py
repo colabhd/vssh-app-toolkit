@@ -214,6 +214,61 @@ class TestNormalizar(unittest.TestCase):
             self.assertEqual(normalizar(ruim, "busca").itens, [], repr(ruim)[:40])
 
 
+class TestAPaginacao(unittest.TestCase):
+    """⚠ A busca REPETE itens entre páginas, e isso muda o que o cliente PRECISA fazer.
+
+    Medido com yt-dlp 2026.07.04, pedindo 1–20 e 21–40 da mesma busca: **dois ids aparecem nas
+    duas**. O ranking do YouTube não é determinístico entre chamadas. Numa playlist a sobreposição
+    é zero — é uma lista fixa.
+
+    A consequência não é do backend, é de quem consome: sem deduplicar por id, rolar uma busca
+    mostra o mesmo vídeo duas vezes. O portão dessa metade está em `tests/palco-frontend.test.js`;
+    aqui prende-se o que o servidor tem de entregar para ela ser possível.
+    """
+
+    def test_a_busca_pede_ate_o_INDICE_FINAL_e_nao_o_tamanho_da_pagina(self):
+        # ⚠ `ytsearchN` significa "busque N resultados", e não "pule para o N-ésimo". Para mostrar
+        # 31–60 é preciso pedir `ytsearch60` e recortar; pedir `ytsearch30` de novo devolveria os
+        # mesmos trinta primeiros, e a segunda página seria a primeira.
+        alvo = analisar("https://www.youtube.com/results?search_query=gatos")
+        self.assertEqual(url_de_listagem(alvo, 30), "ytsearch30:gatos")
+        self.assertEqual(url_de_listagem(alvo, 60), "ytsearch60:gatos")
+
+    def test_playlist_e_canal_NAO_mudam_de_url_entre_paginas(self):
+        # Neles o recorte é `playliststart`/`playlistend`; a URL é a mesma. Mudá-la seria pedir
+        # outra lista.
+        for entrada in ("https://www.youtube.com/playlist?list=PLabc123",
+                        "https://www.youtube.com/@BlenderOfficial"):
+            alvo = analisar(entrada)
+            self.assertEqual(url_de_listagem(alvo, 30), url_de_listagem(alvo, 90), entrada)
+
+    def test_tem_mais_olha_as_entradas_BRUTAS_e_nao_os_itens_aproveitados(self):
+        # ⚠ Uma página em que metade das entradas eram canais ou vídeos removidos ainda veio
+        # CHEIA — o YouTube tinha mais para dar. Decidir por `len(itens)` pararia a rolagem ali, e
+        # o resto da lista ficaria inalcançável sem nada indicando por quê.
+        info = fixture("busca-com-canal")
+        brutas = len(info["entries"])
+        r = normalizar(info, "busca", de=1, pedidos=brutas)
+        self.assertLess(len(r.itens), brutas, "a fixture perdeu o canal; o teste mede nada")
+        self.assertTrue(r.tem_mais, "parou a rolagem porque um canal ocupou uma vaga")
+
+    def test_uma_pagina_pela_metade_e_o_fim_da_lista(self):
+        info = fixture("busca")
+        r = normalizar(info, "busca", de=1, pedidos=len(info["entries"]) + 5)
+        self.assertFalse(r.tem_mais)
+
+    def test_o_de_volta_na_resposta_para_o_cliente_saber_onde_esta(self):
+        # Ele devolve o que foi PEDIDO, e é o cliente quem soma — mas ter o valor na resposta é o
+        # que permite ao cliente conferir em vez de supor.
+        r = normalizar(fixture("busca"), "busca", de=31, pedidos=30)
+        self.assertEqual(r.de, 31)
+        self.assertEqual(como_json(r)["de"], 31)
+
+    def test_de_invalido_nao_quebra_a_contagem(self):
+        for ruim in (0, -5, None):
+            self.assertEqual(normalizar(fixture("busca"), "busca", de=ruim).de, 1, repr(ruim))
+
+
 class TestOQueAGradeRecebe(unittest.TestCase):
     def test_a_miniatura_vai_pelo_NOSSO_proxy(self):
         # ⚠ Duas razões, e cada uma basta: a página não busca de outra origem sem CORS, e todo byte

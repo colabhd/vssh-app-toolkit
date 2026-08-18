@@ -86,20 +86,28 @@ class Listagem:
     total: Optional[int] = None
     # Só existe em playlist: é o que permite "tocar a lista" e o próximo/anterior.
     lista: Optional[str] = None
+    # Em que posição da lista esta página começa (1-based), e se vale pedir a próxima.
+    de: int = 1
+    tem_mais: bool = False
 
 
-def url_de_listagem(alvo, por_pagina=POR_PAGINA):
+def url_de_listagem(alvo, ate=POR_PAGINA):
     """O `Alvo` de `urls.py` → o que pedir ao yt-dlp, ou `None` se não é listagem.
 
     ⚠ A busca vira `ytsearchN:` e não uma URL de `/results`: o extractor de busca do yt-dlp aceita
     o número de resultados na própria chave, e pedir a página de resultados devolveria a página
     inteira do YouTube para depois raspá-la.
+
+    ⚠ E `ate` é o índice FINAL, não o tamanho da página — porque `ytsearchN` significa "busque N
+    resultados", e não "pule para o N-ésimo". Para mostrar os itens 31 a 60 é preciso pedir
+    `ytsearch60` e recortar com `playliststart`; pedir `ytsearch30` de novo devolveria os mesmos
+    trinta primeiros. Canal e playlist não têm esse problema: a URL é a mesma e só o recorte muda.
     """
     if alvo is None:
         return None
     if alvo.tipo == "busca":
         termo = (alvo.termo or "").strip()
-        return f"ytsearch{int(por_pagina)}:{termo}" if termo else None
+        return f"ytsearch{max(1, int(ate))}:{termo}" if termo else None
     if alvo.tipo == "playlist" and alvo.lista:
         return f"https://www.youtube.com/playlist?list={alvo.lista}"
     if alvo.tipo == "canal" and alvo.canal:
@@ -173,10 +181,17 @@ def _item(entrada):
     )
 
 
-def normalizar(info, tipo, lista=None):
-    """O `extract_info` plano → o que a grade desenha."""
+def normalizar(info, tipo, lista=None, de=1, pedidos=None):
+    """O `extract_info` plano → o que a grade desenha.
+
+    ⚠ `tem_mais` é decidido pela contagem BRUTA de entradas, e não pela de itens aproveitados: uma
+    página em que metade das entradas eram canais ou vídeos removidos ainda veio cheia, e parar ali
+    esconderia o resto da lista. A pergunta é "o YouTube tinha mais para dar?", não "quantos
+    couberam na grade?".
+    """
     info = info if isinstance(info, dict) else {}
-    itens = [i for i in (_item(e) for e in (info.get("entries") or [])) if i is not None]
+    brutas = [e for e in (info.get("entries") or []) if e is not None]
+    itens = [i for i in (_item(e) for e in brutas) if i is not None]
     titulo = str(info.get("title") or "")
     if tipo == "canal":
         # O yt-dlp devolve "Blender - Videos" ao pedir a aba. O sufixo é dele, não do canal.
@@ -188,6 +203,8 @@ def normalizar(info, tipo, lista=None):
         itens=itens,
         total=info.get("playlist_count"),
         lista=lista,
+        de=max(1, int(de or 1)),
+        tem_mais=bool(pedidos) and len(brutas) >= pedidos,
     )
 
 
@@ -199,6 +216,8 @@ def como_json(listagem):
         "canal": listagem.canal,
         "total": listagem.total,
         "lista": listagem.lista,
+        "de": listagem.de,
+        "temMais": listagem.tem_mais,
         "itens": [{
             "id": i.id, "titulo": i.titulo, "duracao": i.duracao, "canal": i.canal,
             "canalId": i.canal_id, "visualizacoes": i.visualizacoes, "aoVivo": i.ao_vivo,

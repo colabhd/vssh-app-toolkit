@@ -167,6 +167,14 @@ function montarPalco() {
    * segunda lista, só para o YouTube, seria seis lugares para as duas divergirem — e cada
    * divergência apareceria como "o próximo não anda" num dos casos.
    */
+  /** `/home/ana/Vídeos/aula.mkv` → `/home/ana/Vídeos`. Serve nas duas convenções de separador (a barra do Windows entra por código, para
+   *  não virar escape dentro desta própria string).  */
+  function pastaDe(caminho) {
+    const s = String(caminho || '');
+    const corte = Math.max(s.lastIndexOf('/'), s.lastIndexOf(String.fromCharCode(92)));
+    return corte > 0 ? s.slice(0, corte) : '';
+  }
+
   function abrirVizinho(v) {
     if (!v) return undefined;
     // ⚠ A fila viaja JUNTO ao andar nela. `abrirYoutube` limpa `vizinhos` na entrada — o que é
@@ -243,6 +251,13 @@ function montarPalco() {
     video.play().catch(() => { /* autoplay recusado: o botão continua ali */ });
 
     mostrarRetomar(o.doInicio ? 0 : r.retomarEm);
+    // Aqui o ambiente conseguiria adivinhar — o caminho está na URL do cano —, mas declarar custa
+    // uma linha e tira a adivinhação do caminho: a pasta é um subtítulo melhor que o título da
+    // janela, que repete o nome do arquivo que já está na linha de cima.
+    vssh.media?.agora?.({
+      titulo: r.nome,
+      subtitulo: pastaDe(r.caminho),
+    });
     aplicarLegendas(r);
     carregarVizinhos(caminho, minha);
     porMediaSession(r);
@@ -385,9 +400,40 @@ function montarPalco() {
     // eventos `loadeddata`/`playing` do próprio `<video>` — e quando o dash.js falha (um MPD que
     // não carrega, um segmento recusado, um codec que a máquina não aceita) nenhum dos dois chega.
     // Nada falha visivelmente: a pessoa fica olhando um spinner que não termina.
+    // ⚠ **Um erro de segmento NÃO é o fim da reprodução, e tratá-lo como fim foi um defeito
+    // medido em uso:** o vídeo ficou parado um tempo, e ao voltar a pessoa recebeu
+    // "A reprodução falhou". A causa mais provável é a credencial do googlevideo — ela vale 6 h e
+    // o YouTube gira chaves antes disso —, e o servidor RESOLVE isso sozinho: `url_de` re-resolve
+    // quando a URL está por vencer, e o proxy tenta de novo quando ela é recusada.
+    //
+    // O que faltava era o outro lado. O manifesto aponta para nós, então refazê-lo do mesmo ponto
+    // é barato e pega exatamente esse caso: as trilhas são as mesmas, as URLs são as nossas, e o
+    // backend entrega credenciais novas. Uma tentativa, e só: um erro que persiste é um erro de
+    // verdade, e insistir para sempre seria um vídeo que nunca diz que não vai tocar.
+    let jaTentouDeNovo = false;
     dashPlayer.on(dashjs.MediaPlayer.events.ERROR, (e) => {
       if (minha !== geracao) return;
       const msg = (e && e.error && (e.error.message || e.error.code)) || '';
+
+      if (!jaTentouDeNovo) {
+        jaTentouDeNovo = true;
+        const onde = video.currentTime || r.t || 0;
+        mostrarPreparando(true, 'Retomando…');
+        try {
+          dashPlayer.destroy();
+        } catch { /* já caiu */ }
+        dashPlayer = dashjs.MediaPlayer().create();
+        dashPlayer.on(dashjs.MediaPlayer.events.ERROR, (e2) => {
+          if (minha !== geracao) return;
+          const m2 = (e2 && e2.error && (e2.error.message || e2.error.code)) || msg;
+          mostrarPreparando(false);
+          avisar(`A reprodução deste vídeo do YouTube falhou${m2 ? ` (${m2})` : ''}.`);
+        });
+        dashPlayer.initialize(video, r.mpd, true);
+        if (onde > 0) dashPlayer.seek(onde);
+        return;
+      }
+
       mostrarPreparando(false);
       avisar(`A reprodução deste vídeo do YouTube falhou${msg ? ` (${msg})` : ''}.`);
     });
@@ -396,6 +442,15 @@ function montarPalco() {
 
     mostrarRetomar(0);
     porMediaSession({ nome: r.titulo, origem: r.canal });
+    // ⚠ **Declarar é obrigatório aqui, e não cortesia.** A fonte deste `<video>` é um `blob:` do
+    // MediaSource — não há nome de arquivo em URL nenhuma para o ambiente ler. Sem esta linha a
+    // central de mídia mostrava o UUID do blob como título, com o nome de verdade caindo na linha
+    // de baixo. Ver `vssh.media.agora` no shim.
+    vssh.media?.agora?.({
+      titulo: r.titulo,
+      subtitulo: r.canal,
+      capa: `api/yt/miniatura?v=${r.id}`,
+    });
 
     // ⚠ A fila vem DEPOIS de o vídeo já estar tocando, e nunca antes: carregar uma playlist de
     // trinta itens é outra ida ao YouTube, e fazê-la primeiro adiaria a imagem por esse tempo para

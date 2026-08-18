@@ -70,6 +70,7 @@ const EXCECOES = {
   // que é exatamente o botão morto que a API existe para impedir. Quem exercita isto é o Palco.
   'media.transporte': 'exige mídia tocando; a galeria é silenciosa por desenho',
   'media.aoAgir': 'exige mídia tocando; a galeria é silenciosa por desenho',
+  'media.agora': 'exige mídia tocando; a galeria é silenciosa por desenho',
 
   // `window.cabecalho: "app"` é a outra metade da mesma exclusão: o shell PARA de desenhar a barra
   // de título, e o app assume arrastar, duplo-clique e menu de contexto. Um app que declarasse isso

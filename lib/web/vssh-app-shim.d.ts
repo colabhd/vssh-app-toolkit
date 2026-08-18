@@ -48,6 +48,23 @@ interface VsshMidia {
    * shell resolve sozinho, sem passar por aqui. Um handler por janela; chamar de novo substitui.
    */
   aoAgir(handler: (acao: 'anterior' | 'proximo') => void): void;
+  /**
+   * O que está tocando agora. Chame a cada troca de faixa.
+   *
+   * ⚠ Sem isto o ambiente adivinha o nome pela URL da fonte — o que funciona para um arquivo e
+   * falha para tudo montado por MSE: um `blob:` não tem nome, e o que aparece na central de mídia
+   * é o UUID do blob. `capa` é uma URL de imagem relativa ao app.
+   */
+  agora(o: VsshMidiaAgora | null): void;
+}
+
+interface VsshMidiaAgora {
+  /** O nome do que está tocando. É a linha grande da central de mídia. */
+  titulo?: string;
+  /** Autoria, canal, álbum — a linha secundária. */
+  subtitulo?: string;
+  /** URL de imagem, relativa ao app. Sem ela o ambiente desenha o ícone genérico. */
+  capa?: string;
 }
 
 interface VsshAcaoDeNotificacao {

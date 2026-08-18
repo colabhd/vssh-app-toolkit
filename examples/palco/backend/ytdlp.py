@@ -95,7 +95,7 @@ class Mundo:
         with self._yt.YoutubeDL(opcoes) as ydl:
             return ydl.extract_info(url, download=False)
 
-    def listar(self, url, por_pagina):
+    def listar(self, url, de, ate):
         """Busca, playlist ou canal — **plano**, e com teto.
 
         ⚠ `extract_flat` é o que torna a aba possível, e não uma otimização. Sem ele o yt-dlp
@@ -105,13 +105,21 @@ class Mundo:
 
         E `playlistend` não é cortesia: existem playlists de milhares de vídeos, e sem teto a
         resposta viraria dezenas de MB e uma grade que o navegador não desenha.
+
+        ⚠ **A busca REPETE itens entre páginas, e a playlist não** — medido: pedindo 1–20 e 21–40 de
+        `ytsearch60`, dois ids aparecem nas duas; numa playlist, zero. O ranking do YouTube não é
+        determinístico entre chamadas, então quem consome PRECISA deduplicar por id. Não é
+        capricho: sem isso, rolar uma busca mostra o mesmo vídeo duas vezes na grade.
         """
         opcoes = {
             "quiet": True,
             "no_warnings": True,
             "skip_download": True,
             "extract_flat": "in_playlist",
-            "playlistend": int(por_pagina),
+            # ⚠ Os dois, e 1-based: `playlistend` sozinho sempre devolveria do começo, e a segunda
+            # página seria a primeira de novo.
+            "playliststart": max(1, int(de)),
+            "playlistend": max(1, int(ate)),
             "socket_timeout": self._tempo,
         }
         with self._yt.YoutubeDL(opcoes) as ydl:
