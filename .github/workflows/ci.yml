@@ -3,7 +3,7 @@ name: CI
 # As libs de lib/ são código compartilhado: um bug aqui se espalha para todo vssh-app que as
 # vendorizar. Sem dependência npm, então não há `npm ci` — é `node --test` e pronto.
 #
-# ISSO CONTINUA VALENDO DEPOIS DA ONDA 3, e foi decisão consciente. Parte dos testes de lib/web/
+# NÃO HÁ DEPENDÊNCIA NPM, e é decisão, não sobra. Parte dos testes de lib/web/
 # roda num Chrome de verdade (o `vm` do Node discorda do navegador justamente na leitura que o
 # fsa-polyfill quebrava), e o instrumento é `tests/browser/chrome.js`: CDP à mão, sobre o
 # `WebSocket` nativo do Node, usando um navegador JÁ INSTALADO. O runner ubuntu-latest traz Chrome,

@@ -1,8 +1,13 @@
 # Notas de plataforma: o que portar o Logseq ensinou
 
-Escrito para o `vssh-app-toolkit`, a partir de um port real levado até rodar num servidor. Duas
-peças deste repo estão prontas para virar código compartilhado, uma decisão de plataforma foi
-respondida com dado concreto, e o resto são armadilhas que custaram rodadas de depuração.
+Escrito a partir de um port real levado até rodar num servidor. **É um artefato de investigação, e
+ser histórico é o que ele é**: as armadilhas que ele cataloga continuam valendo, mas as propostas
+dele não estão pendentes.
+
+> **Estado das duas propostas da seção 1: as duas foram promovidas.** `vssh-app-fs` e `static-spa`
+> são hoje `lib/node/vssh-app-fs/` e `lib/node/static-spa.js`, com par em `lib/python/`, e a
+> referência viva delas é o [README](../../README.md#bibliotecas-lib). O que segue é o argumento
+> que as promoveu, não um pedido.
 
 ---
 
@@ -63,7 +68,7 @@ implementar no servidor:
 | URL de asset | relativa, o navegador resolve | protocolo `assets://`, que não existe fora do Electron |
 
 > **⚠ A coluna dizia "modo web (de graça)", e isso estava errado.** IndexedDB não sai de graça: pelo
-> critério 3.2 ([`../roadmap/criterios.md`](../roadmap/criterios.md#32--isso-sobrevive-à-troca-de-máquina))
+> critério 2 ([`../decisoes/criterios-de-projeto.md`](../decisoes/criterios-de-projeto.md#2--isso-sobrevive-à-troca-de-máquina))
 > ele é **dívida** — o grafo do usuário fica preso àquela máquina e àquele navegador. O que o modo
 > web dá de graça é **não ter de implementar** os quatro handlers agora; a durabilidade continua em
 > aberto e é dela que o port se lembra depois. A frase certa é "já implementado", não "de graça".
@@ -149,7 +154,7 @@ contra o diretório instalado.
 
 **Healthcheck e token — e esta lição estava errada.** Estava escrito aqui que *"o `healthcheckPath`
 é pollado direto na porta, sem passar pelo proxy, então não carrega `X-Vssh-App-Token`; um app que
-exija o token em todas as rotas precisa isentar essa uma"*. **Mudou na Onda 4**: a sondagem vai
+exija o token em todas as rotas precisa isentar essa uma"*. **Isso está errado**: a sondagem vai
 **com** o header. Gatear a rota de healthcheck é permitido, e isentá-la deixou de ter motivo.
 
 Vale registrar por que a versão antiga era pior do que "desatualizada": com a sondagem sem header,
@@ -255,7 +260,7 @@ verdade se o script tratar o diretório vazio, o que fecha o círculo com o par�
 > A seção fica como registro do raciocínio, que continua valendo. Uma ressalva que só apareceu
 > depois: cada watch segura um canal SSH, e o orçamento é de ~8 **por servidor** — por isso
 > `cancelar` não é opcional, e por isso o desenho vai mudar para um vigia por servidor. Ver
-> [roadmap/02-apis-de-shell.md](../roadmap/02-apis-de-shell.md).
+> [`../api.md`](../api.md).
 
 Estava fora do escopo deste app na v1, e a divisão sugerida era:
 
@@ -331,7 +336,7 @@ Os outros consumidores estruturais continuam sem conserto, e isso está document
 polyfill em vez de escondido. **Falhar em silêncio era o pior desfecho**; hoje o caminho que
 importa funciona e o resto é dito em voz alta.
 
-> **Post-scriptum da Onda 3 — a regra acima estava larga demais.** Ao construir um instrumento que
+> **Post-scriptum — a regra acima estava larga demais.** Ao construir um instrumento que
 > roda o polyfill num Chrome de verdade (`tests/browser/`), a frase *"preguiça e compatibilidade
 > estrutural não coexistem numa subclasse de `Blob`"* não sobreviveu à medição. A fronteira real é
 > **o relógio, não a herança**: onde cabe um `await`, cabe conserto. `Response`, `Request`, `fetch`

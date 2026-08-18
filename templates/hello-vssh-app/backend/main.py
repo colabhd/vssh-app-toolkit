@@ -18,7 +18,7 @@ O que este template já faz por você, e que a primeira versão de todo app esqu
   - healthcheck que responde sem depender de nada estar pronto;
   - um endpoint SSE com os cabeçalhos que sobrevivem ao proxy e ao CDN.
 
-⚠ **Este arquivo lia `VSSH_APP_PORT` até a v4**, e com isso ele deixou de subir: desde a Onda 9 o
+⚠ **Este arquivo não lê `VSSH_APP_PORT`, e ler seria o defeito**: o
 endereço de um app é um socket unix, e o `transport: "tcp"` que entregaria uma porta saiu do
 schema. Quem lê o endereço, limpa socket órfão e falha alto quando não veio nada é o
 `criar_servidor()` do toolkit, lá no fim.
@@ -564,7 +564,7 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             # O healthcheck é pollado pelo lifecycle do portal DIRETO no socket, até 15x/1s,
-            # bloqueando o clique de "abrir app". Desde a Onda 4 a sondagem vai COM o
+            # bloqueando o clique de "abrir app". A sondagem vai COM o
             # X-Vssh-App-Token, então gatear esta rota seria permitido. Ela fica isenta por outro
             # motivo: responde `ok` sem tocar em nada, e assim o healthcheck não depende de o token
             # estar certo para dizer se o processo subiu.

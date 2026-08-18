@@ -1,7 +1,8 @@
 # vssh-app-toolkit
 
 Ferramentas **públicas** para construir e publicar **vssh-apps** do desktop remoto
-VSSH-SSO (o cliente Xpra renderizado no navegador). Um vssh-app é um pacote self-contained
+VSSH-SSO — um ambiente de desktop completo renderizado no navegador, sem nada instalado na máquina
+de quem o usa. Um vssh-app é um pacote self-contained
 — frontend HTML + backend próprio, em qualquer linguagem — que roda como processo no servidor Linux
 do usuário e aparece como uma janela dentro do desktop. Você desenvolve **fora** do repositório do
 portal e publica um tarball no repositório de artefatos (Cloudflare Worker D1/R2); um admin instala
@@ -25,7 +26,9 @@ padrão — **sem nenhum PAT/GitHub App**.
 | [`docs/api.md`](docs/api.md) | **Referência de API** — o que o app pode pedir ao ambiente: janela, título, diálogos, menu de contexto, seletores, arquivos, abas. E o que não existe. |
 | [`docs/porting.md`](docs/porting.md) | Portar um app web/Electron/Tauri: árvore de decisão e como medir o buraco em minutos. |
 | [`docs/lessons/logseq-port.md`](docs/lessons/logseq-port.md) | O que portar um app real ensinou — a origem da maioria das regras acima. |
-| [`docs/roadmap/`](docs/roadmap/) | **Plano vivo do ecossistema** — diagnóstico, casos de uso, critérios de projeto e as ondas de trabalho, com estado por item. |
+| [`docs/ui.md`](docs/ui.md) | A biblioteca de UI: paleta, componentes, ícones e as peças de mídia. |
+| [`docs/testes.md`](docs/testes.md) | Como se escreve teste aqui — e o que não se escreve. |
+| [`docs/decisoes/`](docs/decisoes/) | As razões longas: [publicação](docs/decisoes/publicacao.md) e os [três critérios de projeto](docs/decisoes/criterios-de-projeto.md). |
 
 ## Os dois templates são o mesmo app
 
@@ -51,8 +54,10 @@ Uma segunda guarda,
 [`tests/galeria-cobertura.test.js`](tests/galeria-cobertura.test.js), enumera a superfície real do
 `vssh` em runtime e exige que **cada membro apareça em alguma peça** das duas galerias. As exceções
 são nomeadas com o motivo no próprio arquivo, e uma exceção que perca a API que a justificava
-reprova junto. Sem ela a galeria envelhece em silêncio: quando foi escrita, cobria 23 dos 68
-membros, e as quatro APIs mais recentes do toolkit não tinham uma peça sequer.
+reprova junto. Sem ela a galeria envelhece em silêncio, e não em tese: ela já esteve cobrindo um
+terço da superfície, com as quatro APIs mais recentes do toolkit sem uma peça sequer. Nada estava
+quebrado — cada bump publicou uma capacidade, documentou-a, e não havia o que pudesse ficar
+vermelho.
 
 ## Bibliotecas (`lib/`)
 
@@ -126,13 +131,13 @@ existir porque o backend é Python.
 |---|---|
 | `lib/web/vssh-app-shim.js` | **A ponte com o desktop**: `vssh.dialog`, `vssh.notify`, `vssh.pickFile`, `vssh.fs`, `vssh.window`, `vssh.contextMenu`, `vssh.tabs`, `vssh.capabilities`. Fora do desktop cada função **degrada** para o equivalente do navegador em vez de lançar. |
 | `lib/web/vssh-app-shim.d.ts` | Os tipos da superfície acima, como **declaração global** (o shim entra por `<script>`). Basta incluir no `tsconfig.json`. Conferido contra a superfície real em runtime, nos dois sentidos — ver [`docs/api.md`](docs/api.md#typescript). |
-| `lib/web/fsa-polyfill.js` | File System Access API (`showDirectoryPicker()` e cia.) sobre o `/api/fs/*` do portal — um web app que já usa FSA roda **sem fork**. Requer o shim carregado antes. ⚠ Tem limites estruturais conhecidos: veja [`docs/roadmap/03-toolkit.md`](docs/roadmap/03-toolkit.md#t1--lazyfile-é-um-blob-vazio) antes de depender dele. |
+| `lib/web/fsa-polyfill.js` | File System Access API (`showDirectoryPicker()` e cia.) sobre o `/api/fs/*` do portal — um web app que já usa FSA roda **sem fork**. Requer o shim carregado antes. ⚠ Tem limites conhecidos, e eles estão medidos: veja [o que ele faz e o que não faz](docs/api.md#o-que-o-polyfill-faz-e-o-que-ele-não-faz) antes de depender dele. |
 | `lib/web/electron-shim.js` | Superfície padrão do Electron (`dialog`, `shell`, `clipboard`, `Notification`, controles de janela) mapeada para o shim. Para portar um app Electron sem reescrever as chamadas. |
 | `lib/web/tauri-shim.js` | Idem para a superfície padrão do Tauri (`fs`, `dialog`, `shell`, `notification`, `path`). |
 | `lib/web/tuff/` | **A biblioteca de UI** — a estética do ambiente, do lado do app: paleta, tipografia, 19 componentes, 87 ícones, gaveta de navegação e as peças de mídia. Um app que a adota se parece com o ambiente em vez de parecer uma página web dentro de uma janela. Ver [`docs/ui.md`](docs/ui.md). |
 
 > **Por que uma biblioteca de UI, e não só documentação.** O critério 3.3 do ecossistema
-> ([`docs/roadmap/criterios.md`](docs/roadmap/criterios.md#33--está-belo)) é condição de pronto — *"a
+> ([`docs/decisoes/criterios-de-projeto.md`](docs/decisoes/criterios-de-projeto.md#3--está-belo)) é condição de pronto — *"a
 > promessa é que o usuário esqueça que está num navegador"* — e ele **passou a alcançar todo
 > vssh-app**. Mas cobrar sem entregar vocabulário é pedir que cada autor redescubra 2800 linhas de
 > CSS que já existem noutro repositório: um app já pagou esse custo à mão, em 259 linhas, e a ponte
@@ -223,7 +228,7 @@ Apps de referência mais completos moram em repositórios próprios: `colabhd/vs
      workflow_dispatch:
    jobs:
      publish:
-       uses: colabhd/vssh-app-toolkit/.github/workflows/_publish-app-reusable.yml@v2
+       uses: colabhd/vssh-app-toolkit/.github/workflows/_publish-app-reusable.yml@v4
        with:
          app_dir: "."
          repo_api: "https://vssh-repo.colabh.org"       # = seu VSSH_REPO_API
@@ -290,7 +295,7 @@ pista era uma linha no meio do log.
 > cópia tinha um número de versão próprio para esquecer. Levar o `node_modules` no tarball
 > continua possível — a diferença é que agora quem faz a cópia é o npm, e quem sabe a versão é o
 > lock. Ver [MIGRATION.md](MIGRATION.md) e
-> [`docs/roadmap/03-toolkit.md`](docs/roadmap/03-toolkit.md#a-cópia-vendorizada-não-sabe-a-idade-que-tem).
+> [`docs/decisoes/publicacao.md`](docs/decisoes/publicacao.md#por-que-as-libs-vêm-do-npm-e-não-de-um-script-de-cópia).
 
 ## Migrando de `colabhd/vssh-sso`
 
@@ -301,7 +306,7 @@ Antes, o script/reusable viviam no `vssh-sso` **privado**, o que exigia um PAT (
 Para migrar:
 
 - **Repo que usava o reusable do vssh-sso** (`uses: colabhd/vssh-sso/.../_publish-app-reusable.yml@main`):
-  troque para `uses: colabhd/vssh-app-toolkit/.github/workflows/_publish-app-reusable.yml@v2` e
+  troque para `uses: colabhd/vssh-app-toolkit/.github/workflows/_publish-app-reusable.yml@v4` e
   **remova** o secret `tools_token`/`VSSH_TOOLS_TOKEN`.
 - **Repo que inlineava os passos** (checkout do script via PAT): substitua tudo pelo bloco `uses:`
   do Quickstart acima e apague o `VSSH_TOOLS_TOKEN`.

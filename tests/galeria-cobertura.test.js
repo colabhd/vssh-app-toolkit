@@ -8,15 +8,15 @@
 // bom nisso. Mas ele mede a DECLARAÇÃO, e havia um segundo lugar que também envelhece sem sinal: a
 // galeria — o app que se instala num servidor para responder *"este ambiente faz isto?"*.
 //
-// A ausência deste teste foi medida. Quando ele foi escrito, a galeria cobria 23 dos 68 membros da
-// superfície, e as QUATRO APIs mais recentes do toolkit (4.9 a 4.12 — jump list, `openUrl`,
-// `lembrarRota`, o desvio de `window.open`) não tinham uma peça sequer. Nada estava quebrado: cada
-// bump publicou uma capacidade, documentou-a em `docs/api.md`, e ninguém tinha por que reparar que
-// a galeria continuava medindo o ambiente de meses atrás.
+// A ausência deste teste foi medida, e o buraco era de dois terços: a galeria cobria 23 membros de
+// uma superfície de 68, e as quatro APIs mais recentes do toolkit — jump list, `openUrl`,
+// `lembrarRota`, o desvio de `window.open` — não tinham uma peça sequer. Nada estava quebrado: cada
+// bump publicou uma capacidade, documentou-a em `docs/api.md`, e não havia nada que pudesse ficar
+// vermelho por a galeria continuar medindo o ambiente de meses atrás.
 //
 // Uma galeria incompleta não é uma galeria menor — ela mente sobre o ambiente. Quem instala percorre
 // as peças, não encontra clipboard, e conclui que o ambiente não tem clipboard. É o mesmo argumento
-// que tirou o botão morto da taskbar na Onda 2.1: um controle que não morde ensina a pessoa a não
+// que tirou o botão morto da taskbar do ambiente: um controle que não morde ensina a pessoa a não
 // confiar em controle nenhum.
 //
 // ─── O que ele NÃO mede ──────────────────────────────────────────────────────

@@ -282,7 +282,7 @@ test('as recusas que já existiam continuam recusando', seNaoTem, () => {
 
 // ─── O campo que ninguém escreveu: o typo ─────────────────────────────────────
 //
-// Medido antes de consertar, e o resultado foi mais preciso do que a roadmap supunha. Os objetos
+// Medido antes de consertar, e o resultado foi mais preciso do que a suposição. Os objetos
 // que já declaravam `additionalProperties: false` — `resources`, `engine`, `opens`, `secrets[]` —
 // recusavam o campo desconhecido. Os que declaravam `true` — a RAIZ, `backend` e `window` — deixavam
 // passar limpo, e o campo era descartado em silêncio pelo lado que lê.

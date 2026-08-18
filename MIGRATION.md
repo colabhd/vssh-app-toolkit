@@ -142,7 +142,7 @@ Se você ainda estava na v2, siga a seção seguinte e já declare o `minShellVe
 
 **Um detalhe do erro, que existe para poupar depuração:** `escutar()` distingue *"não veio endereço
 nenhum"* de *"veio só `VSSH_APP_PORT`"*. O segundo não é variável faltando — é um servidor com
-`vssh-app-run` anterior à Onda 9, e a mensagem diz isso pelo nome (`VSSH_APP_SERVIDOR_ANTIGO`), em
+`vssh-app-run` velho demais, e a mensagem diz isso pelo nome (`VSSH_APP_SERVIDOR_ANTIGO`), em
 vez de mandar quem depura procurar no app o que está no provisionamento.
 
 ## O único TCP que sobra, e ele tem nome
@@ -161,7 +161,7 @@ Esse último TCP morre quando o xpra parar de servir o próprio HTML — medido 
 
 **Uma mudança só, e ela é do contrato, não das libs.** Até a v2, o contrato escrito no schema e na
 SKILL era *"o backend deve bindar em `127.0.0.1:$VSSH_APP_PORT`"*. Desde a [Onda
-9](docs/roadmap/08-editor-do-ambiente.md) o lifecycle pode mandar **`$VSSH_APP_SOCKET`** no lugar —
+lifecycle pode mandar **`$VSSH_APP_SOCKET`** no lugar —
 um socket unix em `~/.vssh-apps/<id>/`, diretório que já é 0700.
 
 **Por que isso é major, e não minor.** Nenhuma função da v2 mudou de comportamento. O que muda é o
@@ -214,16 +214,20 @@ duas variáveis quando não vem nenhuma.
 3. **`listen(caminho)` e `listen(porta, host)` têm assinaturas diferentes**, e um `if` em cada app é
    o começo de N implementações que divergem.
 
-## O TCP não foi apagado — ele passou a se anunciar
+## Na v3 o TCP não foi apagado — ele passou a se anunciar
 
-`escutar()` continua aceitando `VSSH_APP_PORT`, e é isso que torna a migração segura em **qualquer
-ordem de deploy**: um app já na v3 sobe num servidor cujo `vssh-app-run` ainda é anterior à Onda 9.
-Mas ele escreve no stderr dizendo que aquele servidor está atrás, porque legado silencioso é como um
+⚠ **Isto vale para a v3, e a v3 acabou.** Se você está migrando hoje, você vai parar na v4, onde o
+ramo TCP não existe mais: leia a [seção da v4](#v3--v4--o-tcp-sai-da-lib-um-portão-toma-o-lugar-dele-e-as-libs-passam-a-se-instalar)
+e pule esta.
+
+Na v3, `escutar()` ainda aceitava `VSSH_APP_PORT`, e era isso que tornava a migração segura em
+qualquer ordem de deploy: um app já na v3 subia num servidor cujo `vssh-app-run` ainda era o velho.
+Ele escrevia no stderr dizendo que aquele servidor estava atrás, porque legado silencioso é como um
 ramo desses atravessa anos — ninguém sabe se ainda há alguém usando, então ninguém apaga.
 
-Se o seu app escolheu TCP **de propósito** (`backend.transport: "tcp"` no manifesto, para um runtime
-que não sabe bindar socket unix), passe `escutar(server, { tcpEsperado: true })` e o aviso silencia.
-A escolha declarada não é o defeito que ele persegue.
+Na v4 esse ramo saiu, e quem protege a compatibilidade passou a ser o `minShellVersion` do
+manifesto, conferido pelo portal **antes** de iniciar o app: um portão onde o erro é barato, em vez
+de um recuo em runtime que deixava a porta exposta enquanto avisava.
 
 ## Nota para quem opera
 
@@ -377,7 +381,7 @@ pelo navegador e precisam estar sob a raiz que o `static-spa` serve, senão a ta
 
 **O default de `--ref` passou a ser `main`.** Antes era `v1`, e a tag `v1` aponta para um commit
 anterior à criação de `lib/` — fora de um clone, o sync falhava com "lib/ não encontrado no tarball".
-Ver [`docs/roadmap/03-toolkit.md`](docs/roadmap/03-toolkit.md).
+Ver [`docs/decisoes/publicacao.md`](docs/decisoes/publicacao.md).
 
 Depois de sincronizar, revise o diff e rode o app contra os quatro primeiros itens desta página.
 `.vssh-lib-version` (em cada destino) registra de onde veio a cópia.

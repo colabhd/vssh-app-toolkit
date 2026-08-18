@@ -32,12 +32,21 @@ const WEB = path.join(RAIZ, 'lib', 'web');
 const temNavegador = !!caminhoDoNavegador();
 const seNaoTem = { skip: temNavegador ? false : motivoDoSkip() };
 
-// ⚠ A MESMA ordem do `criar_spa_estatica` em `backend/main.py`. Se as duas divergirem, este teste
-// aprova um carregamento que não acontece — e a divergência mais provável é alguém acrescentar uma
-// peça lá e esquecer aqui, então a lista abaixo é conferida contra o main.py logo no primeiro teste.
-const ESTILOS = ['tuff/tuff-tokens.css', 'tuff/tuff-base.css', 'tuff/tuff.css', 'tuff/tuff-midia.css'];
-const SCRIPTS = ['vssh-app-shim.js', 'fsa-polyfill.js',
-                 'tuff/tuff-icones.js', 'tuff/tuff.js', 'tuff/tuff-midia.js'];
+// A MESMA composição do `criar_spa_estatica` em `backend/main.py`, e ela vem DAQUI em vez de ser
+// recopiada: as duas pontas leem as mesmas listas do toolkit, então acrescentar uma folha à
+// biblioteca chega à bancada e ao app pelo mesmo caminho, sem ninguém precisar lembrar dos dois.
+//
+// ⚠ Havia aqui uma cópia à mão das cinco listas, mais um teste que procurava os NOMES delas no
+// texto do `main.py`. Ele não media a junção que dizia medir — confirmava que o backend citava
+// `ESTILOS_MIDIA`, e ficava verde com a bancada servindo um conjunto diferente do que o app serve,
+// que era exatamente o caso: `tuff-midia.css` estava na cópia daqui por coincidência, e o
+// `fsa-polyfill` aparecia numa ordem que a lista do toolkit não garante.
+const {
+  ESTILOS: ESTILOS_BASE, ESTILOS_MIDIA, SCRIPTS: SCRIPTS_BASE, SCRIPTS_MIDIA, SHIMS,
+} = require('../lib/node/web-assets.js');
+
+const ESTILOS = [...ESTILOS_BASE, ...ESTILOS_MIDIA];
+const SCRIPTS = [...SHIMS, ...SCRIPTS_BASE, ...SCRIPTS_MIDIA];
 
 const ABERTURA = {
   caminho: '/home/ana/Vídeos/aula 03.mkv',
@@ -405,18 +414,12 @@ test('Informações do arquivo diz COMO está sendo servido e quanto a tela perd
   assert.doesNotMatch(r, /NaN|undefined/, 'o diálogo mostrou conta de quadros sem ter quadros');
 });
 
-// ── A lista de injeção, contra o backend ────────────────────────────────────
-
-test('a ordem de injeção deste teste é a do backend', seNaoTem, () => {
-  // ⚠ Sem isto o teste apodrece silenciosamente: alguém acrescenta uma folha ao `main.py`, a
-  // página real passa a ter uma peça a mais, e aqui continua verde medindo outra coisa.
-  const main = fs.readFileSync(path.join(RAIZ, 'examples', 'palco', 'backend', 'main.py'), 'utf8');
-  assert.ok(main.includes('ESTILOS_MIDIA'), 'o backend deixou de injetar as folhas de mídia');
-  assert.ok(main.includes('SCRIPTS_MIDIA'),
-    'o backend deixou de injetar `tuff-midia.js` — sem ela não há trilha nem timecode');
-  assert.ok(main.includes('"palco.css"'), 'o backend deixou de injetar o CSS do app');
-  assert.ok(main.includes('"palco.js"'), 'o backend deixou de injetar o JS do app');
-});
+// ── A lista de injeção ──────────────────────────────────────────────────────
+//
+// Não há teste aqui, e é essa a mudança: as listas vêm do `web-assets.js` (ver o topo do arquivo),
+// então a bancada e o `main.py` não têm como divergir naquilo que o toolkit fornece. O que sobra —
+// `palco.css`, `palco.js` e `youtube.js`, que são do app — é medido por execução logo abaixo: a
+// página tem de montar, e ela não monta sem eles.
 
 // ── A página monta ──────────────────────────────────────────────────────────
 

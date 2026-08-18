@@ -45,6 +45,9 @@ no-op. Você desenvolve fora do VSSH sem `if` nenhum.
 | Arrastar um arquivo **para fora** do app | `vssh.arrastarArquivos()` no `dragstart` |
 | Abas no cabeçalho da janela | `vssh.tabs.*` (exige `richChrome`) |
 | Voltar no lugar certo quando a sessão é restaurada | `vssh.lembrarRota()` |
+| Dizer o que está tocando, e ganhar anterior/próximo | `vssh.media.agora()` / `.transporte()` / `.aoAgir()` |
+| Pedir ao usuário uma credencial que o manifesto declarou | `vssh.secrets.set()` / `.list()` / `.remove()` |
+| Desenhar a própria barra de título | `window.cabecalho: "app"` + `vssh.window.arrastar()` e cia. |
 | Tocar som obedecendo ao volume do ambiente | **nada** — já é automático |
 | Ler o volume que o ambiente aplica | `vssh.audio.gain()` / `.muted()` / `.onChange()` |
 | Falar com outro app, ou com o shell | `new BroadcastChannel(…)` — mesma origem, sem ponte nossa |
@@ -1209,8 +1212,116 @@ const versao = caps.shellVersion ?? 'desconhecida';
 > **Isto não é o gate de compatibilidade.** `capabilities()` responde **em runtime**, no ponto de
 > uso, e quem decide o que fazer com o "não" é o app — degradar, esconder um botão, avisar. O gate
 > que recusa **no publish**, contra um número declarado no manifesto (`minShellVersion`), é outra
-> coisa e está na [Onda 5](roadmap/04-runtime-composicao.md#o-contrato-do-manifesto-um-schema-uma-validação-uma-guarda).
+> coisa e está na [`decisoes/publicacao.md`](decisoes/publicacao.md#por-que-todo-objeto-do-schema-recusa-campo-desconhecido).
 > Construir um e achar que o outro ficou resolvido é o erro natural aqui.
+
+---
+
+## Segredos: o app PEDE, e nunca guarda
+
+O manifesto declara de que credenciais o app precisa (`secrets`, no
+[schema](../schema/vssh-app.schema.json)); o valor nunca vem do manifesto. Quem o guarda é o
+usuário, pelo ambiente, e ele vive em `~/.vssh-apps/<id>/secrets.json` (modo 0600) **no servidor do
+próprio usuário** — o portal escreve e esquece. O seu backend o lê como variável de ambiente comum.
+
+O que falta é o momento: uma credencial que falta, falta **quando o app tenta usá-la**, e mandar a
+pessoa procurar uma tela de Configurações é onde ela desiste.
+
+```js
+const { names, cancelado, requerReinicio } =
+  await vssh.secrets.set('OPENAI_API_KEY', { description: 'Cole a chave da sua conta.' });
+
+if (cancelado) return;                    // desistir é resposta, não erro
+if (requerReinicio) await vssh.dialog.alert('Reinicie o app para usar a chave.');
+```
+
+| | |
+|---|---|
+| `vssh.secrets.list()` | os NOMES já gravados para este app — nunca os valores |
+| `vssh.secrets.set(nome, { title, description })` | abre a tela onde o usuário digita; devolve `{ names, cancelado, requerReinicio }` |
+| `vssh.secrets.remove(nome)` | apaga |
+
+`requerReinicio` é `true` quando o backend já estava de pé: o processo recebeu o ambiente no
+`spawn`, e uma variável nova não entra num processo vivo. Dizer isso é a diferença entre "gravei e
+não funcionou" e uma instrução.
+
+Fora do desktop os três devolvem `null` em vez de lançar — em desenvolvimento a credencial vem de
+onde o autor quiser, e a ausência de cofre não é falha.
+
+---
+
+## A central de mídia
+
+O ambiente já controla tocar, pausar e buscar sozinho: ele alcança o `<video>` ou `<audio>` deste
+documento (mesma origem) e mexe nele direto. **Você não precisa fazer nada para isso funcionar.**
+
+Duas coisas ele não consegue adivinhar, e as duas são do app:
+
+```js
+// O que está tocando. Sem isto o ambiente ADIVINHA a partir da URL da fonte — o que funciona
+// para um arquivo e falha para tudo montado por MSE: um `blob:` não tem nome, e o que aparece
+// na central é o UUID.
+vssh.media.agora({ titulo: 'Aula 03', subtitulo: 'Álgebra Linear', capa: 'capas/aula03.jpg' });
+
+// Anterior/próximo dependem de uma FILA, e a fila é sua.
+vssh.media.transporte({ anterior: true, proximo: false });
+vssh.media.aoAgir((acao) => { if (acao === 'proximo') tocarProxima(); });
+```
+
+**Declarar o transporte é obrigatório para os botões existirem, e isso é o desenho.** A regra do
+ambiente é *controle que não morde não é desenhado*: sem a chamada, a central não desenha
+anterior/próximo — que é a resposta certa para um app que abre um arquivo de cada vez.
+
+`agora(null)` devolve a decisão ao ambiente. `aoAgir` aceita um handler por janela; chamar de novo
+substitui.
+
+---
+
+## Desenhar a própria barra de título
+
+`window.cabecalho: "app"` no manifesto faz o ambiente **parar de desenhar** o cabeçalho da janela.
+É para quem já tem uma barra de título própria e boa — um editor, por exemplo — e não quer duas,
+uma dentro da outra.
+
+Moldura, sombra e alças de resize continuam do ambiente. O que passa a ser seu são três gestos que
+o cabeçalho padrão dava de graça:
+
+```js
+barra.addEventListener('pointerdown', (e) => {
+  vssh.window.arrastar(e.clientX, e.clientY, e.screenX, e.screenY);
+});
+barra.addEventListener('pointermove', (e) => vssh.window.arrastarPara(e.screenX, e.screenY));
+barra.addEventListener('pointerup',   () => vssh.window.arrastarFim());
+
+barra.addEventListener('dblclick',    () => vssh.window.alternarMaximizado());
+barra.addEventListener('contextmenu', (e) => vssh.window.menuDoCabecalho(e.clientX, e.clientY));
+```
+
+⚠ **Os pontos do meio vão em coordenada de TELA (`screenX`/`screenY`), e isso não é preciosismo.**
+Enquanto a janela se move, o sistema de coordenadas do seu documento se move junto com ela — um
+`clientX` mediria o ponteiro contra um referencial que está fugindo, e a janela derraparia.
+
+**O limiar que separa clique de arraste é seu**, pelo mesmo motivo: o ambiente não sabe o que na
+sua barra é botão. O que continua sendo dele é o resto — containment, encaixe nas bordas, e onde a
+janela para.
+
+> **Um app que declara `cabecalho: "app"` e não liga estes gestos entrega uma janela que não se
+> move.** Não há erro, não há aviso: a barra simplesmente não responde.
+
+Os três botões de janela também passam a ser seus — `vssh.window.minimize()`, `.maximize()` e
+`.close()` já existiam e não mudam.
+
+---
+
+## O MIME do arraste
+
+`vssh.ARQUIVOS_MIME` é a constante do tipo que o ambiente usa para caminhos de arquivo num
+`dataTransfer` (`application/x-vssh-files`, um caminho absoluto por linha). Você raramente precisa
+dela — `vssh.arrastarArquivos()` e `vssh.onArquivosSoltos()` já a usam por dentro —, e ela existe
+publicada para o caso de você inspecionar `dataTransfer.types` por conta própria.
+
+Escrever o tipo à mão em vez de usar as duas funções perde o aviso ao shell no fim do gesto, que é
+o que faz a soltura funcionar do outro lado. Ver [Arquivo arrastado](#arquivo-arrastado-nas-duas-direções).
 
 ---
 

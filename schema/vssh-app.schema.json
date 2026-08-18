@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/colabhd/vssh-app-toolkit/schema/vssh-app.schema.json",
   "title": "vssh-app.json",
-  "description": "Manifesto de um vssh-app. Fonte da verdade: este arquivo. Validado por inteiro no vssh-app-publish (o gate de entrada no repositório); o vssh-app-install valida só o mínimo, porque roda offline no servidor e não tem como buscar o schema. `additionalProperties: false` em TODO objeto, e a raiz foi a última a fechar: enquanto ela aceitava qualquer chave, `requiredPackage` (sem o s), `gpuu` e `opns` publicavam limpos e o campo era descartado em silêncio por quem lê. Um manifesto escrito para um toolkit mais NOVO passa a ser recusado por um mais velho, e isso é o comportamento desejado — 'este toolkit não conhece este campo' é a informação, e a alternativa é publicar um app cujo campo ninguém vai ler. AO MEXER AQUI: o `vssh-sso` mantém uma cópia vendorizada deste arquivo em `schema/`, com a procedência em `.vssh-schema-version`, e é contra ela que `tests/unit/contrato-do-manifesto.test.js` confere que todo campo que o portal LÊ está declarado. Campo novo que já tenha consumidor de lá precisa da cópia atualizada junto — o teste de lá fica vermelho dizendo o nome do campo.",
+  "description": "Manifesto de um vssh-app. Fonte da verdade: este arquivo. Validado por inteiro no vssh-app-publish (o gate de entrada no repositório); o vssh-app-install valida só o mínimo, porque roda offline no servidor e não tem como buscar o schema. `additionalProperties: false` em TODO objeto, e a raiz foi a última a fechar: enquanto ela aceitava qualquer chave, `requiredPackage` (sem o s), `gpuu` e `opns` publicavam limpos e o campo era descartado em silêncio por quem lê. Um manifesto escrito para um toolkit mais NOVO passa a ser recusado por um mais velho, e isso é o comportamento desejado — 'este toolkit não conhece este campo' é a informação, e a alternativa é publicar um app cujo campo ninguém vai ler. AO MEXER AQUI: o `vssh-sso` mantém uma cópia vendorizada deste arquivo em `schema/`, com a procedência em `.vssh-schema-version`, e é contra ela que o `tests/unit/contrato-do-manifesto.test.js` DE LÁ confere que todo campo que o portal LÊ está declarado. Campo novo que já tenha consumidor de lá precisa da cópia atualizada junto — o teste de lá fica vermelho dizendo o nome do campo.",
   "type": "object",
   "required": [
     "id",
@@ -14,7 +14,7 @@
     "id": {
       "type": "string",
       "pattern": "^[a-z0-9-]+$",
-      "description": "Imutável — vira path, ENDEREÇO (~/.vssh-apps/<id>/app.sock) e sentinel. Dizia 'porta' até a Onda 9, quando o endereço deixou de ser alocado e passou a ser derivado de (HOME, id). Trocar o id é publicar outro app."
+      "description": "Imutável — vira path, ENDEREÇO (~/.vssh-apps/<id>/app.sock) e sentinel. O endereço não é alocado: ele é DERIVADO de (HOME, id), e é por isso que trocar o id é publicar outro app."
     },
     "name": {
       "type": "string",
@@ -107,7 +107,7 @@
                   "area-de-trabalho",
                   "icone-do-app"
                 ],
-                "description": "Onde o item aparece. `icone-do-app` é a JUMP LIST: o clique direito no ícone do app, no Launchpad e no Menu Iniciar — uma superfície só para os dois lugares, senão todo app teria de declarar o mesmo item duas vezes. Ela exige `rota` e recusa `quando`; as três de caminho exigem o contrário. ⚠ Esta descrição dizia que a jump list não existia \"por falta de VERBO, não de superfície\" — estava certa até o verbo aparecer, e ele é o `abrirRota`."
+                "description": "Onde o item aparece. `icone-do-app` é a JUMP LIST: o clique direito no ícone do app, no Launchpad e no Menu Iniciar — uma superfície só para os dois lugares, senão todo app teria de declarar o mesmo item duas vezes. Ela exige `rota` e recusa `quando`; as três de caminho exigem o contrário."
               },
               "rotulo": {
                 "type": "string",
@@ -231,7 +231,7 @@
     },
     "category": {
       "type": "string",
-      "description": "A seção do Start Menu/Launchpad onde este app aparece — use o nome de categoria do menu freedesktop ('Development', 'Office', 'Graphics', 'Utility', 'System'…) para cair junto do que faz a mesma coisa. Sem declaração, o app vai para 'Other'. ERA informativo: até a Onda 9 o cliente agrupava todo vssh-app numa seção fixa 'Apps Integrados' e este campo não valia nada."
+      "description": "A seção do Start Menu/Launchpad onde este app aparece — use o nome de categoria do menu freedesktop ('Development', 'Office', 'Graphics', 'Utility', 'System'…) para cair junto do que faz a mesma coisa. Quem não declara cai em 'Other'. O agrupamento é por este campo e nada mais: não há seção de 'apps integrados' que recolha vssh-app por ser vssh-app, porque isso separa por PROCEDÊNCIA o que o usuário procura por FUNÇÃO."
     },
     "description": {
       "type": "string"
@@ -307,7 +307,7 @@
             "socket"
           ],
           "default": "socket",
-          "description": "Onde o backend escuta. Hoje há um valor só: 'socket' — um socket unix em $VSSH_APP_SOCKET, dentro de ~/.vssh-apps/<id>/, que já é 0700. A permissão de arquivo faz o que a conferência de X-Vssh-App-Token só promete, e o app deixa de ter porta alcançável por qualquer outra conta Linux da máquina (medido: 14 de 23 portas de app responderam a um GET sem token, 12 delas de contas alheias). ⚠ 'tcp' SAIU do produto na Onda 10, item 5. Ele existia por um caso declarado — o xpra, cujo listener de WebSocket só aceitava HOST:PORT — e esse caso acabou quando o pacote passou a atender por socket nativo (0.5.0). Sem ele sobrava um transporte que nenhum app fala e que a própria lib do toolkit não sabe bindar: escutar() só abre socket desde a v4, e trata um VSSH_APP_PORT sozinho como servidor desatualizado. O campo continua aqui para que um manifesto antigo receba um erro de validação que NOMEIA o problema, em vez de instalar e nunca responder."
+          "description": "Onde o backend escuta. Hoje há um valor só: 'socket' — um socket unix em $VSSH_APP_SOCKET, dentro de ~/.vssh-apps/<id>/, que já é 0700. A permissão de arquivo faz o que a conferência de X-Vssh-App-Token só promete, e o app deixa de ter porta alcançável por qualquer outra conta Linux da máquina (medido: 14 de 23 portas de app responderam a um GET sem token, 12 delas de contas alheias). ⚠ 'tcp' não existe mais, e o campo continua aqui só para que um manifesto que ainda o declare receba um erro de validação que NOMEIA o problema, em vez de instalar e nunca responder. Nenhum app fala TCP, e a própria lib do toolkit não sabe bindá-lo: escutar() só abre socket, e trata um VSSH_APP_PORT sozinho como servidor desatualizado."
         },
         "aoFechar": {
           "enum": [
@@ -315,7 +315,7 @@
             "manter"
           ],
           "default": "encerrar",
-          "description": "O que acontece com o backend quando a ULTIMA janela deste app fecha. 'encerrar' (padrao): o ambiente chama o stop. 'manter': o backend fica, porque quem o mantem vivo e o trabalho e nao a janela — e o caso de quem e dono de sessao de terceiro. ⚠ Ate a Onda 9 nao havia contrato nenhum: fechar a janela nao encerrava NADA (POST /api/apps/:id/stop existia e ninguem o chamava), e a conta escalava por (usuario × app ja aberto uma vez) — um app aberto em marco seguia ocupando RAM em agosto, em toda sessao daquela conta, sem janela na tela. O padrao e 'encerrar' porque e o que a pessoa espera de um desktop, e porque um padrao que vaza memoria tem de ser o que se ESCOLHE e nao o que se herda. kind:'service' ignora este campo: um daemon nao morre com uma janela, por definicao. O terceiro valor previsto, 'ocioso:<N>m', NAO existe ainda de proposito — ele depende de duas medidas que nao temos (o RSS do app ocioso, e como distinguir um filho que e trabalho de alguem de um filho qualquer), e um valor aceito que nao faz nada e pior que um valor ausente."
+          "description": "O que acontece com o backend quando a ULTIMA janela deste app fecha. 'encerrar' (padrao): o ambiente chama o stop. 'manter': o backend fica, porque quem o mantem vivo e o trabalho e nao a janela — e o caso de quem e dono de sessao de terceiro. O padrão é 'encerrar' porque é o que a pessoa espera de um desktop, e porque um padrão que vaza memória tem de ser o que se ESCOLHE e não o que se herda: sem contrato, a conta escala por (usuário × app já aberto uma vez) — um app aberto uma vez segue ocupando RAM em toda sessão daquela conta, sem janela na tela. kind:'service' ignora este campo: um daemon nao morre com uma janela, por definicao. O terceiro valor previsto, 'ocioso:<N>m', NAO existe ainda de proposito — ele depende de duas medidas que nao temos (o RSS do app ocioso, e como distinguir um filho que e trabalho de alguem de um filho qualquer), e um valor aceito que nao faz nada e pior que um valor ausente."
         },
         "installCommand": {
           "type": "string",
@@ -324,7 +324,7 @@
         "healthcheckPath": {
           "type": "string",
           "default": "/",
-          "description": "Pollado direto no endereço do app pelo lifecycle (socket unix, via `curl --unix-socket`), até 15x/1s. Desde a Onda 4 a sondagem vai COM o header X-Vssh-App-Token, então gatear esta rota é permitido e isentá-la não é mais necessário (a descrição anterior, que mandava isentar, estava errada). NÃO contam como pronto: 000, 5xx e 401/403. Um 404 CONTA — o servidor respondeu —, então confira o caminho."
+          "description": "Pollado direto no endereço do app pelo lifecycle (socket unix, via `curl --unix-socket`), até 15x/1s. A sondagem vai COM o header X-Vssh-App-Token, então gatear esta rota é permitido — e isentá-la do seu gate seria abrir uma rota sem motivo. NÃO contam como pronto: 000, 5xx e 401/403. Um 404 CONTA — o servidor respondeu —, então confira o caminho."
         }
       }
     },

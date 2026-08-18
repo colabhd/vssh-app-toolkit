@@ -104,7 +104,7 @@ function montarGaleria() {
       // Fora do desktop não há shell nenhum — dizer "shell antigo" ali seria diagnosticar um
       // problema que não existe. `shellVersion: null` tem duas causas e elas pedem ações opostas.
       linhas.push(vssh.inDesktop
-        ? `shell do servidor: ${cap.shellVersion || 'não informada — shell anterior à Onda 3'}`
+        ? `shell do servidor: ${cap.shellVersion || 'não informada — shell velho demais para se declarar'}`
         : 'shell do servidor: nenhum — esta página está fora do desktop');
       linhas.push(`host: ${cap.host} · apps nativos: ${cap.nativeApps} · interop X11: ${cap.x11Interop}`);
     } catch (e) {
@@ -1205,7 +1205,7 @@ function montarGaleria() {
     function relatarSom() {
       const meu = el ? ` · o app pediu el.volume=${el.volume}` : '';
       if (!temAudio) {
-        escrever('audio', 'este shim é anterior à Onda 2.5 e não tem vssh.audio — o mixer do desktop '
+        escrever('audio', 'este shim é velho demais e não tem vssh.audio — o mixer do desktop '
           + 'NÃO controla este app. Atualize as libs do toolkit para a v4, fixe a versão no lock do '
           + 'seu runtime e reinstale.' + meu);
         return;

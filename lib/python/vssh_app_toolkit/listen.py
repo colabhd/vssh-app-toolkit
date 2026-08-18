@@ -83,15 +83,14 @@ def endereco_do_ambiente(env=None):
 
     # A mensagem distingue os dois jeitos de chegar aqui, porque o conserto é diferente em cada um.
     # Um `VSSH_APP_PORT` presente e sozinho não é "faltou variável": é um servidor cujo
-    # `vssh-app-run` é anterior à Onda 9, e dizer isso pelo nome poupa quem for depurar de procurar
-    # o defeito dentro do app.
+    # `vssh-app-run` é velho demais, e dizer isso pelo nome poupa quem for depurar de procurar o
+    # defeito dentro do app.
     if (env.get("VSSH_APP_PORT") or "").strip():
         raise ErroDeEndereco(
-            "Veio VSSH_APP_PORT, mas não VSSH_APP_SOCKET: este servidor tem um `vssh-app-run` "
-            "anterior à Onda 9. Desde a v4 do toolkit o endereço de um app é um socket unix, e "
-            "esta lib não binda porta. Atualize o provisionamento do servidor — o "
-            "`minShellVersion` do manifesto existe para o PORTAL recusar esta combinação antes de "
-            "ela chegar aqui.",
+            "Veio VSSH_APP_PORT, mas não VSSH_APP_SOCKET: o `vssh-app-run` deste servidor é "
+            "antigo demais. O endereço de um app é um socket unix, e esta lib não binda porta. "
+            "Atualize o provisionamento do servidor — o `minShellVersion` do manifesto existe "
+            "para o PORTAL recusar esta combinação antes de ela chegar aqui.",
             VSSH_APP_SERVIDOR_ANTIGO,
         )
 
