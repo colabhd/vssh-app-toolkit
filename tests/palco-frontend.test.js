@@ -92,6 +92,17 @@ const VSSH_FALSO = `
     // A saída do laço: o app devolve o que não sabe mostrar. Sem ela, um link que o Palco não
     // trata vira uma tela de erro na frente de quem só clicou.
     openUrl: (u, o) => anota({ op: 'openUrl', u, destino: o && o.destino }),
+    // ⚠ **A central de mídia do AMBIENTE, e ela faltava aqui inteira.** Sem media no duble,
+    // o porCentralDeMidia() do app cai no early-return e a bancada aprova qualquer coisa — foi
+    // por isso que uma fila declarada sobrevivendo ao vídeo seguinte, e um agora que nunca
+    // chegava, passaram os dois sem uma linha vermelha. O que este app diz ao shell sobre o que
+    // está tocando é contrato, e contrato que ninguém mede é contrato que se perde.
+    // (sem crases nestes comentários: o bloco inteiro é um template literal)
+    media: {
+      transporte: (o) => anota({ op: 'transporte', anterior: !!o.anterior, proximo: !!o.proximo }),
+      aoAgir: (fn) => { window.__midiaAgir = fn; },
+      agora: (o) => anota({ op: 'agora', ...o }),
+    },
   };`;
 
 // ⚠ O app roda sob `/<serverId>/proxy/app/<id>/`, e a bancada precisa poder imitar isso: uma URL
@@ -139,7 +150,13 @@ function servir(req, res) {
     // ⚠ `null` aqui NÃO serve para simular falha: `JSON.stringify(null)` é `"null"`, que é JSON
     // perfeitamente válido — o `fetch` resolve, o `.json()` resolve, e quem recebe leva um
     // `TypeError` ao ler um campo. Foi assim que a primeira versão deste teste mediu nada.
-    if (respostaDeYt === 'FALHAR') { res.writeHead(502); res.end('{}'); return true; }
+    if (respostaDeYt === 'FALHAR') {
+      // ⚠ O corpo do 502 é o que o backend manda de VERDADE — frase e conserto, já classificados.
+      // Um `{}` aqui aprovaria um cliente que ignora os dois, que era o estado anterior.
+      res.writeHead(502, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(corpoDaFalha));
+      return true;
+    }
     res.writeHead(200, { 'content-type': 'application/json' });
     // ⚠ A resposta reflete o `v=` PEDIDO quando ele é conhecido. Devolver sempre o mesmo id fazia
     // a fila parecer travada — o player andava, o servidor de mentira respondia o vídeo anterior,
@@ -273,6 +290,8 @@ let marcas = [];
 let esquecimentos = [];
 let legendasPedidas = [];
 let atualizacoes = 0;
+let corpoDaFalha = { erro: 'Este vídeo é protegido por DRM e não pode ser remontado aqui.',
+                     conserto: 'Abrindo no navegador, que sabe decifrá-lo.', classe: 'drm' };
 let respostaDeHealthz = 'ok\nversao: 0.1.31\nyt-dlp: 2026.07.04\nidioma: pt\n';
 let respostaDeAtualizar = { ok: true, antes: '2025.06.09', versao: '2026.07.04', mudou: true };
 let pedidosDeBytes = 0;
@@ -1809,4 +1828,101 @@ test('"Sobre o Palco" não fica em branco quando o backend não responde', seNao
     return a ? a.m : null;
   })()`);
   assert.match(texto || '', /servidor/, `a frase de recuo sumiu: ${texto}`);
+});
+
+// ── Por que um vídeo não abriu ──────────────────────────────────────────────
+
+test('a frase da falha vem do SERVIDOR, e não manda consertar a coisa errada', seNaoTem,
+  async () => {
+    // ⚠ **O relato:** "tem alguns vídeos que simplesmente não abrem, e aí abrem no navegador". O
+    // que estava por baixo era DRM, e o app respondia a TODA falha com "o extractor pode estar
+    // desatualizado — Ferramentas → Atualizar yt-dlp". A pessoa poderia clicar naquele botão para
+    // sempre: o extractor estava perfeito. Um conserto sugerido que não conserta é pior que
+    // nenhum, porque gasta a única pista que havia.
+    corpoDaFalha = { erro: 'Este vídeo é protegido por DRM e não pode ser remontado aqui.',
+                     conserto: 'Abrindo no navegador, que sabe decifrá-lo.', classe: 'drm' };
+    const p = await comUrlAberta('https://youtu.be/Fpu5a0Bl8eY', 'FALHAR');
+    const r = await p.avaliar(`(async () => {
+      await new Promise((r) => setTimeout(r, 400));
+      return { aviso: document.getElementById('aviso-t').textContent,
+               abriu: window.__chamadas.filter((x) => x.op === 'openUrl').pop() || null };
+    })()`);
+
+    assert.match(r.aviso, /DRM/, `a frase do servidor não chegou à tela: ${r.aviso}`);
+    // ⚠ E o que ela NÃO pode dizer. É a metade que estava errada.
+    assert.ok(!/yt-dlp/i.test(r.aviso),
+      `manda atualizar o yt-dlp por causa de um vídeo com DRM: ${r.aviso}`);
+    // A saída do laço continua: quem não consegue mostrar devolve, e no navegador ele TOCA.
+    assert.ok(r.abriu, 'o link não voltou para o navegador');
+    assert.equal(r.abriu.destino, 'navegador');
+  });
+
+test('um extractor velho AINDA aponta para o botão que conserta', seNaoTem, async () => {
+  // A outra metade: quando a causa é o extractor, esconder o conserto seria o defeito espelhado.
+  corpoDaFalha = { erro: 'Não consegui ler este vídeo do YouTube.',
+                   conserto: 'O extractor pode estar desatualizado — Ferramentas → Atualizar o yt-dlp.',
+                   classe: 'extractor' };
+  const p = await comUrlAberta('https://youtu.be/aaaaaaaaaaa', 'FALHAR');
+  const aviso = await p.avaliar(`(async () => {
+    await new Promise((r) => setTimeout(r, 400));
+    return document.getElementById('aviso-t').textContent;
+  })()`);
+  assert.match(aviso, /Atualizar o yt-dlp/, `o conserto certo não aparece: ${aviso}`);
+});
+
+test('um 502 SEM corpo não deixa a tela em branco', seNaoTem, async () => {
+  // O servidor pode cair antes de classificar. Um aviso vazio afirma que não há nada a dizer.
+  corpoDaFalha = {};
+  const p = await comUrlAberta('https://youtu.be/aaaaaaaaaaa', 'FALHAR');
+  const aviso = await p.avaliar(`(async () => {
+    await new Promise((r) => setTimeout(r, 400));
+    return document.getElementById('aviso-t').textContent;
+  })()`);
+  assert.ok((aviso || '').trim(), 'a tela ficou sem explicação nenhuma');
+});
+
+// ── A fila declarada não sobrevive ao vídeo seguinte ────────────────────────
+
+test('abrir um vídeo SOLTO desdeclara a fila do que tocava antes', seNaoTemMidia, async () => {
+  // ⚠ **Defeito de PINTURA sobre estado correto**, a variedade mais difícil de enxergar — e a
+  // segunda vez que ele aparece neste app. `vizinhos` e `indice` eram zerados na entrada, certo;
+  // mas quem AVISA a central de mídia é `porCentralDeMidia`, e um vídeo solto do YouTube nunca
+  // chama `porFila`. Resultado: anterior e próximo continuavam desenhados no painel do ambiente,
+  // sobre uma fila que já não existia, e clicá-los não fazia nada.
+  respostaDeYtFixa = false;
+  respostaDeYt = { tipo: 'video', id: 'aaaaaaaaaaa', titulo: 'Um vídeo', canal: 'C', duracao: 6,
+                   mpd: 'api/yt/mpd?v=aaaaaaaaaaa', legendas: [], qualidades: [90],
+                   lista: 'PLteste' };
+  respostaDeListar = () => ({
+    tipo: 'playlist', titulo: 'Uma lista', de: 1, temMais: false,
+    itens: [{ id: 'aaaaaaaaaaa', titulo: 'Um', duracao: 6 },
+            { id: 'bbbbbbbbbbb', titulo: 'Dois', duracao: 6 }],
+  });
+  const p = await nav.novaPagina(origem.url);
+  const r = await p.avaliar(`(async () => {
+    const declarados = [];
+    const orig = window.vssh.media.transporte;
+    window.vssh.media.transporte = (o) => { declarados.push({ ...o }); return orig(o); };
+
+    // 1. Um vídeo COM lista: a fila existe, e os dois botões fazem sentido.
+    window.__abrirContexto({ type: 'open-context', tipo: 'url',
+      url: 'https://www.youtube.com/watch?v=aaaaaaaaaaa&list=PLteste' });
+    await new Promise((r) => setTimeout(r, 1800));
+    const comFila = declarados[declarados.length - 1];
+
+    // 2. Agora um vídeo SOLTO. Nada mais deve ser oferecido.
+    declarados.length = 0;
+    window.__abrirContexto({ type: 'open-context', tipo: 'url',
+      url: 'https://youtu.be/bbbbbbbbbbb' });
+    await new Promise((r) => setTimeout(r, 1200));
+    return { comFila, depois: declarados };
+  })()`);
+
+  assert.ok(r.comFila, 'o app nunca declarou a fila da playlist');
+  assert.equal(r.comFila.proximo, true, 'a playlist de dois não ofereceu "próximo"');
+  assert.ok(r.depois.length > 0,
+    'abrir um vídeo solto não redeclarou nada — a central segue com a fila anterior');
+  assert.deepEqual({ anterior: r.depois[0].anterior, proximo: r.depois[0].proximo },
+    { anterior: false, proximo: false },
+    `o vídeo solto foi declarado com fila: ${JSON.stringify(r.depois[0])}`);
 });

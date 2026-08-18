@@ -71,11 +71,17 @@ from retomar import (  # noqa: E402
 )
 from urls import analisar  # noqa: E402
 from youtube import (  # noqa: E402
-    CABECALHOS_REPASSADOS, Resolvedor, id_valido, itag_valido, resposta_de_abertura,
+    CABECALHOS_REPASSADOS, Resolvedor, classificar_falha, id_valido, itag_valido,
+    resposta_de_abertura,
 )
 from ytdlp import (  # noqa: E402
     Mundo, atualizar, carregar, idiomas_suportados, negociar_idioma, versao,
 )
+
+# O cliente da segunda opinião. `tv` porque foi o que, medido, nomeou o DRM onde os padrão
+# só diziam "indisponível" — e porque ele não substitui os padrão em nada: só é consultado
+# depois de eles falharem.
+_CLIENTE_DE_SEGUNDA = "tv"
 
 APP_ID = os.environ.get("VSSH_APP_ID") or "palco"
 APP_TOKEN = os.environ.get("VSSH_APP_TOKEN") or None
@@ -626,6 +632,35 @@ class Handler(BaseHTTPRequestHandler):
             "conserto": "reinstale o app com VSSH_APP_REBUILD=1, ou atualize pelo menu Ferramentas",
         })
 
+    def _falha_de_video(self, vid, erro):
+        """O vídeo não abriu — e a resposta diz POR QUE, no lugar de chutar um conserto.
+
+        ⚠ **Antes, toda falha aqui sugeria atualizar o yt-dlp.** Veio um relato de vídeos que
+        "simplesmente não abrem", e o que estava por baixo era DRM: o extractor estava perfeito, e a
+        pessoa poderia clicar naquele botão para sempre. Um conserto sugerido que não conserta é pior
+        que nenhum — ele gasta a única pista que havia.
+
+        A segunda opinião custa uma chamada, e só no caminho de falha. Ela existe porque os clientes
+        padrão respondem "O vídeo não está disponível" — que não diz nada — enquanto o cliente `tv`
+        responde "This video is DRM protected", que é a resposta de verdade. Medido no vídeo do
+        relato.
+        """
+        _, mundo = yt()
+        segunda = None
+        if mundo is not None:
+            try:
+                mundo.extrair(f"https://www.youtube.com/watch?v={vid}", cliente=_CLIENTE_DE_SEGUNDA)
+            except Exception as e2:  # noqa: BLE001
+                segunda = str(e2)
+
+        classe, frase, conserto = classificar_falha(erro, segunda)
+        log("yt-erro", {"id": vid, "classe": classe, "erro": repr(erro)[:250],
+                        "segunda": (segunda or "")[:160]})
+        # ⚠ 502 continua, e o frontend continua devolvendo o link ao navegador — que é onde um
+        # vídeo com DRM de fato toca. O que muda é a pessoa saber por quê antes de a aba trocar.
+        return self._json(502, {"erro": frase, "conserto": conserto, "classe": classe,
+                                "detalhe": str(erro)[:200]})
+
     def _yt_atualizar(self):
         """Baixa o yt-dlp mais novo e o põe em uso, sem reabrir o app.
 
@@ -679,14 +714,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             v = resolvedor.video(alvo.id)
         except Exception as e:  # noqa: BLE001
-            # ⚠ O extractor apodrece, e a mensagem tem de dizer isso — "falha interna" mandaria a
-            # pessoa investigar o app quando o conserto é atualizar uma dependência.
-            log("yt-erro", {"id": alvo.id, "erro": repr(e)[:300]})
-            return self._json(502, {
-                "erro": "não consegui ler este vídeo do YouTube",
-                "conserto": "o extractor pode estar desatualizado — Ferramentas → Atualizar yt-dlp",
-                "detalhe": str(e)[:200],
-            })
+            return self._falha_de_video(alvo.id, e)
 
         if not v.trilhas:
             return self._json(422, {"erro": "este vídeo não tem formatos que este player toque"})

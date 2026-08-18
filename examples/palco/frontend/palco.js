@@ -112,9 +112,27 @@ function montarPalco() {
   const IDIOMA = navigator.language || '';
   const comIdioma = (rota) => (IDIOMA ? `${rota}&hl=${encodeURIComponent(IDIOMA)}` : rota);
 
-  const api = (rota, opts) => fetch(rota, opts).then((r) => {
-    if (!r.ok) throw new Error(`${rota}: ${r.status}`);
-    return r.json();
+  /**
+   * Uma chamada à API do app. O corpo do ERRO viaja junto, e isso não é cortesia.
+   *
+   * ⚠ **A versão anterior jogava o corpo fora**, e com ele tudo que o servidor sabia dizer. Ele
+   * manda `erro` e `conserto` desde sempre — "este canal não tem vídeos publicados", "este vídeo é
+   * protegido por DRM", "o extractor pode estar desatualizado" —, e aqui isso virava
+   * `Error('api/yt/abrir: 502')`. Quem chamava só tinha uma frase genérica para pôr na tela, e a
+   * pessoa ficava com "não abriu" diante de três causas que pedem três respostas diferentes.
+   *
+   * ⚠ O `youtube.js` ao lado já fazia certo, e a divergência é o defeito: duas portas para a mesma
+   * API, uma delas cega. Um `.json()` que falha não pode derrubar a mensagem de erro, então o corpo
+   * é opcional — um 502 do portal vem em HTML.
+   */
+  const api = (rota, opts) => fetch(rota, opts).then(async (r) => {
+    let corpo = null;
+    try { corpo = await r.json(); } catch { /* nem toda resposta é JSON */ }
+    if (!r.ok) {
+      throw Object.assign(new Error((corpo && corpo.erro) || `${rota}: ${r.status}`),
+                          { corpo: corpo || {}, status: r.status });
+    }
+    return corpo;
   });
 
   const tempoDe = (s) => (window.TuffMidia ? TuffMidia.tempo(s) : '--:--');
@@ -210,6 +228,7 @@ function montarPalco() {
     // falha no primeiro quadro conseguiu pôr o vídeo anterior de volta na tela.
     vizinhos = [];
     indice = -1;
+    porCentralDeMidia();   // pelo mesmo motivo de `abrirYoutube`: a fila anterior não sobrevive
     soltarDash();
     mostrarPreparando(true, 'Abrindo…');
     let r;
@@ -347,6 +366,11 @@ function montarPalco() {
     avisar('');
     vizinhos = [];
     indice = -1;
+    // ⚠ **Declarar a fila VAZIA aqui, e não só quando uma fila chega.** Um vídeo solto do YouTube
+    // nunca chama `porFila`, então a central de mídia ficava com a declaração do que tocou ANTES —
+    // anterior/próximo desenhados sobre uma fila que não existe mais, e clicá-los não faz nada.
+    // É o mesmo formato do defeito da lista de vizinhos atrasada: estado correto, pintura velha.
+    porCentralDeMidia();
     soltarDash();
     mostrarPreparando(true, 'Consultando o YouTube…');
 
@@ -358,7 +382,14 @@ function montarPalco() {
       mostrarPreparando(false);
       // ⚠ E aqui NÃO ficamos com o link: quem não consegue mostrar devolve. A pessoa clicou num
       // link e tem de chegar a algum lugar, mesmo que não seja aqui.
-      avisar('Não consegui abrir este vídeo do YouTube; abrindo no navegador.');
+      //
+      // ⚠ A frase vem do SERVIDOR, e é a diferença entre "não abriu" e "não abre aqui, e por quê".
+      // Ele distingue DRM (que nenhum player nosso remonta) de extractor velho (que o botão de
+      // Ferramentas conserta) do que o próprio YouTube recusou — e mandar a pessoa para o conserto
+      // errado gasta a única pista que ela tinha.
+      const c = e.corpo || {};
+      avisar([c.erro || 'Não consegui abrir este vídeo do YouTube.', c.conserto]
+        .filter(Boolean).join(' '));
       vssh.openUrl(url, { destino: 'navegador' });
       return;
     }

@@ -184,6 +184,72 @@ def legendas_de(info, auto_em=None):
     return saida
 
 
+# ── Por que um vídeo não abriu ────────────────────────────────────────────────
+#
+# ⚠ **Antes disto, TODA falha de resolução dizia "o extractor pode estar desatualizado — Ferramentas
+# → Atualizar yt-dlp".** Para um vídeo protegido por DRM isso é mandar a pessoa consertar a coisa
+# errada, e ela pode clicar naquele botão para sempre: o extractor está perfeito, o vídeo é que não
+# se remonta sem Widevine. Um conserto sugerido que não conserta é pior que nenhum — ele consome a
+# única pista que a pessoa tinha.
+#
+# ⚠ **A frase do YouTube vem TRADUZIDA, e é por isso que a classificação não pode ser sobre ela.**
+# Com `hl=pt` o log traz "O vídeo não está disponível"; com o padrão, "This video is not available".
+# Casar texto do YouTube passaria a errar no dia em que alguém usasse o app em outro idioma.
+#
+# O que dá para casar com segurança são as mensagens do **yt-dlp**, que são dele e sempre em inglês.
+# Então a regra é essa divisão:
+#
+#     mensagem do yt-dlp  → o extractor envelheceu, e o botão de atualizar É o conserto
+#     mensagem do YouTube → mostra o que ele disse, e abre no navegador
+#
+# ⚠ `drm` é a exceção que vale o custo de uma segunda chamada: `player_client=tv` responde
+# "This video is DRM protected" — em inglês, do yt-dlp — onde os clientes padrão só dizem
+# "indisponível". Ver `Mundo.extrair(cliente=…)`.
+
+# Do yt-dlp, nunca do YouTube. Envelhecer o extractor produz exatamente estas.
+_DO_EXTRACTOR = (
+    "unable to extract", "failed to extract", "player response", "nsig", "signature",
+    "no player clients", "not a bot", "unable to download api page", "unsupported language code",
+)
+_DE_DRM = ("drm",)
+
+
+def classificar_falha(*mensagens):
+    """`(classe, frase, conserto)` para o que impediu um vídeo de abrir.
+
+    Recebe TODAS as mensagens colhidas — a dos clientes padrão e a da segunda opinião —, porque a
+    que nomeia a causa pode ser qualquer uma delas.
+    """
+    texto = " || ".join(str(m or "") for m in mensagens)
+    baixo = texto.lower()
+
+    if any(p in baixo for p in _DE_DRM):
+        return ("drm",
+                "Este vídeo é protegido por DRM e não pode ser remontado aqui.",
+                "Abrindo no navegador, que sabe decifrá-lo.")
+
+    # ⚠ O DRM é conferido ANTES: "This video is DRM protected" não contém nenhum sinal de
+    # extractor, mas a ordem inversa ainda assim seria uma armadilha esperando uma frase nova.
+    if any(p in baixo for p in _DO_EXTRACTOR):
+        return ("extractor",
+                "Não consegui ler este vídeo do YouTube.",
+                "O extractor pode estar desatualizado — Ferramentas → Atualizar o yt-dlp.")
+
+    # ⚠ Aqui a frase é do YOUTUBE, e vai como ele a escreveu — no idioma de quem assiste, porque é
+    # o mesmo `hl` que a busca usa. Ele sabe por que recusou; nós não temos nada melhor a dizer.
+    return ("youtube", primeira_frase(texto) or "Este vídeo não está disponível.",
+            "Abrindo no navegador.")
+
+
+def primeira_frase(texto):
+    """A razão que o YouTube deu, sem o `ERROR: [youtube] <id>:` na frente e sem o resto."""
+    bruto = str(texto or "").split(" || ")[0].strip()
+    bruto = re.sub(r"^ERROR:\s*", "", bruto)
+    bruto = re.sub(r"^\[[^\]]+\]\s*", "", bruto)
+    bruto = re.sub(r"^[A-Za-z0-9_-]{6,15}:\s*", "", bruto)
+    return bruto[:200]
+
+
 def resposta_de_abertura(alvo, resolucao=None):
     """O corpo JSON de `/api/yt/abrir` — a decisão de rota, sem nada de HTTP em volta.
 

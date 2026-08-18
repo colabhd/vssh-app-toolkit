@@ -23,7 +23,8 @@ sys.path.insert(0, os.path.join(AQUI, "..", "backend"))
 from dash import Ranges  # noqa: E402
 from urls import analisar  # noqa: E402
 from youtube import (  # noqa: E402
-    CABECALHOS_REPASSADOS, Resolvedor, expira_em, id_valido, itag_valido, legendas_de, metadados,
+    CABECALHOS_REPASSADOS, Resolvedor, classificar_falha, expira_em, id_valido, itag_valido,
+    legendas_de, metadados,
     resposta_de_abertura,
 )
 
@@ -614,3 +615,79 @@ class TestOMPDDoFimAoFim(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPorQueOVideoNaoAbriu(unittest.TestCase):
+    """⚠ Antes disto, TODA falha de resolução dizia "atualize o yt-dlp".
+
+    Veio um relato de vídeos que "simplesmente não abrem", e por baixo estava DRM: o extractor
+    estava perfeito, e a pessoa poderia clicar naquele botão para sempre. **Um conserto sugerido que
+    não conserta é pior que nenhum** — ele gasta a única pista que havia.
+    """
+
+    # As mensagens são as MEDIDAS, contra o vídeo do relato (`Fpu5a0Bl8eY`), com o yt-dlp
+    # 2026.07.04. As três primeiras vieram da mesma resolução, só trocando o cliente.
+    PADRAO_EN = "ERROR: [youtube] Fpu5a0Bl8eY: This video is not available"
+    PADRAO_PT = "ERROR: [youtube] Fpu5a0Bl8eY: O vídeo não está disponível"
+    TV = "ERROR: [youtube] Fpu5a0Bl8eY: This video is DRM protected"
+
+    def test_o_piso_a_frase_do_YOUTUBE_vem_traduzida(self):
+        # ⚠ É a medição que proíbe classificar pelo texto do YouTube: a MESMA recusa, do MESMO
+        # vídeo, chega em inglês ou em português conforme o `hl`. Uma regra sobre essa frase
+        # passaria a errar no dia em que alguém usasse o app noutro idioma — e a essa altura o
+        # `hl` do navegador já é o que manda.
+        self.assertIn("not available", self.PADRAO_EN)
+        self.assertIn("não está disponível", self.PADRAO_PT)
+
+    def test_DRM_e_nomeado_pela_segunda_opiniao(self):
+        # Os clientes padrão só dizem "indisponível"; o `tv` diz o que é. Sem juntar as duas, a
+        # única resposta possível seria "não abriu".
+        classe, frase, conserto = classificar_falha(self.PADRAO_PT, self.TV)
+        self.assertEqual(classe, "drm")
+        self.assertIn("DRM", frase)
+        self.assertIn("navegador", conserto)
+        # ⚠ E o que ele NÃO pode dizer: o extractor não tem nada a ver com isto.
+        self.assertNotIn("yt-dlp", conserto)
+
+    def test_sem_a_segunda_opiniao_o_DRM_e_indistinguivel(self):
+        # Registra o custo de não fazer a segunda chamada: a resposta cai no genérico. É honesto —
+        # mostra o que o YouTube disse — mas não nomeia a causa.
+        classe, frase, _ = classificar_falha(self.PADRAO_PT, None)
+        self.assertEqual(classe, "youtube")
+        self.assertEqual(frase, "O vídeo não está disponível")
+
+    def test_o_extractor_velho_ganha_o_botao_e_SO_ele(self):
+        for msg in ("ERROR: [youtube] abc: Unable to extract nsig function name",
+                    "ERROR: [youtube] abc: Failed to extract any player response",
+                    "ERROR: [youtube] abc: Sign in to confirm you're not a bot"):
+            classe, _, conserto = classificar_falha(msg, None)
+            self.assertEqual(classe, "extractor", msg)
+            self.assertIn("Atualizar o yt-dlp", conserto, msg)
+
+    def test_a_recusa_do_youtube_vai_com_as_palavras_DELE(self):
+        # Ele sabe por que recusou; nós não temos nada melhor a dizer. E o `ERROR: [youtube] <id>:`
+        # na frente é ruído de ferramenta — mostrá-lo faria a frase parecer um defeito do app.
+        classe, frase, conserto = classificar_falha(
+            "ERROR: [youtube] dQw4w9WgXcQ: Private video. Sign in if you've been granted access",
+            "ERROR: [youtube] dQw4w9WgXcQ: Private video")
+        self.assertEqual(classe, "youtube")
+        self.assertTrue(frase.startswith("Private video"), frase)
+        self.assertNotIn("ERROR", frase)
+        self.assertNotIn("[youtube]", frase)
+        self.assertIn("navegador", conserto)
+
+    def test_o_DRM_ganha_do_sinal_de_extractor(self):
+        # ⚠ A ordem importa e é medida por este teste: as duas famílias podem aparecer na mesma
+        # colheita — a segunda opinião traz uma mensagem, a primeira traz outra — e mandar a pessoa
+        # atualizar o extractor por causa de um vídeo com DRM é o defeito original de volta.
+        classe, _, _ = classificar_falha(
+            "ERROR: Unable to extract player response", "ERROR: This video is DRM protected")
+        self.assertEqual(classe, "drm")
+
+    def test_falha_sem_texto_nenhum_ainda_diz_alguma_coisa(self):
+        # Um `Exception()` vazio não pode virar um aviso em branco na tela, que afirma que não há
+        # nada a dizer.
+        classe, frase, conserto = classificar_falha(None, "")
+        self.assertEqual(classe, "youtube")
+        self.assertTrue(frase.strip())
+        self.assertTrue(conserto.strip())

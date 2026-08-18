@@ -408,3 +408,49 @@ class TestAtualizar(unittest.TestCase):
         self.assertNotIn("yt_dlp", sys.modules)
         self.assertNotIn("yt_dlp.extractor", sys.modules)
         self.assertIn("yt_dlpzinho", sys.modules)
+
+
+class TestASegundaOpiniao(unittest.TestCase):
+    def test_o_cliente_entra_no_extractor_args_SEM_apagar_o_idioma(self):
+        # ⚠ Os dois moram na mesma chave `extractor_args["youtube"]`. Sobrescrevê-la faria a segunda
+        # opinião perder o idioma — e a frase do YouTube voltaria em inglês exatamente no momento em
+        # que ela vai para a tela de alguém.
+        vistas = {}
+
+        class YDL:
+            def __init__(self, o):
+                vistas.update(o)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def extract_info(self, url, download=False):
+                return {}
+
+        Mundo(type("M", (), {"YoutubeDL": YDL}), idioma="pt").extrair("https://x", cliente="tv")
+        self.assertEqual(vistas["extractor_args"]["youtube"]["lang"], ["pt"])
+        self.assertEqual(vistas["extractor_args"]["youtube"]["player_client"], ["tv"])
+
+    def test_sem_cliente_NAO_aparece_player_client(self):
+        # O caminho normal não pede cliente nenhum: fixar um aqui trocaria a escolha do yt-dlp — que
+        # muda com ele — por uma nossa, congelada.
+        vistas = {}
+
+        class YDL:
+            def __init__(self, o):
+                vistas.update(o)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def extract_info(self, url, download=False):
+                return {}
+
+        Mundo(type("M", (), {"YoutubeDL": YDL}), idioma="pt").extrair("https://x")
+        self.assertNotIn("player_client", vistas["extractor_args"]["youtube"])

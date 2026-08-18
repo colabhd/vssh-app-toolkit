@@ -156,13 +156,25 @@ class Mundo:
             opcoes["extractor_args"] = {"youtube": {"lang": [self._idioma]}}
         return opcoes
 
-    def extrair(self, url):
+    def extrair(self, url, cliente=None):
+        """Resolve um vídeo. `cliente` troca o player client do YouTube.
+
+        ⚠ **O `cliente` existe para DIAGNOSTICAR, e não para insistir.** Medido num vídeo que a
+        pessoa não conseguiu abrir: com os clientes padrão o YouTube responde "O vídeo não está
+        disponível", que não diz nada e não sugere nada; com `player_client=tv` a mesma resolução
+        responde **"This video is DRM protected"** — que é a resposta de verdade, e a única que
+        permite dizer à pessoa que o vídeo não é remontável aqui e vai abrir no navegador.
+        """
         opcoes = {
             **self._comuns(),
             # Sem isto o yt-dlp resolve a playlist inteira quando a URL traz `&list=` — dezenas de
             # chamadas de rede para abrir um vídeo. A fila é assunto de outra rota.
             "noplaylist": True,
         }
+        if cliente:
+            args = dict(opcoes.get("extractor_args") or {})
+            args["youtube"] = {**(args.get("youtube") or {}), "player_client": [cliente]}
+            opcoes["extractor_args"] = args
         with self._yt.YoutubeDL(opcoes) as ydl:
             return ydl.extract_info(url, download=False)
 
