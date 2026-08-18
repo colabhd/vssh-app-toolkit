@@ -75,6 +75,16 @@ function oQueOAppUsa(dir) {
     // `data-tuff-…` é como a `TuffMidia` acha as peças. Um atributo que a versão instalada não
     // lê deixa o controle inerte — nenhum erro, nenhum efeito.
     ganchos: [...new Set([...fontes.matchAll(/data-tuff-([a-z-]+)/g)].map((m) => m[1]))].sort(),
+    // ⚠ **A quarta ponta, e a que mais engana de todas.** Um método do shim que a versão
+    // instalada não tem é `undefined`, e a chamada idiomática é
+    // `vssh.media?.agora?.({…})` — que com `?.` não lança, não avisa e não faz NADA. O `?.`
+    // existe justamente para o app sobreviver a um shell antigo, e o preço é que a ausência
+    // fica invisível: a linha executa, o efeito não acontece, e o console fica limpo.
+    //
+    // Os `?` saem antes de casar para que `vssh.media?.agora?.(` e `vssh.media.agora(` deem o
+    // mesmo caminho — senão a forma que o app de verdade usa seria a única não medida.
+    api: [...new Set([...fontes.replace(/\?/g, '')
+      .matchAll(/\bvssh((?:\.[A-Za-z_$][\w$]*)+)/g)].map((m) => m[1].slice(1)))].sort(),
   };
 }
 
@@ -103,6 +113,27 @@ for (const app of apps()) {
     assert.deepEqual(faltando, [],
       `estas classes não têm regra em \`${ref}\`: no servidor o elemento existe sem o layout que `
       + 'ele supõe, e o sintoma é uma tela torta sem nada no console');
+  });
+
+  test(`${app.dir}: os métodos do shim que ele chama existem na ref \`${ref}\``, seNaoTem, () => {
+    // ⚠ **Este teste nasceu de o defeito acontecer pela TERCEIRA vez, e da mais silenciosa.** O
+    // Palco passou a declarar o que está tocando com `vssh.media.agora({titulo, subtitulo, capa})`
+    // para a central de mídia parar de mostrar o UUID de um `blob:` como título. Funcionou no
+    // repositório. No servidor, a tag `v4` não tinha o método: o `?.` transformou a chamada num
+    // no-op, e o sintoma foi a central mostrando título e subtítulo IGUAIS (os dois caindo no
+    // mesmo recuo) e sem capa — indistinguível de "o app instalado é velho".
+    //
+    // O padrão exige o nome no COMEÇO de uma linha seguido de `(` ou `:` — a forma de um membro
+    // de objeto. Um `const agora = …` no meio do arquivo não conta, e contava: a primeira versão
+    // desta conferência aprovava a `v4` por causa dessa linha.
+    const shim = naRevisao(ref, 'lib/web/vssh-app-shim.js') || '';
+    const faltando = usa.api.filter((caminho) => {
+      const membro = caminho.split('.').pop();
+      return !new RegExp(`^[ \t]*${membro}[ \t]*[(:]`, 'm').test(shim);
+    });
+    assert.deepEqual(faltando, [],
+      `o shim de \`${ref}\` não tem estes métodos. Chamados com \`?.\` — como o idioma do app manda `
+      + '— eles NÃO lançam: a linha executa, nada acontece, e o console fica limpo');
   });
 
   test(`${app.dir}: os ganchos de mídia que ele usa são LIDOS na ref \`${ref}\``, seNaoTem, () => {
