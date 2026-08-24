@@ -154,6 +154,27 @@
               }
             }
           }
+        },
+        "browserExtension": {
+          "type": "object",
+          "description": "A extensão do navegador embutido que é o PAR deste app — a que ele precisa do outro lado para funcionar inteiro (capturar de uma página, integrar com um site). Sem isto, um par app+extensão não tem como se declarar: o app é instalado por um admin com vssh-app-install, a extensão é instalada pelo usuário em vsshb://extensions, são catálogos diferentes e nada casa as versões — quem instala o app não descobre que falta metade. É DADO, como o `contextMenu` ao lado, e não um caminho de script: o app declara, e quem oferece é o ambiente. Declarar OFERECE; instalar continua sendo escolha do usuário, porque instalar uma extensão remota executa o bundle dela no contexto do portal, e isso não é decisão do app nem do admin.",
+          "additionalProperties": false,
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z0-9-]+$",
+              "description": "O `id` da extensão no catálogo de extensões (o mesmo `id` do vssh-ext.json dela). Só o id: a URL do bundle e a versão saem do catálogo no momento de oferecer, e repeti-las aqui seria uma segunda verdade sobre o mesmo fato — que envelhece sozinha a cada release da extensão."
+            },
+            "razao": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "description": "Uma frase dizendo para que o app precisa dela, mostrada a quem for decidir. Sem isto o convite diz só o nome da extensão, e quem nunca ouviu falar dela não tem como responder."
+            }
+          }
         }
       }
     },

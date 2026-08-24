@@ -39,6 +39,7 @@ abaixo, o que costuma ser pedido:
 | Item no menu do ícone no Launchpad (jump list) | baixo | `contributes.contextMenu` com `superficie: "icone-do-app"` e `acao: "abrirRota"` — ver [`api.md`](api.md#ter-item-próprio-no-menu-de-contexto-do-ambiente) |
 | Ser aberto por um link de um site (`youtube.com/…`) | baixo | `opens.urls` |
 | Oferecer uma capacidade a outros apps | baixo | `provides: ["thumbnail/v1"]` |
+| Ser oferecido junto com a extensão de navegador que é o seu par | baixo | `contributes.browserExtension` — ver [`api.md`](api.md#declarar-a-extensão-de-navegador-que-é-o-seu-par) |
 
 > **Contribuir é opt-in, e a tabela acima é a lista inteira.** Um app que não declara nada continua
 > funcionando — ele só não aparece em superfície nenhuma do ambiente além da própria janela. Os dois

@@ -518,3 +518,50 @@ test('o schema é a fonte da verdade, e conhece o campo novo', seNaoTem, () => {
   assert.doesNotMatch('chromium || rm -rf /', re);
   assert.doesNotMatch('chromium |', re);
 });
+
+// ── contributes.browserExtension — o par app+extensão ───────────────────────
+
+test('browserExtension aceita o id da extensão, com ou sem razão', seNaoTem, () => {
+  assert.match(validar({ ...BASE, contributes: { browserExtension: { id: 'vssh-zotero' } } }), /^ID=x$/m);
+  assert.match(validar({ ...BASE, contributes: { browserExtension: { id: 'vssh-zotero', razao: 'Capturar referências das páginas.' } } }), /^ID=x$/m);
+});
+
+test('browserExtension recusa o que não é id de extensão, e diz o que é', seNaoTem, () => {
+  // O engano previsível não é digitar errado: é pôr aqui a URL do bundle ou o nome de exibição,
+  // porque os dois estão à mão em quem acabou de publicar a extensão.
+  const url = validar({ ...BASE, contributes: { browserExtension: { id: 'https://repo/x/bundle.js' } } });
+  assert.match(url, /ERROR=browserExtension_id_invalido/);
+  assert.match(url, /catálogo/, 'a mensagem tem de dizer o que o campo é, não só que o pattern falhou');
+
+  assert.match(validar({ ...BASE, contributes: { browserExtension: { id: 'Zotero Connector' } } }),
+    /ERROR=browserExtension_id_invalido/);
+  assert.match(validar({ ...BASE, contributes: { browserExtension: {} } }),
+    /ERROR=browserExtension_id_invalido/);
+});
+
+test('browserExtension recusa razão longa demais — ela vai para um diálogo', seNaoTem, () => {
+  // ⚠ O validador genérico do publish NÃO implementa maxLength, então sem a conferência explícita
+  // isto passaria e só apareceria como uma parede de texto na tela de quem instala.
+  const longa = { ...BASE, contributes: { browserExtension: { id: 'x-ext', razao: 'a'.repeat(121) } } };
+  assert.match(validar(longa), /ERROR=browserExtension_razao_invalida/);
+  assert.match(validar({ ...BASE, contributes: { browserExtension: { id: 'x-ext', razao: 'a'.repeat(120) } } }), /^ID=x$/m);
+});
+
+test('o schema conhece browserExtension, e fecha a porta como todo objeto do manifesto', seNaoTem, () => {
+  // Mesma garantia do teste de requiredPackages: se a conferência explícita sair um dia, o schema
+  // ainda recusa — e os dois têm de aceitar a MESMA sintaxe, senão a mensagem vem do gate errado.
+  const schema = JSON.parse(fs.readFileSync(SCHEMA, 'utf8'));
+  const campo = schema.properties.contributes.properties.browserExtension;
+  assert.ok(campo, 'o schema não conhece contributes.browserExtension');
+  assert.equal(campo.additionalProperties, false);
+  assert.deepEqual(campo.required, ['id']);
+  const re = new RegExp(campo.properties.id.pattern);
+  assert.match('vssh-zotero', re);
+  assert.doesNotMatch('https://repo/x.js', re);
+  assert.doesNotMatch('Zotero Connector', re);
+  assert.equal(campo.properties.razao.maxLength, 120);
+
+  // Campo desconhecido dentro dele é recusado, como em todo objeto do manifesto.
+  assert.match(validar({ ...BASE, contributes: { browserExtension: { id: 'x-ext', bundleUrl: 'https://x' } } }),
+    /ERROR=schema:/, 'bundleUrl aqui seria uma segunda verdade sobre o que o catálogo já sabe');
+});

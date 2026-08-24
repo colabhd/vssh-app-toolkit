@@ -181,6 +181,18 @@ falta num app concreto.
                                        // No app é `process.env.OPENAI_API_KEY` — variável de
                                        // ambiente comum. O ambiente de um processo é fixado no
                                        // start, então guardar um segredo exige REINICIAR o app.
+  "contributes": {                    // opcional. `browserExtension` declara a extensão do navegador
+    "browserExtension": {              // embutido que é o PAR deste app — a que ele precisa do outro
+      "id": "vssh-zotero",             // lado para funcionar inteiro. Só o ID (o mesmo do vssh-ext.json
+      "razao": "Capturar da página."   // dela): a URL do bundle e a versão saem do catálogo, e repeti-las
+    }                                  // aqui seria uma segunda verdade que envelhece a cada release.
+  },                                   // Declarar OFERECE, não instala — instalar uma extensão remota
+                                       // executa o bundle dela no contexto do portal, e essa decisão é
+                                       // do usuário. Sem isto, um par app+extensão não tinha como se
+                                       // declarar: instalados por gente diferente, em catálogos
+                                       // diferentes, e quem instalava o app não descobria que faltava
+                                       // metade. `contributes` também aceita `settings` e
+                                       // `contextMenu` — ver docs/api.md.
   "provides": ["llm/v1"],             // opcional: capacidades que este app oferece a OUTROS apps,
                                        // em "nome/vN". É o que permite trocar o produtor sem tocar
                                        // no consumidor: um app de chat pede "llm/v1" e recebe o

@@ -197,6 +197,26 @@ if caps is not None:
             print(f'ERROR=capacidade_duplicada:{c!r}'); sys.exit(0)
         vistas.add(c)
 
+# `contributes.browserExtension` aponta para uma extensão do outro catálogo. O validador genérico
+# confere o schema, mas ele NÃO implementa maxLength — e a `razao` vai para um diálogo do shell, onde
+# uma frase de dez mil caracteres é um problema de tela. O `id` ganha mensagem própria porque o
+# engano previsível é pôr aqui a URL do bundle ou o nome de exibição, e o erro do schema diria só
+# "pattern".
+be = (m.get('contributes') or {}).get('browserExtension')
+if be is not None:
+    if not isinstance(be, dict):
+        print('ERROR=browserExtension_nao_e_objeto'); sys.exit(0)
+    ext_id = be.get('id')
+    if not isinstance(ext_id, str) or not re.match(r'^[a-z0-9-]+$', ext_id):
+        print(f'ERROR=browserExtension_id_invalido:{ext_id!r}; é o `id` da extensão no catálogo '
+              '(o mesmo do vssh-ext.json dela), não a URL do bundle nem o nome de exibição')
+        sys.exit(0)
+    razao = be.get('razao')
+    if razao is not None and (not isinstance(razao, str) or not 1 <= len(razao) <= 120):
+        print(f'ERROR=browserExtension_razao_invalida; uma frase de até 120 caracteres, e veio '
+              f'{len(razao) if isinstance(razao, str) else type(razao).__name__}')
+        sys.exit(0)
+
 # `minShellVersion` é conferido pelo PORTAL na instalação — ele sabe a versão do shell que serve.
 # Aqui só a forma, e nomeando o valor: um `"^4.0"` ou um `"v4"` copiado de outro ecossistema passaria
 # como string qualquer e só falharia no servidor de outra pessoa.

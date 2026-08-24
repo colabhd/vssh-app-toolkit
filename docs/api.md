@@ -41,6 +41,7 @@ no-op. Você desenvolve fora do VSSH sem `if` nenhum.
 | Abrir um LINK no navegador do ambiente | `vssh.openUrl()` |
 | Receber um arquivo que abriram com o meu app | `vssh.onOpenContext()` |
 | Ser o app que abre os links de um site | `opens.urls` no manifesto |
+| Declarar a extensão de navegador que é o meu par | `contributes.browserExtension` |
 | Receber arquivo **arrastado** para dentro do app | `vssh.onArquivosSoltos()` |
 | Arrastar um arquivo **para fora** do app | `vssh.arrastarArquivos()` no `dragstart` |
 | Abas no cabeçalho da janela | `vssh.tabs.*` (exige `richChrome`) |
@@ -1006,6 +1007,33 @@ No menu do ícone a régua é a mesma, e os fixos dele são **Abrir 10**, **Copi
 
 O ícone é **o do próprio app** — não há id de sprite a declarar. Item inválido é omitido em
 silêncio, e os irmãos válidos continuam: um item torto não pode impedir o menu de abrir.
+
+### Declarar a extensão de navegador que é o seu par
+
+Alguns apps só funcionam inteiros com uma extensão do navegador embutido do outro lado — um que
+captura de uma página, um que integra com um site. Os dois são instalados por gente diferente, em
+lugares diferentes: o app por um admin, com `vssh-app-install`; a extensão pelo usuário, em
+`vsshb://extensions`. Nada casava as versões, e quem instalava o app não descobria que faltava
+metade.
+
+```json
+{ "contributes": { "browserExtension": { "id": "vssh-zotero",
+                                         "razao": "Capturar referências das páginas que você visita." } } }
+```
+
+| Campo | |
+|---|---|
+| `id` | O `id` da extensão **no catálogo** — o mesmo do `vssh-ext.json` dela |
+| `razao` | Até 120 caracteres, mostrados a quem for decidir. Sem ela o convite diz só o nome |
+
+**Só o id.** A URL do bundle e a versão saem do catálogo no momento de oferecer; repeti-las aqui
+seria uma segunda verdade sobre o mesmo fato, que envelhece a cada release da extensão. O publish
+recusa `bundleUrl` neste objeto por isso.
+
+**Declarar OFERECE, não instala.** Quem instala é o usuário — instalar uma extensão remota executa
+o bundle dela no contexto do portal, com a sessão dele, e essa decisão não é do app nem do admin.
+O que o ambiente faz é parar de esconder que ela existe: a extensão aparece marcada no catálogo
+como par de um app instalado, e abrir o app sem ela oferece a instalação.
 
 ---
 
