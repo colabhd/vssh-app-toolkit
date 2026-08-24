@@ -510,6 +510,24 @@ Campos por item: `id`, `label`, `icon`, `danger`, `disabled`, `checked`, `separa
 desktop montar o menu ele mesmo, e é por isso que o seu menu se parece com o resto do ambiente em
 vez de ser um `<div>` que você estilizou.
 
+#### Onde você não montar nada, o botão direito não faz nada
+
+E isso é deliberado. Dentro de uma janela do desktop, o menu do **navegador** não aparece — aquele
+com "Voltar", "Recarregar", "Exibir código fonte do frame" e "Inspecionar". Ele não é um menu ruim:
+é o menu de outro programa, que fala de uma página e de um iframe, e nada do que ele oferece
+pertence à janela em que a pessoa clicou.
+
+Você não precisa fazer nada para isso: o shim já segura o gesto. O que você ganha é a garantia de
+que o botão direito só mostra o que **você** decidiu mostrar.
+
+⚠ **A exceção é o que for editável** — `<input>`, `<textarea>`, `contenteditable`. Ali o menu do
+navegador é a única forma de recortar/copiar/colar com o mouse, e suprimi-lo tiraria uma capacidade
+sem pôr nada no lugar.
+
+Se o seu app quiser a caixa nativa em algum ponto específico, chame `stopPropagation()` no
+`contextmenu` daquele elemento — o evento não chega ao shim. Fora do desktop (no `npm run dev`, ou
+numa aba comum) nada disso liga: ali o navegador hospedeiro **é** o ambiente.
+
 ### Ícone na bandeja do sistema
 
 Um ícone do seu app ao lado do relógio, com tooltip, badge e menu — para o app que **continua
