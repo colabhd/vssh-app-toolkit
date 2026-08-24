@@ -114,8 +114,14 @@ test('a bancada de lib/web/ não viaja no pacote npm', () => {
   // a lista real de arquivos, com as regras do npm aplicadas — inclusive as que não estão no
   // `files` (o `.npmignore`, os defaults). Uma asserção sobre a linha `'!lib/web/test'` ficava
   // verde com a linha presente e sem efeito, que é o único caso interessante.
+  // ⚠ `shell` no Windows não é preferência: desde o Node 18.20.2 o `child_process` RECUSA lançar um
+  // `.cmd` sem ele (é a mitigação do CVE-2024-27980), e `npm` no Windows é `npm.cmd`. Sem esta
+  // linha o teste morre com `spawnSync npm.cmd EINVAL` antes de medir coisa alguma — verde no CI,
+  // que é Linux, e vermelho na máquina de quem desenvolve. Os argumentos são literais sem espaço
+  // nem metacaractere, então a junção que o shell faz é a mesma lista.
   const saida = execFileSync(npmDoSistema(), ['pack', '--dry-run', '--json'], {
     cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    shell: process.platform === 'win32',
   });
   const empacotados = JSON.parse(saida)[0].files.map((f) => f.path.replace(/\\/g, '/'));
 
