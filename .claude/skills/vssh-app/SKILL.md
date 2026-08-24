@@ -32,8 +32,9 @@ falta num app concreto.
   extra — trate como qualquer outra rota do seu backend.
 - **Qual runtime?** Qualquer um que saiba bindar num **socket unix** em `$VSSH_APP_SOCKET` —
   `python3`/`node`/`binary` são os declarados no manifest, mas o mecanismo é agnóstico de
-  linguagem. Um runtime que só saiba bindar porta declara `backend.transport: "tcp"` e assume o
-  que isso custa (ver "Onde o backend escuta").
+  linguagem. Um runtime que só saiba bindar porta ganha um proxy de uma linha na frente dele: o
+  seu processo binda o socket e repassa para a porta que a ferramenta abriu em `127.0.0.1` (ver
+  "Onde o backend escuta").
 - **Precisa de diálogo, confirmação, notificação ou seletor de arquivo?** Não construa essa UI —
   use `lib/web/vssh-app-shim.js` do frontend (`vssh.dialog.*`, `vssh.notify`, `vssh.pickFile`).
   Isso fala com o desktop por `postMessage`, **sem passar pelo Xpra**, então funciona igual num

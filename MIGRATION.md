@@ -145,24 +145,24 @@ nenhum"* de *"veio só `VSSH_APP_PORT`"*. O segundo não é variável faltando �
 `vssh-app-run` velho demais, e a mensagem diz isso pelo nome (`VSSH_APP_SERVIDOR_ANTIGO`), em
 vez de mandar quem depura procurar no app o que está no provisionamento.
 
-## O único TCP que sobra, e ele tem nome
+## O último TCP acabou, e vale saber quando
 
-`backend.transport: "tcp"` continua no schema, e hoje há **um** caso no ambiente: o **xpra**. Medido
-na 6.5.2 — o listener de WebSocket dele aceita só `HOST:PORT`, e `--bind-ws=<caminho>` responde
-`xpra initialization error`. Ele não usa esta lib (é `runtime: binary`, lê `$VSSH_APP_PORT` no
-próprio `entrypoint.sh`), então a saída do ramo TCP daqui não o afeta.
+`backend.transport: "tcp"` existia por **um** caso declarado no ambiente: o **xpra**. Medido na
+6.5.2 — o listener de WebSocket dele aceitava só `HOST:PORT`, e `--bind-ws=<caminho>` respondia
+`xpra initialization error`.
 
-Esse último TCP morre quando o xpra parar de servir o próprio HTML — medido também: com
-`--html=off` o WebSocket continua respondendo `101`, então servir o frontend sempre foi papel nosso.
+Esse caso acabou na 0.5.0 do pacote do motor, quando o xpra passou a atender por socket nativo. Sem
+ele sobrava um transporte que nenhum app fala e que a própria lib não sabe bindar — `escutar()` só
+abre socket desde a v4. O enum ficou com um valor só, e o campo continua no schema para que um
+manifesto antigo receba um erro que **nomeia** o problema, em vez de instalar e nunca responder.
 
 ---
 
 # v2 → v3 — o endereço deixa de ser uma porta
 
 **Uma mudança só, e ela é do contrato, não das libs.** Até a v2, o contrato escrito no schema e na
-SKILL era *"o backend deve bindar em `127.0.0.1:$VSSH_APP_PORT`"*. Desde a [Onda
-lifecycle pode mandar **`$VSSH_APP_SOCKET`** no lugar —
-um socket unix em `~/.vssh-apps/<id>/`, diretório que já é 0700.
+SKILL era *"o backend deve bindar em `127.0.0.1:$VSSH_APP_PORT`"*. Na v3 o lifecycle passou a mandar
+**`$VSSH_APP_SOCKET`** no lugar — um socket unix em `~/.vssh-apps/<id>/`, diretório que já é 0700.
 
 **Por que isso é major, e não minor.** Nenhuma função da v2 mudou de comportamento. O que muda é o
 que chega no ambiente do processo: um app parado na v2 lê `VSSH_APP_PORT`, não acha nada, e ou morre

@@ -300,7 +300,7 @@
         },
         "entrypoint": {
           "type": "string",
-          "description": "Relativo à raiz do pacote. Deve bindar no endereço que o `transport` decide: socket unix em $VSSH_APP_SOCKET (padrão para app novo) ou TCP em 127.0.0.1:$VSSH_APP_PORT."
+          "description": "Relativo à raiz do pacote. Deve bindar no socket unix de $VSSH_APP_SOCKET — o único endereço que existe, e é o que o `transport` logo abaixo diz, com um enum de um valor só. Com as libs do toolkit isso é uma linha: escutar(server) no Node, criar_servidor() no Python. Um app que binde uma porta em 127.0.0.1 não é proxiado por ninguém: healthcheck 000, janela em branco, e nada no log dizendo por quê."
         },
         "transport": {
           "enum": [
