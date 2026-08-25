@@ -6,6 +6,28 @@ jeito na primeira vez.
 O que NÃO está aqui de propósito: reescrever caminho absoluto (`/static/...`) para relativo. Isso é
 fato do app empacotado, resolvido em tempo de build, não em tempo de resposta.
 
+── O <base> das rotas profundas ──
+
+Quando o `spa_fallback` serve o index numa rota que não é a raiz, todo caminho RELATIVO do HTML
+passa a resolver contra aquela rota. `<script src="app.js">` em `/biblioteca/library` vira
+`/biblioteca/app.js`, e o app carrega quebrado.
+
+O idioma que todo mundo tenta primeiro é um script inline no topo do `<head>` que insere um `<base>`
+calculado de `location`. Ele funciona — para o DOM. **E não funciona para o preload scanner**, que é
+quem realmente busca os assets: o navegador varre o HTML e dispara os `<link href>` e `<script src>`
+ANTES de executar script nenhum, então nunca vê esse `<base>`. O sintoma é um 404 por asset relativo
+em toda abertura em rota profunda, todos recuperados logo depois (o parser refaz o pedido, já com o
+`<base>` aplicado) — o app funciona, o console mente sobre a causa, e o preload vira desperdício
+exatamente no boot.
+
+Quem pode acertar é o SERVIDOR, e ele tem o dado: o caminho que recebeu. Não sabe o prefixo do
+proxy — o portal o remove antes de encaminhar —, mas o `<base>` não precisa dele: um `href="../../"`
+sobe a profundidade da ROTA e chega na raiz do app seja qual for o prefixo.
+
+⚠ Só no caminho do `spa_fallback`, e nunca na raiz. Na raiz o comportamento é idêntico ao de sempre
+(nada é injetado); em rota profunda, o comportamento de hoje já está errado. Um app que declare o
+próprio `<base>` no HTML também é deixado em paz — quem escreveu a tag tomou a decisão.
+
 ── Mounts ──
 
 Um prefixo servido de OUTRO diretório, fora da raiz do bundle. Existe para as libs de navegador do
@@ -34,6 +56,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import threading
 from email.utils import formatdate, parsedate_to_datetime
 from urllib.parse import unquote, urlsplit, parse_qs
@@ -163,7 +186,7 @@ def criar_spa_estatica(root, index_file="index.html", inject_scripts=None, mount
         montados.append((prefixo, _real(os.path.abspath(diretorio))))
 
     carimbador = _Carimbador(ao_avisar)
-    cache_do_index = {"chave": None, "corpo": None}
+    cache_do_index = {"chave": None, "corpo": None, "com_base": {}}
     tranca_do_index = threading.Lock()
 
     def arquivo_do_src(src):
@@ -227,7 +250,51 @@ def criar_spa_estatica(root, index_file="index.html", inject_scripts=None, mount
         with tranca_do_index:
             cache_do_index["chave"] = chave
             cache_do_index["corpo"] = corpo
+            # As variantes com `<base>` são montadas SOBRE este corpo, então elas caem junto. Um
+            # index recarregado que continuasse servindo a variante antiga seria pior que não ter
+            # cache: o app veria HTML novo na raiz e HTML velho em toda rota profunda.
+            cache_do_index["com_base"] = {}
         return corpo
+
+    def index_com_base(corpo, caminho_url):
+        """O index com um `<base>` que leva à raiz do app, para a rota profunda.
+
+        A razão inteira está em "O <base> das rotas profundas", no topo. Aqui só o cálculo: o
+        `href` é relativo e sobe a profundidade do DIRETÓRIO da rota — uma barra a menos que o
+        caminho tem, porque a última componente é o "arquivo" e não conta. `/a/b` resolve a partir
+        de `/a/`, então um nível; `/a/b/c` a partir de `/a/b/`, dois.
+
+        ⚠ O cache é por PROFUNDIDADE, e não por rota: são dois ou três valores numa SPA inteira, e
+        chavear por rota faria um mapa que cresce com o tráfego.
+        """
+        niveis = max(0, caminho_url.count("/") - 1)
+        if not niveis:
+            return corpo
+        with tranca_do_index:
+            pronto = cache_do_index["com_base"].get(niveis)
+        if pronto is not None:
+            return pronto
+
+        html = corpo.decode("utf-8")
+        saida = corpo
+        # Um `<base>` escrito pelo app manda. Ele conhece o próprio bundle, e dois `<base href>` no
+        # mesmo documento não é erro — o navegador usa o PRIMEIRO, então o nosso venceria calado.
+        if not re.search(r"<base\s[^>]*href", html, re.I):
+            marca = '<base href="%s">' % ("../" * niveis)
+            # Logo depois de `<head>`, e não antes de `</head>`: o `<base>` só vale para as URLs
+            # que vêm DEPOIS dele, e o preload scanner lê na ordem do documento. Injetado no fim do
+            # head, chegaria tarde justamente para as tags que isto existe para consertar.
+            achou = re.search(r"<head[^>]*>", html, re.I)
+            if achou:
+                html = html[:achou.end()] + marca + html[achou.end():]
+            else:
+                # Sem `<head>` o navegador cria um implícito, e a primeira tag do documento entra
+                # nele.
+                html = marca + html
+            saida = html.encode("utf-8")
+        with tranca_do_index:
+            cache_do_index["com_base"][niveis] = saida
+        return saida
 
     def stat_dentro(caminho_url, base=None):
         """Um caminho só é servido se cair dentro da base depois de resolvido.
@@ -274,9 +341,16 @@ def criar_spa_estatica(root, index_file="index.html", inject_scripts=None, mount
             handler.send_header(k, v)
         handler.end_headers()
 
-    def mandar_index(handler):
+    def mandar_index(handler, caminho_url=None):
+        """Serve o index. Com `caminho_url`, acrescenta o `<base>` da profundidade dele.
+
+        Só o caminho do `spa_fallback` passa o argumento: o outro chamador atende a raiz, onde o
+        relativo já resolve certo e nada precisa ser injetado.
+        """
         try:
             corpo = corpo_do_index()
+            if caminho_url is not None:
+                corpo = index_com_base(corpo, caminho_url)
         except OSError as err:
             ao_avisar({"event": "index-missing", "root": raiz, "message": str(err)})
             texto = (f"Bundle não encontrado em {raiz}.\n"
@@ -318,7 +392,8 @@ def criar_spa_estatica(root, index_file="index.html", inject_scripts=None, mount
             aceita_html = "text/html" in (handler.headers.get("Accept") or "")
             ultimo = caminho_url[caminho_url.rfind("/") + 1:]
             if spa_fallback and handler.command != "HEAD" and aceita_html and "." not in ultimo:
-                return mandar_index(handler)
+                # Com o `<base>` da profundidade desta rota — ver "O <base> das rotas profundas".
+                return mandar_index(handler, caminho_url)
             return False  # 404 é decisão de quem compõe as rotas
 
         alvo, st = achado

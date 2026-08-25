@@ -249,6 +249,83 @@ class TestFallback(BaseSpa):
         self.assertFalse(servir(HandlerFalso("/js/faltando.js", headers={"Accept": "text/html"})))
 
 
+class TestBaseDaRotaProfunda(BaseSpa):
+    """O `<base>` que o `spa_fallback` acrescenta fora da raiz.
+
+    Espelha o bloco correspondente de `lib/node/test/static-spa.test.js`.
+
+    Um índice servido em `/a/b` faz todo caminho relativo dele resolver contra `/a/`, e o app
+    carrega quebrado. O idioma comum — um script inline no topo do head que insere um `<base>`
+    calculado de `location` — conserta o DOM e não conserta o **preload scanner**, que dispara os
+    `<link href>` e `<script src>` antes de executar script nenhum. O sintoma é um 404 por asset
+    relativo em toda abertura em rota profunda, todos recuperados logo depois: o app funciona, o
+    console mente sobre a causa, e o preload vira desperdício justamente no boot.
+    """
+
+    COMO_NAVEGADOR = {"Accept": "text/html,application/xhtml+xml"}
+
+    def pedir(self, caminho, **kw):
+        servir = kw.pop("servir", None) or criar_spa_estatica(root=self.raiz, spa_fallback=True, **kw)
+        h = HandlerFalso(caminho, headers=dict(self.COMO_NAVEGADOR))
+        self.assertTrue(servir(h))
+        return h.corpo.decode("utf-8")
+
+    def test_o_base_sobe_a_profundidade_da_rota(self):
+        # `/a/b` resolve a partir de `/a/`, então um nível; `/a/b/c` a partir de `/a/b/`, dois.
+        self.assertIn('<base href="../">', self.pedir("/a/b"))
+        self.assertIn('<base href="../../">', self.pedir("/a/b/c"))
+
+    def test_o_relativo_do_index_passa_a_apontar_para_a_raiz(self):
+        # O que importa não é a tag existir, e sim ela LEVAR a algum lugar. A resolução é feita
+        # pelo `urljoin` da stdlib — a mesma regra do navegador.
+        from urllib.parse import urljoin
+
+        self.escrever("index.html",
+                      '<html><head></head><body><script src="./js/main.js"></script></body></html>')
+        html = self.pedir("/biblioteca/library")
+        href = html.split('<base href="')[1].split('"')[0]
+
+        raiz = urljoin("http://app.invalid/biblioteca/library", href)
+        self.assertEqual(urljoin(raiz, "./js/main.js"), "http://app.invalid/js/main.js",
+                         "sem o <base> isto viraria /biblioteca/js/main.js, que é o 404 do console")
+
+    def test_na_raiz_nada_e_injetado(self):
+        # Ali o relativo já resolve certo, e injetar seria mudar o que sempre funcionou.
+        self.assertNotIn("<base", self.pedir("/"))
+        self.assertNotIn("<base", self.pedir("/index.html"))
+
+    def test_o_base_vem_logo_depois_de_head(self):
+        # ⚠ A posição é o ponto inteiro: o `<base>` só vale para as URLs que vêm DEPOIS dele, e o
+        # preload scanner lê na ordem do documento. No fim do head chegaria tarde justamente para
+        # as tags que isto existe para consertar.
+        html = self.pedir("/a/b", inject_scripts=["vssh-boot.js"])
+        self.assertIn('<head><base href="../">', html)
+        self.assertLess(html.index("<base"), html.index("vssh-boot.js"),
+                        "o <base> tem de preceder o script injetado")
+
+    def test_um_base_do_app_manda(self):
+        # Dois `<base href>` no mesmo documento não é erro: o navegador usa o PRIMEIRO. Como o
+        # nosso entraria antes, ele venceria calado a decisão de quem escreveu a tag.
+        self.escrever("index.html", '<html><head><base href="/raiz/"></head><body></body></html>')
+        html = self.pedir("/a/b")
+        self.assertIn('<base href="/raiz/">', html)
+        self.assertEqual(html.count("<base"), 1)
+
+    def test_o_index_recarregado_derruba_a_variante_em_cache(self):
+        # O cache das variantes mora dentro do cache do index e cai junto com ele — senão uma rota
+        # profunda serviria para sempre o HTML de antes, com a raiz já servindo o novo.
+        servir = criar_spa_estatica(root=self.raiz, spa_fallback=True)
+        self.assertIn("oi", self.pedir("/a/b", servir=servir))
+
+        import time
+        time.sleep(0.02)   # mtime_ns tem granularidade
+        self.escrever("index.html", "<html><head></head><body>NOVO</body></html>")
+
+        html = self.pedir("/a/b", servir=servir)
+        self.assertIn("NOVO", html, "a variante em cache ficou presa no index antigo")
+        self.assertIn('<base href="../">', html)
+
+
 class TestBundleAusente(BaseSpa):
     def test_diz_como_reconstruir_em_vez_de_500_mudo(self):
         vazio = tempfile.mkdtemp(prefix="vssh-vazio-")
