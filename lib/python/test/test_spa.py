@@ -84,7 +84,7 @@ class TestCarimbo(BaseSpa):
         h = HandlerFalso("/")
         self.assertTrue(servir(h))
         corpo = h.corpo.decode("utf-8")
-        self.assertRegex(corpo, r'<link rel="stylesheet" href="tema\.css\?v=[0-9a-f]{12}">')
+        self.assertRegex(corpo, r'<link rel="stylesheet" href="tema\.css\?v=[0-9a-f]{12}"/>')
         self.assertLess(corpo.index("<link"), corpo.index("<script"),
                         "a folha saiu depois do script: a página pinta uma vez sem estilo")
 
@@ -105,7 +105,7 @@ class TestCarimbo(BaseSpa):
         servir = criar_spa_estatica(root=self.raiz, inject_styles=["nao-existe.css"])
         h = HandlerFalso("/")
         servir(h)
-        self.assertIn('<link rel="stylesheet" href="nao-existe.css">',
+        self.assertIn('<link rel="stylesheet" href="nao-existe.css"/>',
                       h.corpo.decode("utf-8"))
 
     def test_mudar_o_shim_troca_a_URL_sem_tocar_no_index(self):
@@ -272,8 +272,8 @@ class TestBaseDaRotaProfunda(BaseSpa):
 
     def test_o_base_sobe_a_profundidade_da_rota(self):
         # `/a/b` resolve a partir de `/a/`, então um nível; `/a/b/c` a partir de `/a/b/`, dois.
-        self.assertIn('<base href="../">', self.pedir("/a/b"))
-        self.assertIn('<base href="../../">', self.pedir("/a/b/c"))
+        self.assertIn('<base href="../"/>', self.pedir("/a/b"))
+        self.assertIn('<base href="../../"/>', self.pedir("/a/b/c"))
 
     def test_o_relativo_do_index_passa_a_apontar_para_a_raiz(self):
         # O que importa não é a tag existir, e sim ela LEVAR a algum lugar. A resolução é feita
@@ -299,7 +299,7 @@ class TestBaseDaRotaProfunda(BaseSpa):
         # preload scanner lê na ordem do documento. No fim do head chegaria tarde justamente para
         # as tags que isto existe para consertar.
         html = self.pedir("/a/b", inject_scripts=["vssh-boot.js"])
-        self.assertIn('<head><base href="../">', html)
+        self.assertIn('<head><base href="../"/>', html)
         self.assertLess(html.index("<base"), html.index("vssh-boot.js"),
                         "o <base> tem de preceder o script injetado")
 
@@ -323,7 +323,66 @@ class TestBaseDaRotaProfunda(BaseSpa):
 
         html = self.pedir("/a/b", servir=servir)
         self.assertIn("NOVO", html, "a variante em cache ficou presa no index antigo")
-        self.assertIn('<base href="../">', html)
+        self.assertIn('<base href="../"/>', html)
+
+
+class TestXhtml(BaseSpa):
+    """O tipo do documento, que é o que ESCOLHE o parser do navegador.
+
+    ⚠ Em HTML a barra de uma tag auto-fechada é IGNORADA: `<spacer/>` fica ABERTA e todo irmão
+    seguinte vira FILHO dela, sem erro de parse e sem aviso no console. Quem porta interface de
+    aplicação — XUL, SVG com namespace, entidade declarada — não tem outro caminho senão XHTML.
+
+    Que o cabeçalho realmente TROCA o parser está medido onde só o navegador responde:
+    `lib/node/test/static-spa.browser.test.js`. Aqui se mede o que este lado controla.
+    """
+
+    def test_um_arquivo_xhtml_sai_com_o_tipo_que_faz_RENDERIZAR(self):
+        # Sem a entrada no mapa ele saía como `application/octet-stream`, e aí o navegador BAIXA o
+        # arquivo em vez de mostrá-lo: um link que abre a caixa de download onde devia abrir uma
+        # página. Nada no log do app, nada no console — só o comportamento errado.
+        self.escrever("bancada.xhtml",
+                      '<html xmlns="http://www.w3.org/1999/xhtml"><body/></html>')
+        servir = criar_spa_estatica(root=self.raiz)
+        h = HandlerFalso("/bancada.xhtml")
+        self.assertTrue(servir(h))
+        self.assertEqual(h.status, 200)
+        self.assertEqual(h.cabecalhos["Content-Type"], "application/xhtml+xml; charset=utf-8")
+
+    def test_o_index_responde_o_tipo_do_PROPRIO_index(self):
+        # Um app cujo documento é XHTML declara `index_file="index.xhtml"`. Servi-lo como
+        # `text/html` carregaria o parser errado — e o sintoma apareceria a três níveis de
+        # distância da causa, num aninhamento que ninguém escreveu.
+        self.escrever("index.xhtml",
+                      '<html xmlns="http://www.w3.org/1999/xhtml"><head></head><body/></html>')
+        servir = criar_spa_estatica(root=self.raiz, index_file="index.xhtml", spa_fallback=True)
+
+        h = HandlerFalso("/")
+        self.assertTrue(servir(h))
+        self.assertEqual(h.cabecalhos["Content-Type"], "application/xhtml+xml; charset=utf-8")
+
+        # E também na rota profunda, que é servida pelo outro caminho do código.
+        fundo = HandlerFalso("/a/b", headers={"Accept": "text/html,application/xhtml+xml"})
+        self.assertTrue(servir(fundo))
+        self.assertEqual(fundo.cabecalhos["Content-Type"], "application/xhtml+xml; charset=utf-8")
+
+    def test_as_tags_injetadas_sao_bem_formadas_em_XML(self):
+        # ⚠ O `<link>` e o `<base>` saem auto-fechados. Em HTML a barra não muda nada (os dois são
+        # void); em XHTML, sem ela, o documento inteiro morre com erro fatal de parse — a página de
+        # relato de XML no lugar do app. Uma tag, o app todo.
+        import re
+        self.escrever("boot.js", "console.log(1)")
+        self.escrever("tema.css", "body{}")
+        servir = criar_spa_estatica(root=self.raiz, spa_fallback=True,
+                                    inject_scripts=["boot.js"], inject_styles=["tema.css"])
+        h = HandlerFalso("/a/b", headers={"Accept": "text/html,application/xhtml+xml"})
+        self.assertTrue(servir(h))
+        corpo = h.corpo.decode("utf-8")
+        for tag in re.findall(r"<(?:link|base)\b[^>]*>", corpo):
+            self.assertTrue(tag.endswith("/>"),
+                            "%s não fecha — em XHTML isto é erro fatal" % tag)
+        # O `<script>` já fechava, e continua: em XML, tag vazia sem fim também é fatal.
+        self.assertRegex(corpo, r'<script src="[^"]*boot\.js[^"]*"></script>')
 
 
 class TestBundleAusente(BaseSpa):

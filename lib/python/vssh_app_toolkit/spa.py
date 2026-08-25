@@ -68,6 +68,16 @@ __all__ = ["criar_spa_estatica", "tipo_de_conteudo"]
 # serem independentes uma da outra.
 _TIPOS = {
     "html": "text/html; charset=utf-8",
+    # ⚠ XHTML não é HTML com outro nome: é o único jeito de pedir ao navegador o parser de XML, e há
+    # coisa que só funciona nele — tag auto-fechada (`<spacer/>`), namespace, entidade declarada.
+    # Em HTML a barra é IGNORADA, a tag fica ABERTA, e todo irmão seguinte vira filho dela, sem erro
+    # de parse e sem aviso no console.
+    #
+    # Sem esta entrada o arquivo saía como `application/octet-stream`, e aí o navegador o BAIXA em
+    # vez de renderizar: um link que abre a caixa de download onde devia abrir uma página, e nada em
+    # lugar nenhum dizendo por quê.
+    "xhtml": "application/xhtml+xml; charset=utf-8",
+    "xml": "application/xml; charset=utf-8",
     "js": "text/javascript; charset=utf-8",
     "mjs": "text/javascript; charset=utf-8",
     "css": "text/css; charset=utf-8",
@@ -216,7 +226,10 @@ def criar_spa_estatica(root, index_file="index.html", inject_scripts=None, mount
         # janela escura, que é o artefato que mais denuncia "isto é uma página web".
         saida = []
         for href in inject_styles:
-            saida.append(f'<link rel="stylesheet" href="{_url_carimbada(href)}">')
+            # A barra final é ignorada em HTML (`link` é void) e é OBRIGATÓRIA em XML. Escrita
+            # assim, a mesma tag serve aos dois parsers — sem ela, um index XHTML morre com erro
+            # fatal, que no navegador é o relato de erro de XML no lugar do app.
+            saida.append(f'<link rel="stylesheet" href="{_url_carimbada(href)}"/>')
         for src in inject_scripts:
             saida.append(f'<script src="{_url_carimbada(src)}"></script>')
         return "\n".join(saida)
@@ -280,7 +293,9 @@ def criar_spa_estatica(root, index_file="index.html", inject_scripts=None, mount
         # Um `<base>` escrito pelo app manda. Ele conhece o próprio bundle, e dois `<base href>` no
         # mesmo documento não é erro — o navegador usa o PRIMEIRO, então o nosso venceria calado.
         if not re.search(r"<base\s[^>]*href", html, re.I):
-            marca = '<base href="%s">' % ("../" * niveis)
+            # Auto-fechada pela mesma razão que o `<link>`: em HTML a barra não muda nada, e em
+            # XHTML ela é a diferença entre o documento existir e não existir.
+            marca = '<base href="%s"/>' % ("../" * niveis)
             # Logo depois de `<head>`, e não antes de `</head>`: o `<base>` só vale para as URLs
             # que vêm DEPOIS dele, e o preload scanner lê na ordem do documento. Injetado no fim do
             # head, chegaria tarde justamente para as tags que isto existe para consertar.
@@ -360,7 +375,12 @@ def criar_spa_estatica(root, index_file="index.html", inject_scripts=None, mount
                 handler.wfile.write(texto)
             return True
         # O index carrega o script de boot, que costuma trazer estado do usuário — nunca de cache.
-        _cabecalhos(handler, 200, _TIPOS["html"], len(corpo), {"Cache-Control": "no-store"})
+        #
+        # ⚠ O tipo sai do NOME do index, e não é `text/html` fixo. Um app cujo documento é XHTML
+        # (`index_file="index.xhtml"`) servido como `text/html` carrega no parser errado: as tags
+        # auto-fechadas viram aninhamento, e o sintoma aparece a três níveis de distância da causa.
+        _cabecalhos(handler, 200, tipo_de_conteudo(index_file), len(corpo),
+                    {"Cache-Control": "no-store"})
         if handler.command != "HEAD":
             handler.wfile.write(corpo)
         return True

@@ -262,6 +262,17 @@ caminhos carregados dinamicamente**, que nenhum smoke test pega. É para isso qu
 **Roteamento HTML5 precisa de fallback.** Ligue `spaFallback: true` no `static-spa`. Roteamento
 por fragmento (`#/rota`) não precisa.
 
+**Documento de XML quer XHTML, e o cabeçalho é quem decide.** Porte de interface de aplicação —
+XUL, SVG com namespace, entidade declarada — costuma trazer tag auto-fechada. **Em HTML a barra é
+IGNORADA: `<spacer/>` fica ABERTA e todo irmão seguinte vira FILHO dela**, sem erro de parse e sem
+aviso no console; o sintoma é layout inexplicável a três níveis de distância da causa.
+
+O `static-spa` serve `.xhtml` como `application/xhtml+xml`, e o index responde o tipo do próprio
+nome — então `indexFile: 'index.xhtml'` (`index_file="index.xhtml"` no Python) basta. Duas coisas
+que o parser de XML exige e o de HTML perdoa: o `xmlns="http://www.w3.org/1999/xhtml"` no elemento
+raiz — sem ele os elementos ficam em namespace nenhum, `document.body` some e o CSS não pega — e
+**toda** tag bem formada, porque ali um erro não degrada, mata o documento inteiro.
+
 **Patch que aplica limpo não é patch que faz efeito.** Verificar que o patch aplicou é barato e
 **não substitui** verificar o artefato. Confira que os arquivos referenciados pelo `index.html`
 publicado existem de verdade no diretório instalado.
