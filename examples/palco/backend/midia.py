@@ -4,6 +4,7 @@
     argv_de_fluxo(decisao, caminho, …)      -> ffmpeg … pipe:1, ou None no modo direto
     argv_de_legenda(caminho, indice)        -> ffmpeg … -f webvtt pipe:1
     sondar_arquivo(caminho)                 executa o ffprobe e devolve a Sonda
+    achar_gpu()                             -> (Gpu | None, motivo) — a placa que CODIFICA, provada
 
 ⚠ **Um ffmpeg mal montado não falha.** Ele roda, escreve bytes, sai com zero, e o `<video>` do
 outro lado não toca nada — sem stderr para ler e sem status para conferir. Por isso o argv é
@@ -18,8 +19,31 @@ import json
 import os
 import subprocess
 import threading
+from dataclasses import dataclass
+from typing import Optional
 
 from decisao import sondar
+
+
+@dataclass(frozen=True)
+class Gpu:
+    """Uma placa que codifica, e o CAMINHO pelo qual ela codifica.
+
+    ⚠ **O caminho não é detalhe, e a primeira versão só conhecia um.** Ela guardava o render node
+    e montava `h264_vaapi` em cima — e num servidor NVIDIA de verdade, com `vainfo` instalado e a
+    libva respondendo, todo transcode morria em "Failed to initialise VAAPI connection". O driver
+    proprietário da NVIDIA **não fala VA-API** (o `nvidia-vaapi-driver` que existe por fora só
+    decodifica); ali o caminho é o NVENC, que não usa render node nenhum — o ffmpeg abre
+    `/dev/nvidiactl` sozinho.
+
+        via = "vaapi"   Intel e AMD, pelo render node do DRM (`no` = /dev/dri/renderD*)
+        via = "nvenc"   NVIDIA, sem `no`
+    """
+    via: str
+    no: Optional[str] = None
+
+    def __str__(self):
+        return f"{self.via} em {self.no}" if self.no else self.via
 
 # Os três `movflags` que fazem um MP4 existir num CANO. ⚠ **Medido** em `test_ffmpeg_real.py`, e a
 # medição desmentiu o que eu tinha escrito aqui antes:
@@ -61,6 +85,11 @@ _FRAG_DURACAO = "1000000"   # microssegundos
 # que importa é o vídeo começar. `crf 23` é o padrão visualmente transparente do x264.
 _X264 = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23"]
 
+# O equivalente no NVENC: `p4` é o meio da escala p1–p7, e `-rc vbr -cq 23 -b:v 0` é a qualidade
+# constante — sem o `-b:v 0` o `-cq` vira só um teto por cima da taxa padrão de 2 Mbps, e um 1080p
+# sai borrado sem nenhum erro para ler.
+_NVENC = ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", "23", "-b:v", "0"]
+
 
 def argv_de_sonda(caminho):
     """`ffprobe` respondendo JSON, e mais nada."""
@@ -99,7 +128,15 @@ def argv_de_fluxo(decisao, caminho, inicio=0, gpu=None):
     if decisao.modo == "transcode" and gpu:
         # A decodificação também vai para a GPU: subir quadro por quadro para a placa só para
         # codificar desperdiça a metade barata do trabalho.
-        argv += ["-vaapi_device", gpu, "-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi"]
+        if gpu.via == "vaapi":
+            argv += ["-vaapi_device", gpu.no, "-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi"]
+        else:
+            # NVDEC. Sem `-hwaccel_output_format cuda`, DE PROPÓSITO: o quadro desce para a memória
+            # de sistema e o `format=nv12` abaixo roda em CPU. Custa uma cópia por quadro, e compra
+            # o caso que a versão "tudo na placa" perde — um HEVC de 10 bits decodificado vira
+            # p010, o `h264_nvenc` não aceita 10 bits em H.264 na maioria das placas, e o
+            # `scale_cuda` que converteria não existe no ffmpeg do apt (exige nvcc no build).
+            argv += ["-hwaccel", "cuda"]
 
     argv += ["-i", caminho]
 
@@ -114,8 +151,10 @@ def argv_de_fluxo(decisao, caminho, inicio=0, gpu=None):
 
     if decisao.video == "copiar":
         argv += ["-c:v", "copy"]
-    elif gpu:
+    elif gpu and gpu.via == "vaapi":
         argv += ["-vf", "scale_vaapi=format=nv12", "-c:v", "h264_vaapi"]
+    elif gpu:
+        argv += ["-vf", "format=nv12", *_NVENC]
     else:
         argv += _X264
 
@@ -213,17 +252,21 @@ def sondar_arquivo(caminho, tempo_limite=20):
     return sonda
 
 
-def argv_de_teste_vaapi(dispositivo):
+def argv_de_teste(gpu):
     """Codificar meio segundo de nada. É o menor trabalho que prova a placa."""
-    return [
-        "ffmpeg", "-hide_banner", "-loglevel", "error",
-        "-vaapi_device", dispositivo,
-        "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=0.5",
-        # `format=nv12,hwupload` é obrigatório: sem subir o quadro para a placa, o `h264_vaapi`
-        # recusa a entrada e o teste falharia por motivo errado — dizendo "não tem GPU" onde tem.
-        "-vf", "format=nv12,hwupload", "-c:v", "h264_vaapi",
-        "-f", "null", "-",
-    ]
+    fonte = ["-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=0.5"]
+    if gpu.via == "vaapi":
+        return [
+            "ffmpeg", "-hide_banner", "-loglevel", "error",
+            "-vaapi_device", gpu.no, *fonte,
+            # `format=nv12,hwupload` é obrigatório: sem subir o quadro para a placa, o `h264_vaapi`
+            # recusa a entrada e o teste falharia por motivo errado — dizendo "não tem GPU" onde tem.
+            "-vf", "format=nv12,hwupload", "-c:v", "h264_vaapi",
+            "-f", "null", "-",
+        ]
+    # NVENC sobe o quadro sozinho: nada de `hwupload`, nada de dispositivo.
+    return ["ffmpeg", "-hide_banner", "-loglevel", "error", *fonte,
+            "-vf", "format=nv12", "-c:v", "h264_nvenc", "-f", "null", "-"]
 
 
 def achar_gpu(tempo_limite=20):
@@ -246,45 +289,57 @@ def achar_gpu(tempo_limite=20):
     Medir custa meio segundo, uma vez, no boot. É o mesmo método do `benchmark_gpu` do template, e
     pela mesma razão que está escrita lá: um inventário não diz se a placa serve para alguma coisa.
     """
+    return escolher_gpu(candidatos(), _codifica_mesmo(tempo_limite))
+
+
+def candidatos():
+    """As placas que PODEM codificar, na ordem de tentativa — antes de provar qualquer uma.
+
+    NVENC primeiro: numa máquina com NVIDIA dedicada mais a integrada da CPU, é a NVIDIA que se
+    quer. E ela não aparece em `/dev/dri` como codificadora — o que a denuncia é `/dev/nvidiactl`,
+    que é o que o ffmpeg vai abrir.
+    """
+    lista = []
+    if os.path.exists("/dev/nvidiactl"):
+        lista.append(Gpu("nvenc"))
     try:
         nos = sorted(os.path.join("/dev/dri", n)
                      for n in os.listdir("/dev/dri") if n.startswith("renderD"))
     except OSError:
         nos = []
-    return escolher_gpu(nos, _codifica_mesmo(tempo_limite))
+    return lista + [Gpu("vaapi", n) for n in nos]
 
 
 def _codifica_mesmo(tempo_limite):
-    """A prova de fogo de um render node: `(ok, motivo)`."""
-    def testar(caminho):
+    """A prova de fogo de uma candidata: `(ok, motivo)`."""
+    def testar(gpu):
         try:
-            p = subprocess.run(argv_de_teste_vaapi(caminho), capture_output=True,
-                               timeout=tempo_limite)
+            p = subprocess.run(argv_de_teste(gpu), capture_output=True, timeout=tempo_limite)
         except (OSError, subprocess.SubprocessError) as e:
             return False, str(e)
         if p.returncode == 0:
-            return True, "codifica em VAAPI"
+            return True, f"codifica por {gpu.via}"
         return False, p.stderr.decode("utf-8", "replace").strip()[-300:]
     return testar
 
 
-def escolher_gpu(nos, testar):
-    """O primeiro render node que passa no teste, ou `(None, motivo)`.
+def escolher_gpu(candidatas, testar):
+    """A primeira candidata que passa no teste, ou `(None, motivo)`.
 
     Separada de `achar_gpu` porque a REGRA — "só vale se codificar" — é o que precisa de teste, e
     ela não pode depender de a máquina que roda a suíte ter uma placa. É o mesmo arranjo de
     `decisao.py` e `fluxo.py`: entra dado, sai decisão, nada abre o sistema.
     """
-    if not nos:
-        return None, "nenhum render node em /dev/dri"
+    if not candidatas:
+        return None, "nenhum render node em /dev/dri, e sem /dev/nvidiactl"
 
     ultimo = None
-    for caminho in nos:
-        ok, motivo = testar(caminho)
+    for gpu in candidatas:
+        ok, motivo = testar(gpu)
         if ok:
-            return caminho, f"{os.path.basename(caminho)}: {motivo}"
-        ultimo = f"{os.path.basename(caminho)}: {motivo}"
+            return gpu, f"{gpu}: {motivo}"
+        ultimo = f"{gpu}: {motivo}"
 
     # ⚠ Falhar aqui é NORMAL e não é erro — é a resposta certa para a maioria dos servidores. O
     # transcode cai na CPU, que é o último degrau da lista e sempre existiu.
-    return None, ultimo or "nenhum render node respondeu"
+    return None, ultimo or "nenhuma candidata respondeu"

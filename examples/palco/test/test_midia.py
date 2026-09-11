@@ -20,9 +20,14 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend"))
 
 from decisao import Decisao  # noqa: E402
-from midia import achar_gpu, argv_de_fluxo, argv_de_legenda, argv_de_sonda, argv_de_teste_vaapi, escolher_gpu  # noqa: E402
+from midia import (  # noqa: E402
+    Gpu, achar_gpu, argv_de_fluxo, argv_de_legenda, argv_de_sonda, argv_de_teste, escolher_gpu,
+)
 
 ARQ = "/home/ana/Vídeos/o filme.mkv"
+
+VAAPI = Gpu("vaapi", "/dev/dri/renderD128")
+NVENC = Gpu("nvenc")
 
 REMUX = Decisao(modo="remux", video="copiar", audio="copiar", faixa_audio=1)
 SO_AUDIO = Decisao(modo="audio", video="copiar", audio="recodificar", faixa_audio=1)
@@ -94,15 +99,30 @@ class TestOsModos(unittest.TestCase):
         argv = argv_de_fluxo(SO_AUDIO, ARQ)
         self.assertEqual(argv[pos(argv, "-ac") + 1], "2")
 
-    def test_transcode_com_GPU_usa_vaapi(self):
-        argv = argv_de_fluxo(TRANSCODE, ARQ, gpu="/dev/dri/renderD128")
+    def test_transcode_com_GPU_Intel_ou_AMD_usa_vaapi(self):
+        argv = argv_de_fluxo(TRANSCODE, ARQ, gpu=VAAPI)
         self.assertEqual(argv[pos(argv, "-c:v") + 1], "h264_vaapi")
         self.assertEqual(argv[pos(argv, "-vaapi_device") + 1], "/dev/dri/renderD128")
+
+    def test_transcode_com_NVIDIA_usa_nvenc_e_NAO_toca_no_vaapi(self):
+        # ⚠ O caso do servidor de verdade: NVIDIA, `vainfo` instalado, e a versão anterior montava
+        # `h264_vaapi` em cima do `renderD128` — que existe, e não fala VA-API. Todo transcode morria.
+        argv = argv_de_fluxo(TRANSCODE, ARQ, gpu=NVENC)
+        self.assertEqual(argv[pos(argv, "-c:v") + 1], "h264_nvenc")
+        self.assertEqual(argv[pos(argv, "-hwaccel") + 1], "cuda", "a decodificação não foi para a placa")
+        self.assertNotIn("-vaapi_device", argv)
+        self.assertNotIn("hwupload", " ".join(argv), "hwupload é do VA-API; no NVENC o encoder sobe o quadro")
+        # Qualidade constante de verdade: sem `-b:v 0`, o `-cq` é só um teto por cima dos 2 Mbps
+        # padrão, e um 1080p sai borrado sem erro nenhum para ler.
+        self.assertEqual(argv[pos(argv, "-b:v") + 1], "0")
+        # E o `-hwaccel` vem ANTES do `-i`: depois dele é opção de saída, e o ffmpeg a ignora.
+        self.assertLess(pos(argv, "-hwaccel"), pos(argv, "-i"))
 
     def test_transcode_sem_GPU_cai_na_CPU_e_e_o_ULTIMO_recurso(self):
         argv = argv_de_fluxo(TRANSCODE, ARQ)
         self.assertEqual(argv[pos(argv, "-c:v") + 1], "libx264")
         self.assertNotIn("-vaapi_device", argv)
+        self.assertNotIn("-hwaccel", argv)
 
     def test_o_modo_direto_NAO_tem_linha_de_comando(self):
         # ⚠ Devolver um argv aqui seria o pior tipo de defeito silencioso: o servidor gastaria CPU
@@ -171,16 +191,25 @@ class TestOTesteDaPLACA(unittest.TestCase):
         # ⚠ Sem `format=nv12,hwupload` o `h264_vaapi` recusa a entrada, e o teste falharia por motivo
         # errado — declarando "não tem GPU" num servidor que tem. Um teste de capacidade que erra
         # para o lado do "não" desliga o recurso em silêncio.
-        argv = argv_de_teste_vaapi("/dev/dri/renderD128")
+        argv = argv_de_teste(VAAPI)
         self.assertIn("hwupload", " ".join(argv))
         self.assertEqual(argv[argv.index("-vaapi_device") + 1], "/dev/dri/renderD128")
         self.assertEqual(argv[argv.index("-c:v") + 1], "h264_vaapi")
 
+    def test_a_linha_de_teste_do_NVENC_nao_tem_dispositivo_nem_hwupload(self):
+        # O NVENC abre `/dev/nvidiactl` sozinho e sobe o quadro sozinho. Um `-vaapi_device` aqui
+        # faria o teste da NVIDIA falhar pelo motivo da OUTRA API — e desligar a placa certa.
+        argv = argv_de_teste(NVENC)
+        self.assertEqual(argv[argv.index("-c:v") + 1], "h264_nvenc")
+        self.assertNotIn("-vaapi_device", argv)
+        self.assertNotIn("hwupload", " ".join(argv))
+
     def test_ele_CODIFICA_de_verdade_e_nao_escreve_arquivo(self):
         # `-f null -` é o que torna a medida barata: o trabalho de codificar acontece, e o resultado
         # é jogado fora. Meio segundo de vídeo, uma vez, no boot.
-        self.assertEqual(argv_de_teste_vaapi("/dev/dri/renderD128")[-3:], ["-f", "null", "-"])
-        self.assertIn("duration=0.5", " ".join(argv_de_teste_vaapi("/dev/dri/renderD128")))
+        for gpu in (VAAPI, NVENC):
+            self.assertEqual(argv_de_teste(gpu)[-3:], ["-f", "null", "-"])
+            self.assertIn("duration=0.5", " ".join(argv_de_teste(gpu)))
 
     # ⚠ A regra é medida com o teste INJETADO, e não rodando ffmpeg: a suíte precisa reprovar uma
     # placa quebrada rodando numa máquina que não tem placa nenhuma. Foi por não fazer isso que a
@@ -189,41 +218,53 @@ class TestOTesteDaPLACA(unittest.TestCase):
 
     def test_o_dispositivo_que_FALHA_e_recusado(self):
         # O caso do servidor real: a virtio existe, aparece em `/dev/dri`, e não codifica.
-        recusa = lambda c: (False, "libva: virtio_gpu_drv_video.so init failed")  # noqa: E731
-        caminho, motivo = escolher_gpu(["/dev/dri/renderD128"], recusa)
-        self.assertIsNone(caminho, "uma placa que não codifica foi anunciada como GPU")
+        recusa = lambda g: (False, "libva: virtio_gpu_drv_video.so init failed")  # noqa: E731
+        gpu, motivo = escolher_gpu([VAAPI], recusa)
+        self.assertIsNone(gpu, "uma placa que não codifica foi anunciada como GPU")
         self.assertIn("virtio", motivo, "o motivo perdeu o que o ffmpeg disse")
 
     def test_o_que_CODIFICA_e_escolhido(self):
-        caminho, motivo = escolher_gpu(["/dev/dri/renderD128"], lambda c: (True, "codifica"))
-        self.assertEqual(caminho, "/dev/dri/renderD128")
+        gpu, motivo = escolher_gpu([VAAPI], lambda g: (True, "codifica"))
+        self.assertEqual(gpu, VAAPI)
 
-    def test_com_varios_nodes_ele_procura_ate_achar(self):
+    def test_a_NVIDIA_que_nao_fala_VAAPI_e_achada_pelo_NVENC(self):
+        # O servidor de verdade tinha as DUAS candidatas: o `renderD128` da NVIDIA (que não fala
+        # VA-API) e o NVENC. A regra vale para qualquer ordem — o que codifica é o que fica.
+        def so_nvenc(g):
+            return (g.via == "nvenc", "ok" if g.via == "nvenc" else
+                    "Failed to initialise VAAPI connection: -1 (unknown libva error)")
+
+        gpu, motivo = escolher_gpu([VAAPI, NVENC], so_nvenc)
+        self.assertEqual(gpu, NVENC)
+        self.assertIn("nvenc", motivo)
+
+    def test_com_varias_candidatas_ele_procura_ate_achar(self):
         # ⚠ Não é hipótese: um servidor com placa integrada mais dedicada tem dois render nodes, e
         # costuma ser o SEGUNDO que codifica. Parar no primeiro desligaria o recurso onde ele existe.
         tentados = []
 
-        def so_o_segundo(caminho):
-            tentados.append(caminho)
-            return (caminho.endswith("129"), "ok" if caminho.endswith("129") else "sem encoder")
+        def so_o_segundo(g):
+            tentados.append(g)
+            return (g.no.endswith("129"), "ok" if g.no.endswith("129") else "sem encoder")
 
-        caminho, _ = escolher_gpu(["/dev/dri/renderD128", "/dev/dri/renderD129"], so_o_segundo)
-        self.assertEqual(caminho, "/dev/dri/renderD129")
+        segunda = Gpu("vaapi", "/dev/dri/renderD129")
+        gpu, _ = escolher_gpu([VAAPI, segunda], so_o_segundo)
+        self.assertEqual(gpu, segunda)
         self.assertEqual(len(tentados), 2)
 
-    def test_sem_node_nenhum_a_resposta_e_None_com_MOTIVO(self):
-        # ⚠ O motivo não é enfeite: sem ele o log do boot diz "sem VAAPI" e quem lê não distingue
+    def test_sem_candidata_nenhuma_a_resposta_e_None_com_MOTIVO(self):
+        # ⚠ O motivo não é enfeite: sem ele o log do boot diz "sem GPU" e quem lê não distingue
         # "este servidor não tem placa" de "tem, e o driver está quebrado" — que pedem ações opostas.
-        caminho, motivo = escolher_gpu([], lambda c: (True, "nunca chamado"))
-        self.assertIsNone(caminho)
+        gpu, motivo = escolher_gpu([], lambda g: (True, "nunca chamado"))
+        self.assertIsNone(gpu)
         self.assertTrue(motivo, "devolveu None sem dizer por quê")
 
     def test_achar_gpu_nao_LANCA_onde_nao_ha_dev_dri(self):
         # O app roda em Linux, mas a suíte roda onde quem desenvolve estiver — e um `achar_gpu` que
         # lançasse no boot mataria o processo antes de ele escutar.
-        caminho, motivo = achar_gpu(tempo_limite=5)
+        gpu, motivo = achar_gpu(tempo_limite=5)
         self.assertTrue(motivo)
-        self.assertTrue(caminho is None or isinstance(caminho, str))
+        self.assertTrue(gpu is None or isinstance(gpu, Gpu))
 
 
 class TestFaixas(unittest.TestCase):

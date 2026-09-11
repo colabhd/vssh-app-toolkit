@@ -208,6 +208,13 @@ _FABRICANTES = {
 _FAB_VIRTUAIS = {"0x1af4", "0x1234", "0x15ad", "0x5853", "0x1414"}
 _DRIVERS_VIRTUAIS = {"virtio_gpu", "virtio-pci", "bochs-drm", "bochs", "vmwgfx", "qxl",
                      "vboxvideo", "simpledrm", "vgem", "vkms", "hyperv_drm"}
+# O caminho de CODIFICAÇÃO de vídeo, POR DRIVER. Um servidor de verdade mostrou por quê: NVIDIA,
+# `vainfo` instalado, libva respondendo — e `h264_vaapi` morrendo em "Failed to initialise VAAPI
+# connection". O driver proprietário da NVIDIA não fala VA-API (o `nvidia-vaapi-driver` que existe
+# por fora só decodifica); ali o caminho é NVENC, sem render node. `nouveau` fica de fora: decodifica
+# por VA-API e não codifica nada.
+_VIDEO_POR_DRIVER = {"nvidia": "nvenc", "i915": "vaapi", "xe": "vaapi", "amdgpu": "vaapi",
+                     "radeon": "vaapi"}
 
 
 def gpu_do_servidor():
@@ -280,6 +287,8 @@ def gpu_do_servidor():
             "card": cartao, "fabricante": _FABRICANTES.get(v, "desconhecido"),
             "vendor": vendor, "driver": driver, "virtual": virtual,
             "renderNode": node, "acesso": acesso,
+            # `None` é "não codifica" (virtual) ou "não sei" — nos dois a resposta é a CPU.
+            "video": None if virtual else _VIDEO_POR_DRIVER.get(driver or ""),
         })
 
     usaveis = [d for d in dispositivos if d["acesso"] == "ok"]
@@ -366,6 +375,22 @@ def _por_que_vaapi_falhou(stderr, dispositivo):
     s = (stderr or "").lower()
     if not s:
         return None
+
+    # ── NVENC primeiro: os erros dele têm nome próprio e não se confundem com os do VA-API ──
+    if "h264_nvenc" in s and "unknown encoder" in s:
+        return "este ffmpeg foi compilado SEM NVENC — é do pacote, não do servidor nem da placa"
+    if "libnvidia-encode" in s or "libcuda.so" in s:
+        return ("o userspace NVIDIA está incompleto — falta a libnvidia-encode.so.1, que vem com o "
+                "driver. Num container ou LXC ela precisa ter sido montada do host junto com o resto")
+    if "nvenc api version" in s:
+        return "o driver NVIDIA é mais velho que o NVENC deste ffmpeg — atualizar o driver resolve"
+    if "no capable devices" in s or "no nvenc capable devices" in s:
+        return ("nenhuma placa com NVENC alcançável — ou `/dev/nvidia*` não está neste ambiente, ou "
+                "esta placa não tem motor de codificação (A100 e H100 não têm; é computação, não vídeo)")
+    if "out of memory (10)" in s or "openencodesessionex failed" in s:
+        return ("a placa recusou mais uma sessão de NVENC — placa de consumo limita as sessões "
+                "simultâneas, e outra coisa neste servidor já as ocupa")
+
     if "unknown encoder" in s:
         return "este ffmpeg foi compilado SEM VAAPI — é do pacote, não do servidor nem da placa"
     if "permission denied" in s:
@@ -387,20 +412,44 @@ def _por_que_vaapi_falhou(stderr, dispositivo):
         return (f"esta é uma GPU VIRTUAL ({quem}) — ela NÃO implementa VA-API, e nenhum pacote "
                 "resolve. Ela existe para desenhar tela, não para codificar vídeo: para isso, "
                 "outro servidor.")
+    if nao_inicializou and (dispositivo or {}).get("fabricante") == "NVIDIA":
+        # É a NVIDIA que mais engana: `vainfo` instalado, libva respondendo, e nada codifica. Não
+        # é driver faltando — é a API errada. O pacote de VA-API que existe para ela só decodifica.
+        return ("NVIDIA não codifica por VA-API — o driver proprietário não a implementa, e nenhum "
+                "pacote muda isso. O caminho é o NVENC (`h264_nvenc`), que este benchmark escolhe "
+                "sozinho quando a descoberta diz `video: nvenc`")
     if nao_inicializou:
         return ("a VA-API não inicializou — driver ausente ou incompleto para esta placa "
-                "(mesa-va-drivers, intel-media-va-driver ou o driver do fabricante)")
+                "(mesa-va-drivers para AMD, intel-media-va-driver para Intel)")
     if sem_entrypoint:
         return "a placa não expõe entrypoint de ENCODE para este perfil"
     return None
 
 
-def _o_que_a_placa_sabe(node):
+def _o_que_a_placa_sabe(alvo):
+    """O que a placa DIZ que sabe fazer, pela ferramenta do caminho dela.
+
+    NVENC não tem `vainfo`: quem responde é o próprio ffmpeg, listando os codificadores `*_nvenc`
+    que ele carrega. É menos que um inventário de perfis, e é a pergunta certa — "este ffmpeg
+    fala com esta placa?" —, que é onde a NVIDIA costuma falhar (userspace incompleto no container).
+    """
+    if alvo.get("video") == "nvenc":
+        try:
+            saida = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
+                                   capture_output=True, text=True, timeout=15, check=True).stdout
+            linhas = [l.strip() for l in saida.split("\n") if "nvenc" in l]
+            return {"tem": True, "ferramenta": "ffmpeg -encoders", "entrypoints": linhas[:40],
+                    "codifica": any("h264_nvenc" in l for l in linhas)}
+        except (OSError, subprocess.SubprocessError) as err:
+            return {"tem": False, "ferramenta": "ffmpeg -encoders",
+                    "motivo": str(getattr(err, "stderr", None) or err).split("\n")[0][:200]}
+
+    node = alvo.get("renderNode")
     try:
         saida = subprocess.run(["vainfo", "--display", "drm", "--device", node],
                                capture_output=True, text=True, timeout=15, check=True).stdout
         perfis = [l.strip() for l in saida.split("\n") if "VAEntrypoint" in l]
-        return {"tem": True, "entrypoints": perfis[:40],
+        return {"tem": True, "ferramenta": "vainfo", "entrypoints": perfis[:40],
                 "codifica": any(re.search(r"VAEntrypointEnc", l) for l in perfis)}
     except (OSError, subprocess.SubprocessError) as err:
         # `vainfo` ausente é o caso COMUM e não é erro — ele não vem instalado por padrão. Devolver
@@ -409,6 +458,7 @@ def _o_que_a_placa_sabe(node):
         bruto = getattr(err, "stderr", None) or str(err)
         return {
             "tem": False,
+            "ferramenta": "vainfo",
             "motivo": ("o `vainfo` não está instalado neste servidor — `apt-get install -y vainfo` "
                        "e esta peça passa a listar o que a placa sabe fazer"
                        if isinstance(err, FileNotFoundError) else str(bruto).split("\n")[0][:200]),
@@ -418,10 +468,15 @@ def _o_que_a_placa_sabe(node):
 def benchmark_gpu(frames=300):
     """Descobrir não basta: um inventário não diz se a placa serve para alguma coisa.
 
-    **Por que ffmpeg, e não CUDA.** Um benchmark de CUDA só roda onde há CUDA. VAAPI atravessa
-    Intel, AMD e NVIDIA pelo mesmo render node do DRM — o mesmo caminho genérico que a descoberta
-    usa. E `ffmpeg` é um pacote, não um SDK: por isso este template o DECLARA em
-    `requiredPackages`, e o ambiente confere antes de instalar.
+    **Por que ffmpeg, e não CUDA.** Um benchmark de CUDA só roda onde há CUDA. O ffmpeg fala com
+    qualquer placa — VA-API para Intel e AMD pelo render node do DRM, NVENC para NVIDIA — e é um
+    pacote, não um SDK: por isso este template o DECLARA em `requiredPackages`, e o ambiente
+    confere antes de instalar.
+
+    **O codificador é escolhido pelo `video` da descoberta, e não é detalhe.** A primeira versão
+    só sabia `h264_vaapi`, e num servidor NVIDIA de verdade — com `vainfo` instalado e a libva
+    respondendo — ela dizia "driver ausente" para uma placa que codifica fino. Não era driver:
+    era a API errada.
 
     **O número útil é a RAZÃO.** "180 fps" sozinho não diz nada — depende do vídeo, do preset, da
     máquina. O mesmo trabalho em CPU e em GPU responde a pergunta que se tem de fato: *vale a pena
@@ -464,14 +519,26 @@ def benchmark_gpu(frames=300):
     # nada em disco. Saída para /dev/null — o que se mede é o encode, não o I/O.
     fonte = ["-f", "lavfi", "-i", f"testsrc=size=1280x720:rate=30:duration={frames / 30}"]
     cpu = medir([*fonte, "-c:v", "libx264", "-preset", "veryfast", "-f", "null", "-"], "cpu")
-    # Sem `-hwaccel vaapi`: aquilo é para DECODIFICAR em hardware, e a fonte aqui é gerada pelo
-    # próprio ffmpeg. Pedi-lo faz o erro falar do decode em vez do encode que se queria medir.
-    if node:
+    # Sem `-hwaccel`: aquilo é para DECODIFICAR em hardware, e a fonte aqui é gerada pelo próprio
+    # ffmpeg. Pedi-lo faz o erro falar do decode em vez do encode que se queria medir.
+    if not node:
+        gpu_res = {"rotulo": "gpu", "ok": False,
+                   "erro": "nenhum render node acessível — ver o inventário acima"}
+    elif alvo.get("video") == "nvenc":
+        # NVENC não usa o render node: o ffmpeg abre `/dev/nvidiactl` sozinho, e o quadro vai em
+        # memória de sistema — o próprio codificador o sobe para a placa.
+        gpu_res = medir([*fonte, "-vf", "format=nv12", "-c:v", "h264_nvenc", "-f", "null", "-"], "gpu")
+    elif alvo.get("video") == "vaapi":
         gpu_res = medir(["-vaapi_device", node, *fonte, "-vf", "format=nv12,hwupload",
                          "-c:v", "h264_vaapi", "-f", "null", "-"], "gpu")
     else:
+        # Virtual, ou driver que a descoberta não conhece. Tentar VA-API aqui é o que produzia
+        # "driver ausente" numa placa que não tem, nem vai ter, codificador.
         gpu_res = {"rotulo": "gpu", "ok": False,
-                   "erro": "nenhum render node acessível — ver o inventário acima"}
+                   "erro": (f"{alvo.get('fabricante')} ({alvo.get('driver') or 'sem driver'}) não "
+                            "codifica vídeo por caminho nenhum que este benchmark conheça — "
+                            + ("é uma placa VIRTUAL, ela existe para desenhar tela"
+                               if alvo.get("virtual") else "driver fora da tabela da descoberta"))}
 
     # A razão só existe quando os DOIS lados mediram. Inventar um número a partir de um lado que
     # falhou seria pior que não ter número nenhum.
@@ -479,7 +546,7 @@ def benchmark_gpu(frames=300):
              if cpu["ok"] and gpu_res["ok"] and gpu_res["ms"] > 0 else None)
     # Só quando falhou, e só quando há placa: perguntar "o que você sabe fazer?" a uma placa que
     # acabou de codificar seria gastar segundos para confirmar o óbvio.
-    capacidades = _o_que_a_placa_sabe(node) if (not gpu_res["ok"] and node) else None
+    capacidades = _o_que_a_placa_sabe(alvo) if (not gpu_res["ok"] and node) else None
 
     if ganho is None:
         leitura = ("não deu para comparar" if gpu_res["ok"] else
@@ -493,8 +560,9 @@ def benchmark_gpu(frames=300):
     else:
         leitura = f"empate técnico ({ganho}×) — a GPU deste servidor não compensa neste trabalho"
 
-    return {"rodou": True, "frames": frames, "renderNode": node, "cpu": cpu, "gpu": gpu_res,
-            "ganho": ganho, "capacidades": capacidades, "leitura": leitura}
+    return {"rodou": True, "frames": frames, "renderNode": node,
+            "video": alvo.get("video") if alvo else None,
+            "cpu": cpu, "gpu": gpu_res, "ganho": ganho, "capacidades": capacidades, "leitura": leitura}
 
 
 def token_confere(esperado, recebido):

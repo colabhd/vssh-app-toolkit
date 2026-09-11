@@ -112,7 +112,7 @@ VERSAO = _versao_do_app()
 # Medido uma vez no boot, e não por requisição: enumerar `/dev/dri` a cada abertura de vídeo seria
 # I/O por uma resposta que não muda enquanto o processo vive.
 GPU, GPU_MOTIVO = achar_gpu()
-log("boot", {"gpu": GPU or "sem VAAPI", "motivo": GPU_MOTIVO})
+log("boot", {"gpu": str(GPU) if GPU else "sem GPU", "motivo": GPU_MOTIVO})
 
 spa = criar_spa_estatica(
     root=os.path.join(_AQUI, "..", "frontend"),

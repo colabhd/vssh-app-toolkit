@@ -224,6 +224,12 @@ function gpuDoServidor() {
   const VIRT_FAB = new Set(['0x1af4', '0x1234', '0x15ad', '0x5853', '0x1414']);
   const VIRTUAIS = new Set(['virtio_gpu', 'virtio-pci', 'bochs-drm', 'bochs', 'vmwgfx', 'qxl',
                             'vboxvideo', 'simpledrm', 'vgem', 'vkms', 'hyperv_drm']);
+  // O caminho de CODIFICAÇÃO de vídeo, POR DRIVER. Um servidor de verdade mostrou por quê: NVIDIA,
+  // `vainfo` instalado, libva respondendo — e `h264_vaapi` morrendo em "Failed to initialise VAAPI
+  // connection". O driver proprietário da NVIDIA não fala VA-API (o `nvidia-vaapi-driver` que
+  // existe por fora só decodifica); ali o caminho é NVENC, sem render node. `nouveau` fica de
+  // fora: decodifica por VA-API e não codifica nada.
+  const VIDEO_POR_DRIVER = { nvidia: 'nvenc', i915: 'vaapi', xe: 'vaapi', amdgpu: 'vaapi', radeon: 'vaapi' };
   const ler = (p) => { try { return fs.readFileSync(p, 'utf8').trim(); } catch { return null; } };
 
   let cartoes;
@@ -261,6 +267,8 @@ function gpuDoServidor() {
     return {
       card: cartao, fabricante: FABRICANTES[v] || 'desconhecido',
       vendor, driver, virtual, renderNode: node, acesso,
+      // `null` é "não codifica" (virtual) ou "não sei" — nos dois a resposta é a CPU.
+      video: virtual ? null : (VIDEO_POR_DRIVER[driver] || null),
     };
   });
 
@@ -357,6 +365,27 @@ function segredo() {
 function _porQueVaapiFalhou(stderr, dispositivo) {
   const s = (stderr || '').toLowerCase();
   if (!s) return null;
+
+  // ── NVENC primeiro: os erros dele têm nome próprio e não se confundem com os do VA-API ──
+  if (s.includes('h264_nvenc') && s.includes('unknown encoder')) {
+    return 'este ffmpeg foi compilado SEM NVENC — é do pacote, não do servidor nem da placa';
+  }
+  if (s.includes('libnvidia-encode') || s.includes('libcuda.so')) {
+    return 'o userspace NVIDIA está incompleto — falta a libnvidia-encode.so.1, que vem com o ' +
+           'driver. Num container ou LXC ela precisa ter sido montada do host junto com o resto';
+  }
+  if (s.includes('nvenc api version')) {
+    return 'o driver NVIDIA é mais velho que o NVENC deste ffmpeg — atualizar o driver resolve';
+  }
+  if (s.includes('no capable devices') || s.includes('no nvenc capable devices')) {
+    return 'nenhuma placa com NVENC alcançável — ou `/dev/nvidia*` não está neste ambiente, ou esta ' +
+           'placa não tem motor de codificação (A100 e H100 não têm; é computação, não vídeo)';
+  }
+  if (s.includes('out of memory (10)') || s.includes('openencodesessionex failed')) {
+    return 'a placa recusou mais uma sessão de NVENC — placa de consumo limita as sessões ' +
+           'simultâneas, e outra coisa neste servidor já as ocupa';
+  }
+
   if (s.includes('unknown encoder')) {
     return 'este ffmpeg foi compilado SEM VAAPI — é do pacote, não do servidor nem da placa';
   }
@@ -386,21 +415,47 @@ function _porQueVaapiFalhou(stderr, dispositivo) {
     return 'a placa abre, mas NÃO tem motor de codificação de vídeo — ela pode servir para render ' +
            'e não para vídeo';
   }
+  if (naoInicializou && dispositivo?.fabricante === 'NVIDIA') {
+    // É a NVIDIA que mais engana: `vainfo` instalado, libva respondendo, e nada codifica. Não é
+    // driver faltando — é a API errada. O pacote de VA-API que existe para ela só decodifica.
+    return 'NVIDIA não codifica por VA-API — o driver proprietário não a implementa, e nenhum ' +
+           'pacote muda isso. O caminho é o NVENC (`h264_nvenc`), que este benchmark escolhe ' +
+           'sozinho quando a descoberta diz `video: nvenc`';
+  }
   if (naoInicializou) {
     return 'o VAAPI não inicializou nesta placa física — driver ausente. O pacote do fabricante ' +
-           '(mesa-va-drivers para AMD, intel-media-va-driver para Intel, o driver NVIDIA) é o caminho';
+           '(mesa-va-drivers para AMD, intel-media-va-driver para Intel) é o caminho';
   }
   return null;
 }
 
-/** O que a placa DIZ que sabe fazer, quando `vainfo` existe. É a resposta, não um consolo. */
-function _oQueAPlacaSabe(node) {
+/**
+ * O que a placa DIZ que sabe fazer, pela ferramenta do caminho dela. É a resposta, não um consolo.
+ *
+ * NVENC não tem `vainfo`: quem responde é o próprio ffmpeg, listando os codificadores `*_nvenc`
+ * que ele carrega. É menos que um inventário de perfis, e é a pergunta certa — "este ffmpeg fala
+ * com esta placa?" —, que é onde a NVIDIA costuma falhar (userspace incompleto no container).
+ */
+function _oQueAPlacaSabe(alvo) {
   const { execFileSync } = require('node:child_process');
+  if (alvo.video === 'nvenc') {
+    try {
+      const saida = execFileSync('ffmpeg', ['-hide_banner', '-encoders'],
+        { encoding: 'utf8', timeout: 15000, stdio: ['ignore', 'pipe', 'pipe'] });
+      const linhas = saida.split('\n').filter((l) => l.includes('nvenc')).map((l) => l.trim());
+      return { tem: true, ferramenta: 'ffmpeg -encoders', entrypoints: linhas.slice(0, 40),
+               codifica: linhas.some((l) => l.includes('h264_nvenc')) };
+    } catch (err) {
+      return { tem: false, ferramenta: 'ffmpeg -encoders',
+               motivo: (err.stderr?.toString() || err.message || '').split('\n')[0].slice(0, 200) };
+    }
+  }
+  const node = alvo.renderNode;
   try {
     const saida = execFileSync('vainfo', ['--display', 'drm', '--device', node],
       { encoding: 'utf8', timeout: 15000, stdio: ['ignore', 'pipe', 'pipe'] });
     const perfis = saida.split('\n').filter((l) => l.includes('VAEntrypoint')).map((l) => l.trim());
-    return { tem: true, entrypoints: perfis.slice(0, 40),
+    return { tem: true, ferramenta: 'vainfo', entrypoints: perfis.slice(0, 40),
              codifica: perfis.some((l) => /VAEntrypointEnc/.test(l)) };
   } catch (err) {
     // `vainfo` ausente é o caso COMUM e não é erro — ele não vem instalado por padrão. Devolver o
@@ -409,6 +464,7 @@ function _oQueAPlacaSabe(node) {
     const bruto = (err.stderr?.toString() || err.message || '');
     return {
       tem: false,
+      ferramenta: 'vainfo',
       motivo: /ENOENT/.test(bruto)
         ? 'o `vainfo` não está instalado neste servidor — `apt-get install -y vainfo` e esta peça ' +
           'passa a listar o que a placa sabe fazer'
@@ -467,19 +523,35 @@ function benchmarkGpu({ frames = 300 } = {}) {
   // Sem `-hwaccel vaapi`: aquilo é para DECODIFICAR em hardware, e a fonte aqui é gerada pelo
   // próprio ffmpeg. Pedir aceleração de decode de um `lavfi` faz o ffmpeg tentar inicializar um
   // caminho que não existe — e o erro que sai daí fala do decode, não do encode que se queria medir.
-  const gpuRes = node
-    ? medir(['-vaapi_device', node, ...fonte,
-             '-vf', 'format=nv12,hwupload', '-c:v', 'h264_vaapi', '-f', 'null', '-'], 'gpu')
-    : { rotulo: 'gpu', ok: false, erro: 'nenhum render node acessível — ver o inventário acima' };
+  //
+  // **O codificador é escolhido pelo `video` da descoberta, e não é detalhe.** A primeira versão só
+  // sabia `h264_vaapi`, e num servidor NVIDIA de verdade — com `vainfo` instalado e a libva
+  // respondendo — ela dizia "driver ausente" para uma placa que codifica fino. Não era driver: era
+  // a API errada. NVENC não usa o render node: o ffmpeg abre `/dev/nvidiactl` sozinho, e o quadro
+  // vai em memória de sistema — o próprio codificador o sobe para a placa.
+  const gpuRes = !node
+    ? { rotulo: 'gpu', ok: false, erro: 'nenhum render node acessível — ver o inventário acima' }
+    : alvo.video === 'nvenc'
+      ? medir([...fonte, '-vf', 'format=nv12', '-c:v', 'h264_nvenc', '-f', 'null', '-'], 'gpu')
+    : alvo.video === 'vaapi'
+      ? medir(['-vaapi_device', node, ...fonte,
+               '-vf', 'format=nv12,hwupload', '-c:v', 'h264_vaapi', '-f', 'null', '-'], 'gpu')
+    // Virtual, ou driver que a descoberta não conhece. Tentar VA-API aqui é o que produzia "driver
+    // ausente" numa placa que não tem, nem vai ter, codificador.
+    : { rotulo: 'gpu', ok: false,
+        erro: `${alvo.fabricante} (${alvo.driver || 'sem driver'}) não codifica vídeo por caminho ` +
+              'nenhum que este benchmark conheça — ' +
+              (alvo.virtual ? 'é uma placa VIRTUAL, ela existe para desenhar tela'
+                            : 'driver fora da tabela da descoberta') };
 
   // A razão só existe quando os DOIS lados mediram. Inventar um número a partir de um lado que
   // falhou seria pior que não ter número nenhum.
   const ganho = cpu.ok && gpuRes.ok && gpuRes.ms > 0 ? +(cpu.ms / gpuRes.ms).toFixed(2) : null;
   // Só quando falhou, e só quando há placa: perguntar "o que você sabe fazer?" a uma placa que
   // acabou de codificar seria gastar segundos para confirmar o óbvio.
-  const capacidades = !gpuRes.ok && node ? _oQueAPlacaSabe(node) : null;
+  const capacidades = !gpuRes.ok && node ? _oQueAPlacaSabe(alvo) : null;
   return {
-    rodou: true, frames, renderNode: node, cpu, gpu: gpuRes, ganho, capacidades,
+    rodou: true, frames, renderNode: node, video: alvo?.video ?? null, cpu, gpu: gpuRes, ganho, capacidades,
     leitura: ganho === null
       ? (gpuRes.ok ? 'não deu para comparar'
          // O diagnóstico primeiro, o stderr depois. Quem lê quer saber o que FAZER; o texto do

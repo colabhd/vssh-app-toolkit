@@ -172,12 +172,16 @@ function montarGaleria() {
             `cpu   ${d.cpu.ok ? `${d.cpu.ms} ms · ${d.cpu.fps} fps` : `falhou: ${d.cpu.erro}`}`,
             `gpu   ${d.gpu.ok ? `${d.gpu.ms} ms · ${d.gpu.fps} fps` : `falhou: ${d.gpu.erro}`}`,
             `nó    ${d.renderNode || '—'}`,
-            // O que a placa DIZ que sabe fazer, quando o encode falhou e o `vainfo` existe. É a
-            // resposta à pergunta seguinte — "então ela serve para quê?" — em vez de um beco.
+            // O caminho pelo qual a placa codifica — NVENC numa NVIDIA, VA-API em Intel e AMD. É
+            // o que separa "tem placa" de "o vídeo acelera", e o que o benchmark escolheu.
+            `via   ${d.video || '— (esta placa não codifica vídeo)'}`,
+            // O que a placa DIZ que sabe fazer, quando o encode falhou — pela ferramenta do caminho
+            // dela (`vainfo`, ou o próprio ffmpeg no NVENC). É a resposta à pergunta seguinte —
+            // "então ela serve para quê?" — em vez de um beco.
             d.capacidades?.tem
-              ? `\nvainfo (codifica: ${d.capacidades.codifica ? 'sim' : 'NÃO'}):\n` +
+              ? `\n${d.capacidades.ferramenta} (codifica: ${d.capacidades.codifica ? 'sim' : 'NÃO'}):\n` +
                 d.capacidades.entrypoints.map((l) => `      ${l}`).join('\n')
-              : d.capacidades ? `\nvainfo não respondeu: ${d.capacidades.motivo}` : null,
+              : d.capacidades ? `\n${d.capacidades.ferramenta} não respondeu: ${d.capacidades.motivo}` : null,
           ].filter((l) => l !== null).join('\n')
         : `não deu para medir — ${d.motivo}`);
     } catch (e) { falhar('runtimeout', e); }

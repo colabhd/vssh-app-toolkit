@@ -325,7 +325,66 @@ function comBenchmark(execFake, gpuFake) {
   return fn();
 }
 
-const COM_PLACA = { dispositivos: [{ acesso: 'ok', renderNode: '/dev/dri/renderD128' }] };
+const COM_PLACA = { dispositivos: [{ acesso: 'ok', renderNode: '/dev/dri/renderD128', video: 'vaapi' }] };
+const COM_NVIDIA = { dispositivos: [{ acesso: 'ok', renderNode: '/dev/dri/renderD128',
+                                      fabricante: 'NVIDIA', driver: 'nvidia', video: 'nvenc' }] };
+
+/** A `gpuDoServidor` de verdade, contra uma `/sys/class/drm` + `/dev/dri` de mentira com UMA placa. */
+function descobrir(vendor, driver) {
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = require('node:fs');
+  const { tmpdir } = require('node:os');
+  const raiz = mkdtempSync(path.join(tmpdir(), 'vssh-gpu-'));
+  const disp = path.join(raiz, 'sys', 'card0', 'device');
+  mkdirSync(path.join(disp, 'drm', 'renderD128'), { recursive: true });
+  mkdirSync(path.join(raiz, 'dev'));
+  writeFileSync(path.join(disp, 'vendor'), `${vendor}\n`);
+  writeFileSync(path.join(disp, 'uevent'), `DRIVER=${driver}\n`);
+  writeFileSync(path.join(raiz, 'dev', 'renderD128'), '');
+
+  const i = SERVER.indexOf('function gpuDoServidor');
+  assert.ok(i > 0, 'não achei gpuDoServidor — o teste ficou obsoleto');
+  const corpo = SERVER.slice(i, SERVER.indexOf('\n}\n', i) + 2);
+  const fn = new Function('require', 'process', 'path', `${corpo}\nreturn gpuDoServidor;`)(
+    require, { env: { VSSH_GPU_SYSFS: path.join(raiz, 'sys'), VSSH_GPU_DEV: path.join(raiz, 'dev') } }, path);
+  try { return fn(); } finally { rmSync(raiz, { recursive: true, force: true }); }
+}
+
+test('o caminho de codificação sai do DRIVER — e NVIDIA é NVENC, não VA-API', () => {
+  // Medido num servidor de verdade: NVIDIA, `vainfo` instalado, libva respondendo a versão — e
+  // `h264_vaapi` morrendo em "Failed to initialise VAAPI connection". O driver proprietário não
+  // fala VA-API; ele codifica por NVENC.
+  assert.strictEqual(descobrir('0x10de', 'nvidia').dispositivos[0].video, 'nvenc');
+  assert.strictEqual(descobrir('0x1002', 'amdgpu').dispositivos[0].video, 'vaapi');
+  assert.strictEqual(descobrir('0x8086', 'i915').dispositivos[0].video, 'vaapi');
+  // Virtual não codifica por caminho nenhum, e driver fora da tabela é "não sei": os dois são
+  // `null`, e não um chute que mande o benchmark tentar.
+  assert.strictEqual(descobrir('0x1af4', 'virtio_gpu').dispositivos[0].video, null);
+  assert.strictEqual(descobrir('0x10de', 'nouveau').dispositivos[0].video, null);
+});
+
+test('numa NVIDIA o benchmark codifica por NVENC, sem render node e sem tentar VA-API', () => {
+  // O servidor de verdade: `renderD128` presente, e o benchmark antigo tentava `h264_vaapi` ali —
+  // falhava, e o diagnóstico mandava instalar o driver que já estava instalado.
+  const chamadas = [];
+  const r = comBenchmark((bin, args) => { chamadas.push(args); return ''; }, COM_NVIDIA);
+  assert.strictEqual(r.video, 'nvenc');
+  assert.ok(r.gpu.ok, 'o lado da GPU não rodou');
+  const gpu = chamadas.find((a) => a.includes('h264_nvenc'));
+  assert.ok(gpu, 'não codificou por NVENC');
+  assert.ok(!gpu.includes('-vaapi_device'), 'NVENC não passa pelo render node');
+  assert.ok(!gpu.some((a) => /hwupload/.test(a)), 'hwupload é do VA-API; no NVENC o encoder sobe o quadro');
+  assert.ok(!chamadas.some((a) => a.includes('h264_vaapi')), 'tentou VA-API numa NVIDIA');
+});
+
+test('placa virtual não chega ao ffmpeg — tentar VA-API nela é o que dizia "driver ausente"', () => {
+  const chamadas = [];
+  const r = comBenchmark((bin, args) => { chamadas.push(args); return ''; },
+    { dispositivos: [{ acesso: 'ok', renderNode: '/dev/dri/renderD128',
+                       fabricante: 'virtio', driver: 'virtio_gpu', virtual: true, video: null }] });
+  assert.strictEqual(r.gpu.ok, false);
+  assert.match(r.gpu.erro, /VIRTUAL/);
+  assert.ok(!chamadas.some((a) => a.includes('h264_vaapi') || a.includes('h264_nvenc')));
+});
 
 test('o ganho é a razão entre os dois lados — e é isso que responde a pergunta', () => {
   // 600 ms em CPU contra 200 ms em GPU = 3×. O relógio é o `hrtime` de verdade, então o fake
@@ -400,6 +459,21 @@ test('a falha da GPU é CLASSIFICADA — as causas pedem ações opostas', () =>
     'mandou desistir numa placa física, onde instalar o driver resolve');
 
   assert.match(fn("Unknown encoder 'h264_vaapi'", FISICA), /compilado SEM VAAPI/);
+
+  // ⚠ O caso que motivou tudo isto: NVIDIA de verdade, `vainfo` instalado, libva 1.22 respondendo
+  // — e "Failed to initialise VAAPI connection: -1". A resposta antiga era "driver ausente ... o
+  // driver NVIDIA", e mandava instalar o que já estava instalado. Não é driver: o proprietário da
+  // NVIDIA não fala VA-API, e o caminho é outro.
+  const NVIDIA = { virtual: false, fabricante: 'NVIDIA', driver: 'nvidia', video: 'nvenc' };
+  const d = fn('Failed to initialise VAAPI connection: -1 (unknown libva error).', NVIDIA);
+  assert.match(d, /NVENC/);
+  assert.ok(!/driver ausente/.test(d), 'mandou procurar driver onde o driver está instalado');
+  // E os erros do PRÓPRIO NVENC, que têm nome e não se confundem com os do VA-API.
+  assert.match(fn("Unknown encoder 'h264_nvenc'", NVIDIA), /SEM NVENC/);
+  assert.match(fn('Cannot load libnvidia-encode.so.1', NVIDIA), /libnvidia-encode/);
+  assert.match(fn('Driver does not support the required nvenc API version. Required: 12.0 Found: 11.1', NVIDIA),
+    /atualizar o driver/);
+  assert.match(fn('No capable devices found', NVIDIA), /NVENC/);
   assert.match(fn('Failed to open /dev/dri/renderD128: Permission denied', FISICA), /grupo `render`/);
   assert.match(fn('No usable encoding entrypoint found for profile', VIRTUAL), /GPU VIRTUAL/);
   assert.strictEqual(fn('', VIRTUAL), null, 'inventou diagnóstico a partir de stderr vazio');

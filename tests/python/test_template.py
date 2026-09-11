@@ -180,6 +180,25 @@ class TestGpu(BaseTemplate):
         self.assertIn("GPU VIRTUAL",
                       m._por_que_vaapi_falhou("No usable encoding entrypoint found for profile", VIRTUAL))
 
+        # ⚠ O caso que motivou tudo isto: NVIDIA de verdade, `vainfo` instalado, libva 1.22
+        # respondendo — e "Failed to initialise VAAPI connection: -1". A resposta antiga era
+        # "driver ausente ... o driver NVIDIA", e mandava instalar o que já estava instalado. Não é
+        # driver: o proprietário da NVIDIA não fala VA-API, e o caminho é outro.
+        NVIDIA = {"virtual": False, "fabricante": "NVIDIA", "driver": "nvidia", "video": "nvenc"}
+        d = m._por_que_vaapi_falhou("Failed to initialise VAAPI connection: -1 (unknown libva error).",
+                                    NVIDIA)
+        self.assertIn("NVENC", d)
+        self.assertNotIn("driver ausente", d, "mandou procurar driver onde o driver está instalado")
+
+        # E os erros do PRÓPRIO NVENC, que têm nome e não se confundem com os do VA-API.
+        self.assertIn("SEM NVENC", m._por_que_vaapi_falhou("Unknown encoder 'h264_nvenc'", NVIDIA))
+        self.assertIn("libnvidia-encode",
+                      m._por_que_vaapi_falhou("Cannot load libnvidia-encode.so.1", NVIDIA))
+        self.assertIn("atualizar o driver",
+                      m._por_que_vaapi_falhou("Driver does not support the required nvenc API version. "
+                                              "Required: 12.0 Found: 11.1", NVIDIA))
+        self.assertIn("NVENC", m._por_que_vaapi_falhou("No capable devices found", NVIDIA))
+
         # Inventar diagnóstico custa mais que não ter nenhum.
         self.assertIsNone(m._por_que_vaapi_falhou("", VIRTUAL))
         self.assertIsNone(m._por_que_vaapi_falhou("algo que ninguém previu", VIRTUAL))
@@ -204,6 +223,62 @@ class TestGpu(BaseTemplate):
         # estaria reprovando a explicação da própria regra que ela existe para impor.
         self.assertNotIn('"-hwaccel"', fonte)
         self.assertNotIn("'-hwaccel'", fonte)
+
+    def _bancada(self, vendor, driver):
+        """Uma `/sys/class/drm` + `/dev/dri` de mentira com UMA placa, no formato do kernel."""
+        raiz = tempfile.mkdtemp(prefix="vssh-gpu-")
+        disp = os.path.join(raiz, "sys", "card0", "device")
+        os.makedirs(os.path.join(disp, "drm", "renderD128"))
+        os.makedirs(os.path.join(raiz, "dev"))
+        with open(os.path.join(disp, "vendor"), "w") as fh:
+            fh.write(vendor + "\n")
+        with open(os.path.join(disp, "uevent"), "w") as fh:
+            fh.write("DRIVER=%s\n" % driver)
+        open(os.path.join(raiz, "dev", "renderD128"), "w").close()
+        return {"VSSH_GPU_SYSFS": os.path.join(raiz, "sys"), "VSSH_GPU_DEV": os.path.join(raiz, "dev")}
+
+    def _argvs_do_benchmark(self, vendor, driver):
+        """Roda o benchmark com um `subprocess.run` que só ANOTA, e devolve o que ele chamaria."""
+        m = self.carregar(self._bancada(vendor, driver))
+        chamadas = []
+
+        def falso_run(argv, **kw):
+            chamadas.append(list(argv))
+            return unittest.mock.Mock(returncode=0, stdout="", stderr=b"")
+
+        with unittest.mock.patch.object(m.subprocess, "run", falso_run):
+            r = m.benchmark_gpu()
+        return m, r, [c for c in chamadas if c[0] == "ffmpeg" and "-version" not in c]
+
+    def test_o_codificador_e_escolhido_pelo_DRIVER_e_NVIDIA_e_NVENC(self):
+        # O servidor de verdade: NVIDIA, `renderD128` presente, e o benchmark antigo tentava
+        # `h264_vaapi` ali — falhava, e o diagnóstico mandava instalar driver.
+        m, r, ffmpegs = self._argvs_do_benchmark("0x10de", "nvidia")
+        self.assertEqual(m.gpu_do_servidor()["dispositivos"][0]["video"], "nvenc")
+        self.assertEqual(r["video"], "nvenc")
+        gpu = next(c for c in ffmpegs if "h264_nvenc" in c)
+        self.assertNotIn("-vaapi_device", gpu, "NVENC não passa pelo render node")
+        self.assertNotIn("hwupload", " ".join(gpu), "hwupload é do VA-API; no NVENC o encoder sobe o quadro")
+        self.assertFalse(any("h264_vaapi" in c for c in ffmpegs), "tentou VA-API numa NVIDIA")
+        self.assertTrue(r["gpu"]["ok"])
+
+    def test_AMD_e_Intel_continuam_em_VAAPI(self):
+        for vendor, driver in (("0x1002", "amdgpu"), ("0x8086", "i915")):
+            m, r, ffmpegs = self._argvs_do_benchmark(vendor, driver)
+            self.assertEqual(r["video"], "vaapi", driver)
+            gpu = next(c for c in ffmpegs if "h264_vaapi" in c)
+            self.assertIn("-vaapi_device", gpu)
+            self.assertFalse(any("h264_nvenc" in c for c in ffmpegs))
+            self._patcher.stop(); self._patcher = None
+
+    def test_placa_virtual_nao_tenta_codificador_nenhum(self):
+        # Tentar VA-API numa virtio é o que produzia "driver ausente" para uma placa que não tem,
+        # nem vai ter, codificador. Agora ela nem chega ao ffmpeg.
+        m, r, ffmpegs = self._argvs_do_benchmark("0x1af4", "virtio_gpu")
+        self.assertIsNone(r["video"])
+        self.assertFalse(r["gpu"]["ok"])
+        self.assertIn("VIRTUAL", r["gpu"]["erro"])
+        self.assertEqual([c for c in ffmpegs if "h264_vaapi" in c or "h264_nvenc" in c], [])
 
     def test_sem_ffmpeg_nao_roda_e_o_motivo_aponta_o_requiredPackages(self):
         # `PATH` vazio: o ffmpeg deixa de ser encontrável, que é o caso de um servidor onde o
