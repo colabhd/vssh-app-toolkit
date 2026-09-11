@@ -307,7 +307,7 @@ test('o manifesto do template declara os três, e o `secrets` sem valor', () => 
 // mediria o ffmpeg; o que se quer medir é a aritmética e, principalmente, o que a função faz
 // quando um dos lados falha.
 
-function comBenchmark(execFake, gpuFake) {
+function comBenchmark(execFake, gpuFake, hrtime = process.hrtime) {
   const i = SERVER.indexOf('function benchmarkGpu');
   assert.ok(i > 0, 'não achei benchmarkGpu — o teste ficou obsoleto');
   const corpo = SERVER.slice(i, SERVER.indexOf('\n}\n', i) + 2);
@@ -317,7 +317,7 @@ function comBenchmark(execFake, gpuFake) {
   const fn = new Function('require', 'process', 'gpuDoServidor', '_porQueVaapiFalhou',
     '_oQueAPlacaSabe', `${corpo}\nreturn benchmarkGpu;`)(
     (m) => (m === 'node:child_process' ? { execFileSync: execFake } : require(m)),
-    { hrtime: process.hrtime, env: {} },
+    { hrtime, env: {} },
     () => gpuFake,
     (s) => (s ? 'diagnóstico de mentira' : null),
     () => ({ tem: false, motivo: 'vainfo de mentira' }),
@@ -386,53 +386,88 @@ test('placa virtual não chega ao ffmpeg — tentar VA-API nela é o que dizia "
   assert.ok(!chamadas.some((a) => a.includes('h264_vaapi') || a.includes('h264_nvenc')));
 });
 
-test('o ganho é a razão entre os dois lados — e é isso que responde a pergunta', () => {
-  // 600 ms em CPU contra 200 ms em GPU = 3×. O relógio é o `hrtime` de verdade, então o fake
-  // dorme de mentira: o que se mede é a fórmula, não o cronômetro.
-  let n = 0;
-  const r = comBenchmark((bin, args) => {
+/**
+ * O benchmark com relógio e processador FALSOS: nada roda, e cada lado é um perfil.
+ *
+ * `lados[rotulo] = [partida_ms, ms_por_quadro, nucleos]` — o que um ffmpeg daquele lado custaria:
+ * um fixo por execução, um por quadro, e quantos núcleos ele ocupa enquanto roda. O relógio é
+ * avançado pelo próprio `execFileSync` de mentira, que também devolve a linha do `time` do bash
+ * com o processador gasto. O que se mede é a ARITMÉTICA do benchmark, sem placa e sem ffmpeg.
+ */
+function benchmarkDeMentira(lados, gpuFake = COM_NVIDIA) {
+  let parede = 0n;
+  const hrtime = { bigint: () => parede };
+  return comBenchmark((bin, args) => {
     if (args[0] === '-version') return '';
-    const alvo = args.includes('h264_vaapi') ? 60 : 180;
-    const fim = Date.now() + alvo; while (Date.now() < fim) { n++; }
-    return '';
-  }, COM_PLACA);
+    const lado = args.some((a) => /nvenc|vaapi/.test(a)) ? 'gpu' : 'cpu';
+    const duracao = Number(/duration=([\d.]+)/.exec(args.join(' '))[1]);
+    const [partida, porQuadro, nucleos] = lados[lado];
+    const ms = partida + porQuadro * duracao * 30;
+    parede += BigInt(Math.round(ms * 1e6));
+    return `vssh-cpu ${((ms * nucleos) / 1000).toFixed(3)} 0.000\n`;
+  }, gpuFake, hrtime);
+}
+
+test('a partida é descontada e o fps é o do REGIME', () => {
+  // O servidor de verdade: RTX A5500 ao lado de um Ryzen de 16 núcleos. Em 300 quadros o NVENC deu
+  // 366 fps contra 507 da CPU — e a média escondia que 450 ms eram partida (contexto CUDA + sessão
+  // de encode), pagos UMA vez por transcode. Descontada a partida, a placa faz 1250 fps em regime.
+  const r = benchmarkDeMentira({ cpu: [30, 2.0, 16], gpu: [450, 0.8, 1] });
   assert.strictEqual(r.rodou, true);
   assert.ok(r.cpu.ok && r.gpu.ok, 'algum dos lados não rodou');
-  assert.ok(r.ganho > 1.5, `esperava a GPU bem mais rápida, veio ${r.ganho}`);
+  assert.strictEqual(r.cpu.fps, 500);
+  assert.strictEqual(r.gpu.fps, 1250, 'o fps reportado ainda carrega a partida');
+  assert.ok(Math.abs(r.gpu.partida - 450) <= 5, `partida veio ${r.gpu.partida}`);
+  assert.ok(r.ganho > 2, `esperava a GPU bem mais rápida em regime, veio ${r.ganho}`);
+  assert.ok(r.economia > 10, `16 núcleos contra um: a economia de processador sumiu (${r.economia})`);
   assert.match(r.leitura, /mais rápida/);
+  assert.ok(!/virtual/.test(r.leitura));
 });
 
-test('GPU mais LENTA é dita como tal — é o caso da placa virtual', () => {
-  // A resposta mais útil que este benchmark dá. Uma virtio costuma perder para a CPU, e descobrir
-  // isso depois de projetar em cima dela custa muito mais que descobrir agora.
-  const r = comBenchmark((bin, args) => {
-    if (args[0] === '-version') return '';
-    const alvo = args.includes('h264_vaapi') ? 180 : 60;
-    const fim = Date.now() + alvo; while (Date.now() < fim) { /* espera */ }
-    return '';
-  }, COM_PLACA);
-  assert.ok(r.ganho < 0.8, `esperava a GPU mais lenta, veio ${r.ganho}`);
-  assert.match(r.leitura, /MAIS LENTA/);
+test('placa FÍSICA mais lenta em parede mas poupando processador NÃO é chamada de virtual', () => {
+  // Uma placa modesta ao lado de uma CPU enorme: em parede perde, em processador ganha de longe —
+  // e é o processador que o desktop de quem está trabalhando está usando. Foi esta frase, solta
+  // para qualquer razão baixa, que chamou uma RTX A5500 de "placa virtual".
+  const r = benchmarkDeMentira({ cpu: [30, 2.0, 16], gpu: [450, 3.0, 1] });
+  assert.ok(r.ganho < 0.8, `esperava a GPU mais lenta em parede, veio ${r.ganho}`);
+  assert.ok(r.economia > 3);
+  assert.ok(!/virtual/.test(r.leitura), 'chamou uma placa física de virtual');
+  assert.match(r.leitura, /núcleos/);
+  assert.match(r.leitura, /menos processador/);
+});
+
+test('placa lenta que também não poupa processador não compensa — e é dito sem rótulo', () => {
+  const r = benchmarkDeMentira({ cpu: [30, 2.0, 4], gpu: [100, 4.0, 4] });
+  assert.ok(r.ganho < 0.8);
+  assert.match(r.leitura, /não compensa/);
+  assert.ok(!/virtual/.test(r.leitura));
 });
 
 test('o stderr do ffmpeg é CAPTURADO — sem ele o erro não dá o que procurar', () => {
   // Num servidor de verdade a mensagem foi: "Command failed: ffmpeg -hide_banner …". A linha de
   // comando truncada, e nenhuma palavra sobre o que houve. A causa era `stdio: 'ignore'`, que
   // descarta o stderr: `err.stderr` vinha nulo e sobrava o `err.message` do Node.
-  const i = SERVER.indexOf('function benchmarkGpu');
-  const corpo = SERVER.slice(i, SERVER.indexOf('\n}\n', i));
-  // Recortado no `medir`, e não no `benchmarkGpu` inteiro: a sonda `ffmpeg -version` ao lado
-  // IGNORA a saída de propósito — ali não há o que ler. Uma guarda que proibisse `stdio: 'ignore'`
-  // no bloco todo estaria medindo a vizinhança em vez da decisão.
-  const j = corpo.indexOf('const medir =');
-  const medir = corpo.slice(j, corpo.indexOf('\n  };', j));
-  assert.ok(j > 0, 'não achei o `medir` — o teste ficou obsoleto');
-  assert.match(medir, /stdio: \['ignore', 'ignore', 'pipe'\]/,
-    'o stderr do ffmpeg voltou a ser descartado: o erro vira a linha de comando, que não diz nada');
-  assert.ok(!/stdio: 'ignore'/.test(medir));
+  //
+  // Medido EXECUTANDO: um ffmpeg de mentira que falha com stderr e com a mensagem do Node, e o que
+  // se confere é qual dos dois chegou ao erro reportado.
+  const r = comBenchmark((bin, args) => {
+    if (args[0] === '-version') return '';
+    if (args.includes('h264_vaapi')) {
+      const e = new Error('Command failed: bash -c … ffmpeg -hide_banner -loglevel error …');
+      e.stderr = Buffer.from('[AVHWDeviceContext] Failed to initialise VAAPI connection: -1.\n');
+      throw e;
+    }
+    return '';
+  }, COM_PLACA);
+  assert.strictEqual(r.gpu.ok, false);
+  assert.match(r.gpu.erro, /Failed to initialise VAAPI/, 'o que o ffmpeg disse não chegou ao erro');
+  assert.ok(!/Command failed/.test(r.gpu.erro), 'o erro é a linha de comando do Node, que não diz nada');
+
   // E sem `-hwaccel vaapi`: aquilo acelera DECODE, e a fonte é gerada pelo próprio ffmpeg. Pedi-lo
   // faz o erro falar do decode em vez do encode que se queria medir.
-  assert.ok(!/'-hwaccel'/.test(corpo),
+  const chamadas = [];
+  comBenchmark((bin, args) => { chamadas.push(args); return ''; }, COM_PLACA);
+  assert.ok(!chamadas.some((a) => a.includes('-hwaccel')),
     'o -hwaccel voltou: ele é para decode, e o erro passa a descrever o caminho errado');
 });
 

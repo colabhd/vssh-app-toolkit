@@ -280,6 +280,75 @@ class TestGpu(BaseTemplate):
         self.assertIn("VIRTUAL", r["gpu"]["erro"])
         self.assertEqual([c for c in ffmpegs if "h264_vaapi" in c or "h264_nvenc" in c], [])
 
+    def _benchmark_de_mentira(self, lados, vendor="0x10de", driver="nvidia"):
+        """O benchmark com relógio e processador FALSOS: nada roda, e cada lado é um perfil.
+
+        `lados[rotulo] = (partida_ms, ms_por_quadro, nucleos)` — o que um ffmpeg daquele lado
+        custaria: um fixo por execução, um por quadro, e quantos núcleos ele ocupa enquanto roda.
+        O relógio e o `getrusage` são avançados pelo próprio `subprocess.run` de mentira, então o
+        que se mede é a ARITMÉTICA do benchmark, sem placa e sem ffmpeg.
+        """
+        import re
+        import types
+
+        m = self.carregar(self._bancada(vendor, driver))
+        relogio = {"parede": 0.0, "cpu": 0.0}
+
+        def falso_run(argv, **kw):
+            argv = list(argv)
+            if "-version" in argv:
+                return unittest.mock.Mock(returncode=0)
+            lado = "gpu" if any("nvenc" in a or "vaapi" in a for a in argv) else "cpu"
+            duracao = float(re.search(r"duration=([\d.]+)", " ".join(argv)).group(1))
+            partida, por_quadro, nucleos = lados[lado]
+            parede = partida + por_quadro * duracao * 30
+            relogio["parede"] += parede / 1000
+            relogio["cpu"] += parede * nucleos / 1000
+            return unittest.mock.Mock(returncode=0, stdout="", stderr=b"")
+
+        falso_resource = types.SimpleNamespace(
+            RUSAGE_CHILDREN=-1,
+            getrusage=lambda quem: types.SimpleNamespace(ru_utime=relogio["cpu"], ru_stime=0.0))
+
+        with unittest.mock.patch.object(m.subprocess, "run", falso_run), \
+             unittest.mock.patch.object(m.time, "perf_counter", lambda: relogio["parede"]), \
+             unittest.mock.patch.object(m, "resource", falso_resource), \
+             unittest.mock.patch.object(m.os, "cpu_count", lambda: 16):
+            return m.benchmark_gpu()
+
+    def test_a_partida_e_descontada_e_o_fps_e_o_do_REGIME(self):
+        # O servidor de verdade: RTX A5500 ao lado de um Ryzen de 16 núcleos. Em 300 quadros o
+        # NVENC deu 366 fps contra 507 da CPU — e a média escondia que 450 ms eram partida (contexto
+        # CUDA + sessão de encode), pagos UMA vez por transcode. Descontada a partida, a placa faz
+        # 1250 fps em regime.
+        r = self._benchmark_de_mentira({"cpu": (30, 2.0, 16), "gpu": (450, 0.8, 1)})
+        self.assertEqual(r["cpu"]["fps"], 500)
+        self.assertEqual(r["gpu"]["fps"], 1250, "o fps reportado ainda carrega a partida")
+        self.assertAlmostEqual(r["gpu"]["partida"], 450, delta=5)
+        self.assertGreater(r["ganho"], 2)
+        self.assertGreater(r["economia"], 10, "16 núcleos contra um: a economia de processador sumiu")
+        self.assertIn("mais rápida", r["leitura"])
+        self.assertNotIn("virtual", r["leitura"])
+
+    def test_placa_FISICA_mais_lenta_em_parede_mas_poupando_processador_NAO_e_chamada_de_virtual(self):
+        # Uma placa modesta ao lado de uma CPU enorme: em parede perde, em processador ganha de
+        # longe — e é o processador que o desktop de quem está trabalhando está usando. Foi esta
+        # frase, solta para qualquer razão baixa, que chamou uma RTX A5500 de "placa virtual".
+        r = self._benchmark_de_mentira({"cpu": (30, 2.0, 16), "gpu": (450, 3.0, 1)})
+        self.assertLess(r["ganho"], 0.8)
+        self.assertGreater(r["economia"], 3)
+        self.assertNotIn("virtual", r["leitura"])
+        self.assertIn("núcleos", r["leitura"])
+        self.assertIn("menos processador", r["leitura"])
+
+    def test_placa_lenta_que_tambem_nao_poupa_processador_nao_compensa_e_e_dito_sem_rotulo(self):
+        # Mais lenta em parede e ocupando tanto processador quanto a CPU: aí não há o que
+        # defender, e a leitura diz isso — sem chamar de virtual o que a descoberta não chamou.
+        r = self._benchmark_de_mentira({"cpu": (30, 2.0, 4), "gpu": (100, 4.0, 4)})
+        self.assertLess(r["ganho"], 0.8)
+        self.assertIn("não compensa", r["leitura"])
+        self.assertNotIn("virtual", r["leitura"])
+
     def test_sem_ffmpeg_nao_roda_e_o_motivo_aponta_o_requiredPackages(self):
         # `PATH` vazio: o ffmpeg deixa de ser encontrável, que é o caso de um servidor onde o
         # instalador deixou passar.

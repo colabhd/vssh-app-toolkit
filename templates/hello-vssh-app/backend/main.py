@@ -34,6 +34,11 @@ import sys
 import threading
 import time
 from datetime import datetime, timezone
+
+try:
+    import resource  # tempo de processador dos FILHOS — é o que o benchmark da GPU compara
+except ImportError:  # Windows de desenvolvimento; o app roda em Linux
+    resource = None
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlsplit
 
@@ -465,6 +470,11 @@ def _o_que_a_placa_sabe(alvo):
         }
 
 
+# Quadros da execução CURTA de cada lado: o bastante para o ffmpeg passar da partida, pouco o
+# bastante para não custar nada. A diferença entre ela e a longa é o regime.
+_AQUECER = 30
+
+
 def benchmark_gpu(frames=300):
     """Descobrir não basta: um inventário não diz se a placa serve para alguma coisa.
 
@@ -481,6 +491,18 @@ def benchmark_gpu(frames=300):
     **O número útil é a RAZÃO.** "180 fps" sozinho não diz nada — depende do vídeo, do preset, da
     máquina. O mesmo trabalho em CPU e em GPU responde a pergunta que se tem de fato: *vale a pena
     usar a placa deste servidor?*
+
+    **E são DUAS razões, porque a de parede sozinha mentiu num servidor de verdade.** Uma RTX
+    A5500 ao lado de um Ryzen de 16 núcleos deu 366 fps contra 507 — e a leitura chamou a placa de
+    "virtual". Dois erros na mesma linha:
+
+      - o clipe tem 10 s, e abrir o contexto CUDA mais a sessão do NVENC custa centenas de ms UMA
+        vez. Num filme isso some; aqui era metade da medida. Por isso cada lado roda duas vezes,
+        curta e longa, e o que se reporta é a DIFERENÇA (o regime) com a partida à parte;
+      - 507 fps de x264 são 16 núcleos a 100%; 366 de NVENC são um. No ambiente o transcode corre
+        ao LADO do desktop de quem está trabalhando — o que a placa compra é deixar o processador
+        livre, e um benchmark que não mede tempo de processador não vê isso. `getrusage` dos
+        filhos é a medida, e a razão entre os dois lados é a segunda resposta.
     """
     gpu = gpu_do_servidor()
     # O dispositivo, e não só o caminho: o diagnóstico da falha precisa saber se a placa é virtual
@@ -495,7 +517,8 @@ def benchmark_gpu(frames=300):
                 "motivo": "ffmpeg não está neste servidor — o app o declara em requiredPackages, "
                           "então o instalador deveria ter recusado"}
 
-    def medir(args, rotulo):
+    def rodar(args, rotulo):
+        antes = resource.getrusage(resource.RUSAGE_CHILDREN) if resource else None
         t0 = time.perf_counter()
         try:
             # **stderr é CAPTURADO.** Descartá-lo deixa só "Command failed: ffmpeg …" — a linha de
@@ -513,12 +536,40 @@ def benchmark_gpu(frames=300):
         except (OSError, subprocess.SubprocessError) as err:
             return {"rotulo": rotulo, "ok": False, "erro": str(err)[:200], "diagnostico": None}
         ms = (time.perf_counter() - t0) * 1000
-        return {"rotulo": rotulo, "ok": True, "ms": round(ms), "fps": round(frames / ms * 1000)}
+        cpu_ms = None
+        if antes:
+            depois = resource.getrusage(resource.RUSAGE_CHILDREN)
+            cpu_ms = ((depois.ru_utime - antes.ru_utime) + (depois.ru_stime - antes.ru_stime)) * 1000
+        return {"rotulo": rotulo, "ok": True, "ms": round(ms),
+                "cpuMs": round(cpu_ms) if cpu_ms is not None else None}
+
+    def medir(args_de, rotulo):
+        """Duas execuções, curta e longa; a diferença é o regime, e a sobra da curta é a partida.
+
+        `fps` é o do REGIME: o que um filme inteiro veria. `partida` é o que se paga uma vez por
+        transcode — e é ela que, somada à média, fazia o NVENC parecer mais lento que a CPU.
+        """
+        curta = rodar(args_de(_AQUECER), rotulo)
+        if not curta["ok"]:
+            return curta
+        longa = rodar(args_de(frames), rotulo)
+        if not longa["ok"]:
+            return longa
+        delta, quadros = longa["ms"] - curta["ms"], frames - _AQUECER
+        if delta <= 0:
+            # Ruído maior que a medida: reporta a média crua, sem inventar partida.
+            fps, partida = frames / max(longa["ms"], 1) * 1000, 0
+        else:
+            fps = quadros / delta * 1000
+            partida = max(0.0, curta["ms"] - _AQUECER / fps * 1000)
+        return {**longa, "fps": round(fps), "partida": round(partida)}
 
     # `testsrc` é gerado pelo próprio ffmpeg: sem arquivo de entrada, sem download, sem depender de
     # nada em disco. Saída para /dev/null — o que se mede é o encode, não o I/O.
-    fonte = ["-f", "lavfi", "-i", f"testsrc=size=1280x720:rate=30:duration={frames / 30}"]
-    cpu = medir([*fonte, "-c:v", "libx264", "-preset", "veryfast", "-f", "null", "-"], "cpu")
+    def fonte(n):
+        return ["-f", "lavfi", "-i", f"testsrc=size=1280x720:rate=30:duration={n / 30}"]
+
+    cpu = medir(lambda n: [*fonte(n), "-c:v", "libx264", "-preset", "veryfast", "-f", "null", "-"], "cpu")
     # Sem `-hwaccel`: aquilo é para DECODIFICAR em hardware, e a fonte aqui é gerada pelo próprio
     # ffmpeg. Pedi-lo faz o erro falar do decode em vez do encode que se queria medir.
     if not node:
@@ -527,10 +578,11 @@ def benchmark_gpu(frames=300):
     elif alvo.get("video") == "nvenc":
         # NVENC não usa o render node: o ffmpeg abre `/dev/nvidiactl` sozinho, e o quadro vai em
         # memória de sistema — o próprio codificador o sobe para a placa.
-        gpu_res = medir([*fonte, "-vf", "format=nv12", "-c:v", "h264_nvenc", "-f", "null", "-"], "gpu")
+        gpu_res = medir(lambda n: [*fonte(n), "-vf", "format=nv12", "-c:v", "h264_nvenc",
+                                   "-f", "null", "-"], "gpu")
     elif alvo.get("video") == "vaapi":
-        gpu_res = medir(["-vaapi_device", node, *fonte, "-vf", "format=nv12,hwupload",
-                         "-c:v", "h264_vaapi", "-f", "null", "-"], "gpu")
+        gpu_res = medir(lambda n: ["-vaapi_device", node, *fonte(n), "-vf", "format=nv12,hwupload",
+                                   "-c:v", "h264_vaapi", "-f", "null", "-"], "gpu")
     else:
         # Virtual, ou driver que a descoberta não conhece. Tentar VA-API aqui é o que produzia
         # "driver ausente" numa placa que não tem, nem vai ter, codificador.
@@ -542,8 +594,12 @@ def benchmark_gpu(frames=300):
 
     # A razão só existe quando os DOIS lados mediram. Inventar um número a partir de um lado que
     # falhou seria pior que não ter número nenhum.
-    ganho = (round(cpu["ms"] / gpu_res["ms"], 2)
-             if cpu["ok"] and gpu_res["ok"] and gpu_res["ms"] > 0 else None)
+    ganho = (round(gpu_res["fps"] / cpu["fps"], 2)
+             if cpu["ok"] and gpu_res["ok"] and cpu["fps"] > 0 else None)
+    # Quantas vezes menos processador a placa gasta pelo mesmo trabalho. É a razão que importa num
+    # servidor compartilhado, e é `None` quando não deu para medir — nunca um chute.
+    economia = (round(cpu["cpuMs"] / gpu_res["cpuMs"], 1)
+                if ganho is not None and cpu.get("cpuMs") and gpu_res.get("cpuMs") else None)
     # Só quando falhou, e só quando há placa: perguntar "o que você sabe fazer?" a uma placa que
     # acabou de codificar seria gastar segundos para confirmar o óbvio.
     capacidades = _o_que_a_placa_sabe(alvo) if (not gpu_res["ok"] and node) else None
@@ -553,16 +609,29 @@ def benchmark_gpu(frames=300):
                    # O diagnóstico primeiro, o stderr depois. Quem lê quer saber o que FAZER.
                    f"a GPU não codificou — {gpu_res.get('diagnostico') or gpu_res.get('erro')}")
     elif ganho >= 1.2:
-        leitura = f"a GPU deste servidor é {ganho}× mais rápida que a CPU neste trabalho"
+        leitura = (f"a GPU deste servidor é {ganho}× mais rápida que a CPU neste trabalho"
+                   + (f", gastando {economia}× menos processador" if economia else ""))
+    elif economia and economia >= 3:
+        # O caso da placa boa ao lado de uma CPU enorme. Parede a CPU ganha; processador a placa
+        # ganha de longe — e é o processador que o resto do ambiente está usando.
+        nucleos = os.cpu_count() or 1
+        leitura = (f"a GPU é mais lenta que ESTA CPU em parede ({ganho}×) — são {nucleos} núcleos "
+                   f"contra um motor de vídeo — mas gasta {economia}× menos processador. Num "
+                   "servidor compartilhado é isso que vale: o transcode corre sem tirar os núcleos "
+                   "de quem está trabalhando")
     elif ganho <= 0.8:
-        leitura = (f"a GPU é MAIS LENTA que a CPU aqui ({ganho}×) — é o que costuma acontecer com "
-                   "placa virtual, e é bom saber antes de projetar em cima dela")
+        # Sem "placa virtual" aqui: uma virtual nem chega a medir (`video` é None). Era esta frase,
+        # solta para qualquer razão baixa, que chamou uma RTX A5500 de placa virtual.
+        leitura = (f"a GPU é MAIS LENTA que a CPU aqui ({ganho}×)"
+                   + (" e não poupa processador" if economia else "")
+                   + " — esta placa não compensa neste trabalho")
     else:
         leitura = f"empate técnico ({ganho}×) — a GPU deste servidor não compensa neste trabalho"
 
     return {"rodou": True, "frames": frames, "renderNode": node,
             "video": alvo.get("video") if alvo else None,
-            "cpu": cpu, "gpu": gpu_res, "ganho": ganho, "capacidades": capacidades, "leitura": leitura}
+            "cpu": cpu, "gpu": gpu_res, "ganho": ganho, "economia": economia,
+            "capacidades": capacidades, "leitura": leitura}
 
 
 def token_confere(esperado, recebido):

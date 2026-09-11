@@ -348,8 +348,20 @@ function segredo() {
  *
  * **O número útil é a RAZÃO.** "180 fps" sozinho não diz nada — depende do vídeo, do preset, da
  * máquina. O mesmo trabalho em CPU e em GPU, medido em seguida, responde a pergunta que se tem de
- * fato: *vale a pena usar a placa deste servidor?* Uma virtio costuma responder que não, e essa é
- * uma resposta boa de ter antes de projetar em cima dela.
+ * fato: *vale a pena usar a placa deste servidor?*
+ *
+ * **E são DUAS razões, porque a de parede sozinha mentiu num servidor de verdade.** Uma RTX A5500
+ * ao lado de um Ryzen de 16 núcleos deu 366 fps contra 507 — e a leitura chamou a placa de
+ * "virtual". Dois erros na mesma linha:
+ *
+ *   - o clipe tem 10 s, e abrir o contexto CUDA mais a sessão do NVENC custa centenas de ms UMA
+ *     vez. Num filme isso some; aqui era metade da medida. Por isso cada lado roda duas vezes,
+ *     curta e longa, e o que se reporta é a DIFERENÇA (o regime) com a partida à parte;
+ *   - 507 fps de x264 são 16 núcleos a 100%; 366 de NVENC são um. No ambiente o transcode corre
+ *     ao LADO do desktop de quem está trabalhando — o que a placa compra é deixar o processador
+ *     livre, e um benchmark que não mede tempo de processador não vê isso. O Node não expõe o
+ *     `rusage` de um filho; o `time` do bash expõe, e a razão entre os dois lados é a segunda
+ *     resposta.
  *
  * Timeboxed e não-fatal: um encoder que trava não pode segurar a requisição nem derrubar o app.
  */
@@ -475,6 +487,9 @@ function _oQueAPlacaSabe(alvo) {
 
 function benchmarkGpu({ frames = 300 } = {}) {
   const { execFileSync } = require('node:child_process');
+  // Quadros da execução CURTA de cada lado: o bastante para o ffmpeg passar da partida, pouco o
+  // bastante para não custar nada. A diferença entre ela e a longa é o regime.
+  const AQUECER = 30;
   const gpu = gpuDoServidor();
   // O dispositivo, e não só o caminho: o diagnóstico da falha precisa saber se a placa é virtual
   // para responder em vez de hesitar.
@@ -498,12 +513,18 @@ function benchmarkGpu({ frames = 300 } = {}) {
   // truncada, que não diz absolutamente nada sobre o que houve. Num servidor real isso virou "a
   // GPU não codificou" sem uma pista de por quê. Erro que não dá o que procurar é quase tão ruim
   // quanto erro nenhum.
-  const medir = (args, rotulo) => {
+  //
+  // O `time` do bash é o que dá o tempo de PROCESSADOR do ffmpeg. O `-loglevel error` fica, e o
+  // stderr do ffmpeg continua sendo o stderr: a linha do `time` vai para o STDOUT (o malabarismo de
+  // descritores é só isso), então o diagnóstico de uma falha lê o que era do ffmpeg e nada mais.
+  const rodar = (args, rotulo) => {
     const t0 = process.hrtime.bigint();
+    let saida = '';
     try {
-      execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', ...args], {
-        stdio: ['ignore', 'ignore', 'pipe'], timeout: 60000,
-      });
+      saida = execFileSync('bash', [
+        '-c', 'TIMEFORMAT="vssh-cpu %U %S"; { time ffmpeg "$@" 2>&3; } 3>&2 2>&1',
+        'ffmpeg', '-hide_banner', '-loglevel', 'error', ...args,
+      ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000 });
     } catch (err) {
       const saida = (err.stderr?.toString() || '').trim();
       return {
@@ -515,11 +536,37 @@ function benchmarkGpu({ frames = 300 } = {}) {
       };
     }
     const ms = Number(process.hrtime.bigint() - t0) / 1e6;
-    return { rotulo, ok: true, ms: Math.round(ms), fps: Math.round((frames / ms) * 1000) };
+    const t = /vssh-cpu ([\d.]+) ([\d.]+)/.exec(String(saida || ''));
+    return { rotulo, ok: true, ms: Math.round(ms),
+             cpuMs: t ? Math.round((Number(t[1]) + Number(t[2])) * 1000) : null };
   };
 
-  const fonte = ['-f', 'lavfi', '-i', `testsrc=size=1280x720:rate=30:duration=${frames / 30}`];
-  const cpu = medir([...fonte, '-c:v', 'libx264', '-preset', 'veryfast', '-f', 'null', '-'], 'cpu');
+  /**
+   * Duas execuções, curta e longa; a diferença é o regime, e a sobra da curta é a partida.
+   *
+   * `fps` é o do REGIME: o que um filme inteiro veria. `partida` é o que se paga uma vez por
+   * transcode — e é ela que, somada à média, fazia o NVENC parecer mais lento que a CPU.
+   */
+  const medir = (argsDe, rotulo) => {
+    const curta = rodar(argsDe(AQUECER), rotulo);
+    if (!curta.ok) return curta;
+    const longa = rodar(argsDe(frames), rotulo);
+    if (!longa.ok) return longa;
+    const delta = longa.ms - curta.ms;
+    const quadros = frames - AQUECER;
+    let fps, partida;
+    if (delta <= 0) {
+      // Ruído maior que a medida: reporta a média crua, sem inventar partida.
+      fps = (frames / Math.max(longa.ms, 1)) * 1000; partida = 0;
+    } else {
+      fps = (quadros / delta) * 1000;
+      partida = Math.max(0, curta.ms - (AQUECER / fps) * 1000);
+    }
+    return { ...longa, fps: Math.round(fps), partida: Math.round(partida) };
+  };
+
+  const fonte = (n) => ['-f', 'lavfi', '-i', `testsrc=size=1280x720:rate=30:duration=${n / 30}`];
+  const cpu = medir((n) => [...fonte(n), '-c:v', 'libx264', '-preset', 'veryfast', '-f', 'null', '-'], 'cpu');
   // Sem `-hwaccel vaapi`: aquilo é para DECODIFICAR em hardware, e a fonte aqui é gerada pelo
   // próprio ffmpeg. Pedir aceleração de decode de um `lavfi` faz o ffmpeg tentar inicializar um
   // caminho que não existe — e o erro que sai daí fala do decode, não do encode que se queria medir.
@@ -532,10 +579,10 @@ function benchmarkGpu({ frames = 300 } = {}) {
   const gpuRes = !node
     ? { rotulo: 'gpu', ok: false, erro: 'nenhum render node acessível — ver o inventário acima' }
     : alvo.video === 'nvenc'
-      ? medir([...fonte, '-vf', 'format=nv12', '-c:v', 'h264_nvenc', '-f', 'null', '-'], 'gpu')
+      ? medir((n) => [...fonte(n), '-vf', 'format=nv12', '-c:v', 'h264_nvenc', '-f', 'null', '-'], 'gpu')
     : alvo.video === 'vaapi'
-      ? medir(['-vaapi_device', node, ...fonte,
-               '-vf', 'format=nv12,hwupload', '-c:v', 'h264_vaapi', '-f', 'null', '-'], 'gpu')
+      ? medir((n) => ['-vaapi_device', node, ...fonte(n),
+                      '-vf', 'format=nv12,hwupload', '-c:v', 'h264_vaapi', '-f', 'null', '-'], 'gpu')
     // Virtual, ou driver que a descoberta não conhece. Tentar VA-API aqui é o que produzia "driver
     // ausente" numa placa que não tem, nem vai ter, codificador.
     : { rotulo: 'gpu', ok: false,
@@ -546,21 +593,43 @@ function benchmarkGpu({ frames = 300 } = {}) {
 
   // A razão só existe quando os DOIS lados mediram. Inventar um número a partir de um lado que
   // falhou seria pior que não ter número nenhum.
-  const ganho = cpu.ok && gpuRes.ok && gpuRes.ms > 0 ? +(cpu.ms / gpuRes.ms).toFixed(2) : null;
+  const ganho = cpu.ok && gpuRes.ok && cpu.fps > 0 ? +(gpuRes.fps / cpu.fps).toFixed(2) : null;
+  // Quantas vezes menos processador a placa gasta pelo mesmo trabalho. É a razão que importa num
+  // servidor compartilhado, e é `null` quando não deu para medir — nunca um chute.
+  const economia = ganho !== null && cpu.cpuMs && gpuRes.cpuMs ? +(cpu.cpuMs / gpuRes.cpuMs).toFixed(1) : null;
   // Só quando falhou, e só quando há placa: perguntar "o que você sabe fazer?" a uma placa que
   // acabou de codificar seria gastar segundos para confirmar o óbvio.
   const capacidades = !gpuRes.ok && node ? _oQueAPlacaSabe(alvo) : null;
+
+  let leitura;
+  if (ganho === null) {
+    leitura = gpuRes.ok ? 'não deu para comparar'
+      // O diagnóstico primeiro, o stderr depois. Quem lê quer saber o que FAZER; o texto do ffmpeg
+      // é a prova, e ela vem embaixo para quem for atrás.
+      : `a GPU não codificou — ${gpuRes.diagnostico || gpuRes.erro}`;
+  } else if (ganho >= 1.2) {
+    leitura = `a GPU deste servidor é ${ganho}× mais rápida que a CPU neste trabalho` +
+              (economia ? `, gastando ${economia}× menos processador` : '');
+  } else if (economia && economia >= 3) {
+    // O caso da placa boa ao lado de uma CPU enorme. Parede a CPU ganha; processador a placa ganha
+    // de longe — e é o processador que o resto do ambiente está usando.
+    const nucleos = require('node:os').availableParallelism?.() || require('node:os').cpus().length || 1;
+    leitura = `a GPU é mais lenta que ESTA CPU em parede (${ganho}×) — são ${nucleos} núcleos contra ` +
+              `um motor de vídeo — mas gasta ${economia}× menos processador. Num servidor ` +
+              'compartilhado é isso que vale: o transcode corre sem tirar os núcleos de quem está ' +
+              'trabalhando';
+  } else if (ganho <= 0.8) {
+    // Sem "placa virtual" aqui: uma virtual nem chega a medir (`video` é null). Era esta frase,
+    // solta para qualquer razão baixa, que chamou uma RTX A5500 de placa virtual.
+    leitura = `a GPU é MAIS LENTA que a CPU aqui (${ganho}×)` +
+              (economia ? ' e não poupa processador' : '') + ' — esta placa não compensa neste trabalho';
+  } else {
+    leitura = `empate técnico (${ganho}×) — a GPU deste servidor não compensa neste trabalho`;
+  }
+
   return {
-    rodou: true, frames, renderNode: node, video: alvo?.video ?? null, cpu, gpu: gpuRes, ganho, capacidades,
-    leitura: ganho === null
-      ? (gpuRes.ok ? 'não deu para comparar'
-         // O diagnóstico primeiro, o stderr depois. Quem lê quer saber o que FAZER; o texto do
-         // ffmpeg é a prova, e ela vem embaixo para quem for atrás.
-         : `a GPU não codificou — ${gpuRes.diagnostico || gpuRes.erro}`)
-      : ganho >= 1.2 ? `a GPU deste servidor é ${ganho}× mais rápida que a CPU neste trabalho`
-      : ganho <= 0.8 ? `a GPU é MAIS LENTA que a CPU aqui (${ganho}×) — é o que costuma acontecer ` +
-                       'com placa virtual, e é bom saber antes de projetar em cima dela'
-      : `empate técnico (${ganho}×) — a GPU deste servidor não compensa neste trabalho`,
+    rodou: true, frames, renderNode: node, video: alvo?.video ?? null,
+    cpu, gpu: gpuRes, ganho, economia, capacidades, leitura,
   };
 }
 

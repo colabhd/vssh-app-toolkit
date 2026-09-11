@@ -165,12 +165,18 @@ function montarGaleria() {
     try {
       const r = await fetch('api/gpu/benchmark', { method: 'POST' });
       const d = await r.json();
+      // O fps é o de REGIME (partida descontada), e o processador vem ao lado: 500 fps de x264
+      // são 16 núcleos a 100%, 400 de NVENC são um — a média de parede sozinha esconde isso.
+      const lado = (l) => (l.ok
+        ? `${l.fps} fps em regime · partida ${l.partida} ms`
+          + (l.cpuMs != null ? ` · ${l.cpuMs} ms de processador` : '')
+        : `falhou: ${l.erro}`);
       escrever('runtimeout', d.rodou
         ? [
             d.leitura,
             '',
-            `cpu   ${d.cpu.ok ? `${d.cpu.ms} ms · ${d.cpu.fps} fps` : `falhou: ${d.cpu.erro}`}`,
-            `gpu   ${d.gpu.ok ? `${d.gpu.ms} ms · ${d.gpu.fps} fps` : `falhou: ${d.gpu.erro}`}`,
+            `cpu   ${lado(d.cpu)}`,
+            `gpu   ${lado(d.gpu)}`,
             `nó    ${d.renderNode || '—'}`,
             // O caminho pelo qual a placa codifica — NVENC numa NVIDIA, VA-API em Intel e AMD. É
             // o que separa "tem placa" de "o vídeo acelera", e o que o benchmark escolheu.
