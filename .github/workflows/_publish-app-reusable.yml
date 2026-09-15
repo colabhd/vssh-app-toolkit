@@ -1,29 +1,27 @@
 name: Publish App (reusable)
 
-# Workflow reutilizável chamado pelo CI dos repos de app (org OU conta pessoal — este toolkit é
-# PÚBLICO, então `uses:` cross-owner funciona e o checkout do script sai de graça no github.token,
-# sem nenhum PAT):
+# Este toolkit está arquivado: o SDK do VSSH é o repositório público `colabhd/vssh-sdk`, e é lá
+# que moram o script de publicação, o contrato do manifesto e o workflow reutilizável que o CI de
+# um app chama. Este arquivo continua existindo para quem ainda aponta para cá, e o que ele faz é
+# repassar a chamada ao workflow de lá, com as mesmas entradas e o mesmo segredo:
 #
 #   jobs:
 #     publish:
-#       uses: colabhd/vssh-app-toolkit/.github/workflows/_publish-app-reusable.yml@v4
+#       uses: colabhd/vssh-sdk/.github/workflows/_publish-app-reusable.yml@main
 #       with:
 #         app_dir: "."
 #         repo_api: "https://vssh-repo.colabh.org"
 #       secrets:
 #         publish_token: ${{ secrets.VSSH_REPO_PUBLISH_TOKEN }}   # token escopado app:<id>
 #
-# Faz checkout do repo do app (chamador) + deste toolkit (só scripts/) e roda vssh-app-publish.
+# É a linha que o `.github/workflows/publish.yml` do seu app deve passar a ter. O `@main` é
+# deliberado: o schema que o publish valida é gerado a partir do portal que está no ar, e a ponta
+# de `main` do vssh-sdk é a revisão que responde "o portal de hoje aceita este manifesto?". Uma tag
+# deste toolkit congelaria um contrato que o portal já deixou para trás.
 #
-# POR QUE UMA TAG, E NUNCA `main`:
-#   Puxar de um branch faz a validação do CI de quem publica mudar debaixo dele a cada commit deste
-#   repositório — inclusive num push que ele não viu. Não é "validar menos": é não ter alvo estável.
-#
-# POR QUE NUNCA `@v1`:
-#   A tag `v1` é do toolkit ORIGINAL, anterior à criação de `lib/`, `schema/` e `docs/` — ela não
-#   contém `schema/vssh-app.schema.json`. Um repo pinado em `@v1` publica com validação MÍNIMA e só
-#   avisa numa linha do log (`aviso: schema não encontrado; validando só o mínimo`), o que é fácil
-#   de não ver. Ver docs/decisoes/publicacao.md.
+# `tools_ref` continua declarado para não quebrar um chamador que o passa, e não é repassado: a
+# ref dele nomeia uma tag deste repositório (`v4`), que não existe no vssh-sdk. Quem precisar fixar
+# uma revisão do SDK chama o workflow de lá diretamente, com o `tools_ref` daquele repositório.
 
 on:
   workflow_call:
@@ -41,10 +39,8 @@ on:
         type: string
         required: true
       tools_ref:
-        description: 'Ref deste toolkit de onde puxar o script de publish (precisa conter schema/)'
+        description: 'Aceito por compatibilidade, e ignorado: o script e o schema vêm de colabhd/vssh-sdk@main'
         type: string
-        # Uma tag, e não um branch — a razão está no cabeçalho deste arquivo. Bumps compatíveis
-        # movem a `v4`; uma mudança incompatível cria a `v5`.
         default: 'v4'
     secrets:
       publish_token:
@@ -53,38 +49,11 @@ on:
 
 jobs:
   publish:
-    name: Publish app → repo
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout do app (repo chamador)
-        uses: actions/checkout@v5
-        with:
-          path: app
-
-      - name: Checkout das ferramentas (vssh-app-toolkit/scripts)
-        uses: actions/checkout@v5
-        with:
-          repository: colabhd/vssh-app-toolkit
-          ref: ${{ inputs.tools_ref }}
-          # `schema` junto de `scripts`: vssh-app-publish valida o manifesto contra
-          # schema/vssh-app.schema.json, que é a fonte da verdade. Sem ele o script degrada para
-          # as checagens mínimas (id/runtime/entrypoint) em vez de recusar a publicação — então um
-          # repo pinado num ref antigo continua funcionando, só valida menos.
-          # `package.json` junto: o vssh-app-publish confere a geração das libs que o app
-          # instalou contra a versão DESTE toolkit, e é dali que ele a lê. Sem o arquivo a
-          # conferência é pulada — e dita em voz alta, para não se achar feita.
-          sparse-checkout: |
-            scripts
-            schema
-            package.json
-          path: _tools
-          # toolkit é público → o github.token do repo chamador enxerga sem PAT.
-
-      - name: Publicar
-        env:
-          VSSH_REPO_API: ${{ inputs.repo_api }}
-          VSSH_REPO_PUBLISH_TOKEN: ${{ secrets.publish_token }}
-        run: |
-          ARGS=()
-          [ -n "${{ inputs.version }}" ] && ARGS+=(--version "${{ inputs.version }}")
-          bash _tools/scripts/vssh-app-publish "app/${{ inputs.app_dir }}" "${ARGS[@]}"
+    name: Publish app pelo vssh-sdk
+    uses: colabhd/vssh-sdk/.github/workflows/_publish-app-reusable.yml@main
+    with:
+      app_dir: ${{ inputs.app_dir }}
+      version: ${{ inputs.version }}
+      repo_api: ${{ inputs.repo_api }}
+    secrets:
+      publish_token: ${{ secrets.publish_token }}

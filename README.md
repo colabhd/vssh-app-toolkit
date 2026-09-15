@@ -1,5 +1,21 @@
 # vssh-app-toolkit
 
+> **Este repositório está arquivado. O SDK do VSSH é o
+> [`colabhd/vssh-sdk`](https://github.com/colabhd/vssh-sdk).**
+>
+> O que estava aqui mora lá: os dois templates, os exemplos, o script `vssh-app-publish`, o
+> workflow reutilizável, os conceitos e os guias. O contrato do manifesto e o SDK web deixaram de
+> ser autorados: o sistema os gera em `api/` do vssh-sdk depois de cada deploy, e o `vssh` que um
+> app usa no navegador passou a ser servido pelo próprio sistema em `_sdk/vssh.js`, sem cópia no
+> pacote do app. O `MIGRATION.md` do vssh-sdk diz o que muda num app existente, verbo a verbo.
+>
+> O que continua saindo daqui, por enquanto, são as libs de backend, pela tag `v4`
+> (`npm i github:colabhd/vssh-app-toolkit#v4` e o tarball para o pip), até o vssh-sdk publicá-las
+> em `runtime/`. O workflow `_publish-app-reusable.yml` deste repositório repassa a chamada ao do
+> vssh-sdk; troque o `uses:` do CI do seu app para
+> `colabhd/vssh-sdk/.github/workflows/_publish-app-reusable.yml@main` na próxima vez que abrir o
+> arquivo. Nada abaixo desta nota é atualizado.
+
 Ferramentas **públicas** para construir e publicar **vssh-apps** do desktop remoto
 VSSH-SSO — um ambiente de desktop completo renderizado no navegador, sem nada instalado na máquina
 de quem o usa. Um vssh-app é um pacote self-contained
